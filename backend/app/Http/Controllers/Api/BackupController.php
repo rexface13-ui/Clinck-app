@@ -93,7 +93,7 @@ class BackupController extends Controller
         $this->requireSettingsManage($request);
 
         $request->validate([
-            'file' => ['required', 'file', 'max:512000'], // 500MB
+            'file' => ['required', 'file', 'max:512000', 'extensions:dump'], // 500MB
         ]);
 
         $upload = $request->file('file');

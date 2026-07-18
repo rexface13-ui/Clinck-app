@@ -20,25 +20,32 @@ class DashboardController extends Controller
 {
     public function summary(Request $request)
     {
+        $user = $request->user();
+        $canViewCash = $user->can('cash.view');
+        $canViewCommissions = $user->can('commissions.view');
+        $canViewChecks = $user->can('checks.view');
+        $canViewInventory = $user->can('inventory.view');
+        $canViewFinance = $canViewCash || $canViewCommissions || $canViewChecks;
+
         $todayStart = Carbon::today();
         $todayEnd = Carbon::tomorrow();
         $monthStart = Carbon::now()->startOfMonth();
 
         $todayAppointmentsCount = Appointment::whereBetween('starts_at', [$todayStart, $todayEnd])->count();
 
-        $monthRevenue = (float) Invoice::where('status', '!=', 'cancelled')
+        $monthRevenue = $canViewFinance ? (float) Invoice::where('status', '!=', 'cancelled')
             ->whereBetween('issued_at', [$monthStart, Carbon::now()])
-            ->sum('total_amount_ils');
+            ->sum('total_amount_ils') : null;
 
-        $outstandingBalance = (float) PatientTransaction::sum('amount_ils');
+        $outstandingBalance = $canViewFinance ? (float) PatientTransaction::sum('amount_ils') : null;
 
-        $unsettledCommissions = (float) DoctorTransaction::whereNull('settled_at')->sum('amount_ils');
+        $unsettledCommissions = $canViewCommissions ? (float) DoctorTransaction::whereNull('settled_at')->sum('amount_ils') : null;
 
-        $cashboxesTotal = Cashbox::sum('balance');
+        $cashboxesTotal = $canViewCash ? Cashbox::sum('balance') : null;
 
-        $checksDueSoon = CheckModel::where('status', 'in_wallet')
+        $checksDueSoon = $canViewChecks ? CheckModel::where('status', 'in_wallet')
             ->whereBetween('due_date', [Carbon::today(), Carbon::today()->addDays(7)])
-            ->count();
+            ->count() : null;
 
         return response()->json([
             'kpis' => [
@@ -60,7 +67,7 @@ class DashboardController extends Controller
                     'doctor_name' => $a->doctor?->full_name,
                     'status' => $a->status,
                 ]),
-            'recent_invoices' => Invoice::with('patient:id,full_name')
+            'recent_invoices' => $canViewFinance ? Invoice::with('patient:id,full_name')
                 ->orderByDesc('issued_at')
                 ->limit(8)
                 ->get(['id', 'patient_id', 'invoice_number', 'status', 'total_amount_ils', 'issued_at'])
@@ -71,8 +78,8 @@ class DashboardController extends Controller
                     'status' => $i->status,
                     'total_amount_ils' => (float) $i->total_amount_ils,
                     'issued_at' => $i->issued_at,
-                ]),
-            'top_doctors' => DoctorTransaction::select('doctor_id', DB::raw('SUM(amount_ils) as total'))
+                ]) : [],
+            'top_doctors' => $canViewCommissions ? DoctorTransaction::select('doctor_id', DB::raw('SUM(amount_ils) as total'))
                 ->whereBetween('created_at', [$monthStart, Carbon::now()])
                 ->groupBy('doctor_id')
                 ->orderByDesc('total')
@@ -82,14 +89,14 @@ class DashboardController extends Controller
                 ->map(fn ($row) => [
                     'doctor_name' => $row->doctor?->full_name,
                     'total_ils' => (float) $row->total,
-                ]),
+                ]) : [],
             'alerts' => [
-                'checks_due' => CheckModel::where('status', 'in_wallet')
+                'checks_due' => $canViewChecks ? CheckModel::where('status', 'in_wallet')
                     ->whereBetween('due_date', [Carbon::today(), Carbon::today()->addDays(7)])
                     ->orderBy('due_date')
                     ->limit(5)
-                    ->get(['id', 'check_number', 'amount', 'currency', 'due_date']),
-                'expiring_lots' => ItemLot::with('item:id,name')
+                    ->get(['id', 'check_number', 'amount', 'currency', 'due_date']) : [],
+                'expiring_lots' => $canViewInventory ? ItemLot::with('item:id,name')
                     ->whereNotNull('expiry_date')
                     ->whereBetween('expiry_date', [Carbon::today(), Carbon::today()->addDays(30)])
                     ->where('quantity_remaining', '>', 0)
@@ -101,7 +108,7 @@ class DashboardController extends Controller
                         'lot_number' => $lot->lot_number,
                         'expiry_date' => $lot->expiry_date,
                         'quantity_remaining' => (float) $lot->quantity_remaining,
-                    ]),
+                    ]) : [],
             ],
         ]);
     }

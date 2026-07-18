@@ -81,11 +81,11 @@ interface ExpiringLot {
 interface Summary {
   kpis: {
     today_appointments: number
-    month_revenue_ils: number
-    outstanding_balance_ils: number
-    unsettled_commissions_ils: number
-    cashboxes_total: number
-    checks_due_soon: number
+    month_revenue_ils: number | null
+    outstanding_balance_ils: number | null
+    unsettled_commissions_ils: number | null
+    cashboxes_total: number | null
+    checks_due_soon: number | null
   }
   today_appointments: Appointment[]
   recent_invoices: Invoice[]
@@ -118,7 +118,8 @@ const statusVariants: Record<string, BadgeVariant> = {
   unpaid: 'danger',
 }
 
-function money(value: number) {
+function money(value: number | null) {
+  if (value === null) return '—'
   return new Intl.NumberFormat('ar-EG', { maximumFractionDigits: 0 }).format(value)
 }
 
@@ -187,38 +188,33 @@ export default function DashboardPage() {
       ) : (
         <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-6">
           <StatCard icon={faCalendarCheck} label="مواعيد اليوم" value={String(data.kpis.today_appointments)} />
-          <StatCard
-            icon={faSackDollar}
-            label="إيرادات الشهر"
-            value={`${money(data.kpis.month_revenue_ils)} ₪`}
-            masked={hideMoney}
-          />
-          <StatCard
-            icon={faFileInvoiceDollar}
-            label="أرصدة المرضى المستحقة"
-            value={`${money(data.kpis.outstanding_balance_ils)} ₪`}
-            tone="danger"
-            masked={hideMoney}
-          />
-          <StatCard
-            icon={faUserDoctor}
-            label="عمولات غير مسواة"
-            value={`${money(data.kpis.unsettled_commissions_ils)} ₪`}
-            tone="danger"
-            masked={hideMoney}
-          />
-          <StatCard
-            icon={faWallet}
-            label="رصيد الصناديق"
-            value={`${money(data.kpis.cashboxes_total)} ₪`}
-            masked={hideMoney}
-          />
-          <StatCard
-            icon={faMoneyCheckDollar}
-            label="شيكات مستحقة قريباً"
-            value={String(data.kpis.checks_due_soon)}
-            tone="danger"
-          />
+          {data.kpis.month_revenue_ils !== null && (
+            <StatCard icon={faSackDollar} label="إيرادات الشهر" value={`${money(data.kpis.month_revenue_ils)} ₪`} masked={hideMoney} />
+          )}
+          {data.kpis.outstanding_balance_ils !== null && (
+            <StatCard
+              icon={faFileInvoiceDollar}
+              label="أرصدة المرضى المستحقة"
+              value={`${money(data.kpis.outstanding_balance_ils)} ₪`}
+              tone="danger"
+              masked={hideMoney}
+            />
+          )}
+          {data.kpis.unsettled_commissions_ils !== null && (
+            <StatCard
+              icon={faUserDoctor}
+              label="عمولات غير مسواة"
+              value={`${money(data.kpis.unsettled_commissions_ils)} ₪`}
+              tone="danger"
+              masked={hideMoney}
+            />
+          )}
+          {data.kpis.cashboxes_total !== null && (
+            <StatCard icon={faWallet} label="رصيد الصناديق" value={`${money(data.kpis.cashboxes_total)} ₪`} masked={hideMoney} />
+          )}
+          {data.kpis.checks_due_soon !== null && (
+            <StatCard icon={faMoneyCheckDollar} label="شيكات مستحقة قريباً" value={String(data.kpis.checks_due_soon)} tone="danger" />
+          )}
         </div>
       )}
 
