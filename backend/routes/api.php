@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\BranchController;
 use App\Http\Controllers\Api\BranchServicePriceController;
 use App\Http\Controllers\Api\CashboxController;
 use App\Http\Controllers\Api\CheckController;
+use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\DoctorAvailabilityController;
 use App\Http\Controllers\Api\DoctorCommissionController;
 use App\Http\Controllers\Api\DoctorController;
@@ -25,6 +26,7 @@ use App\Http\Controllers\Api\ServiceCategoryController;
 use App\Http\Controllers\Api\ServiceController;
 use App\Http\Controllers\Api\StockMovementController;
 use App\Http\Controllers\Api\SupplierController;
+use App\Http\Controllers\Api\TelegramLinkController;
 use App\Http\Controllers\Api\ToothChartController;
 use App\Http\Controllers\Api\TreatmentPlanController;
 use App\Http\Controllers\Api\UserController;
@@ -33,6 +35,8 @@ use Illuminate\Support\Facades\Route;
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/bootstrap', BootstrapController::class);
+
+    Route::get('dashboard/summary', [DashboardController::class, 'summary']);
 
     Route::get('/branches', [BranchController::class, 'index']);
     Route::get('/roles', [RoleController::class, 'index']);
@@ -132,4 +136,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('checks/{check}/endorse', [CheckController::class, 'endorse']);
     Route::post('checks/{check}/bounce', [CheckController::class, 'bounce']);
     Route::post('checks/{check}/clear', [CheckController::class, 'clear']);
+
+    // Telegram linking (Phase 4)
+    Route::get('telegram-link', [TelegramLinkController::class, 'show']);
+    Route::post('telegram-link', [TelegramLinkController::class, 'store']);
+    Route::delete('telegram-link', [TelegramLinkController::class, 'destroy']);
 });

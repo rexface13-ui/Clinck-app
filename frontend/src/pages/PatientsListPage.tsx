@@ -5,6 +5,7 @@ import { faPlus, faUser, faBolt } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import DatePicker from '../components/DatePicker'
+import { Card, PageHeader, Badge, Button, Table, Thead, Th, Td, Tr, EmptyRow, TableSkeleton, Input, Select } from '../components/ui'
 import type { Branch, Doctor, Patient } from '../types'
 
 /** Same rule as backend/app/Models/Patient.php: under 12 defaults to child. */
@@ -106,57 +107,51 @@ export default function PatientsListPage() {
 
   return (
     <div>
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-ink">المرضى</h1>
-        {can('patients.manage') && (
-          <button
-            onClick={() => setShowForm((v) => !v)}
-            className="flex items-center gap-2 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover"
-          >
-            <FontAwesomeIcon icon={faPlus} />
-            مريض جديد
-          </button>
-        )}
-      </div>
+      <PageHeader
+        title="المرضى"
+        subtitle="إدارة ملفات المرضى وحجز الزيارات الفورية"
+        action={
+          can('patients.manage') && (
+            <Button onClick={() => setShowForm((v) => !v)}>
+              <FontAwesomeIcon icon={faPlus} />
+              مريض جديد
+            </Button>
+          )
+        }
+      />
 
       {showForm && (
-        <form onSubmit={handleCreate} className="mb-6 grid grid-cols-2 gap-4 rounded-xl bg-white p-6 shadow-sm">
+        <Card
+          className="mb-6 p-6"
+        >
+        <form onSubmit={handleCreate} className="grid grid-cols-2 gap-4">
+          <Input
+            label="الاسم الكامل"
+            required
+            value={form.full_name}
+            onChange={(e) => setForm({ ...form, full_name: e.target.value })}
+          />
+          <Select
+            label="الفرع"
+            value={form.branch_id}
+            onChange={(e) => setForm({ ...form, branch_id: Number(e.target.value) })}
+          >
+            {branches.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </Select>
+          <Select
+            label="الجنس"
+            value={form.gender}
+            onChange={(e) => setForm({ ...form, gender: e.target.value as 'male' | 'female' })}
+          >
+            <option value="male">ذكر</option>
+            <option value="female">أنثى</option>
+          </Select>
           <div>
-            <label className="mb-1 block text-sm text-ink/70">الاسم الكامل</label>
-            <input
-              required
-              value={form.full_name}
-              onChange={(e) => setForm({ ...form, full_name: e.target.value })}
-              className="w-full rounded-xl border border-ink/10 px-3 py-2 text-sm focus:border-accent focus:outline-none"
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-sm text-ink/70">الفرع</label>
-            <select
-              value={form.branch_id}
-              onChange={(e) => setForm({ ...form, branch_id: Number(e.target.value) })}
-              className="w-full rounded-xl border border-ink/10 px-3 py-2 text-sm focus:border-accent focus:outline-none"
-            >
-              {branches.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-sm text-ink/70">الجنس</label>
-            <select
-              value={form.gender}
-              onChange={(e) => setForm({ ...form, gender: e.target.value as 'male' | 'female' })}
-              className="w-full rounded-xl border border-ink/10 px-3 py-2 text-sm focus:border-accent focus:outline-none"
-            >
-              <option value="male">ذكر</option>
-              <option value="female">أنثى</option>
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-sm text-ink/70">تاريخ الميلاد (يوم/شهر/سنة)</label>
+            <label className="mb-1 block text-sm text-muted">تاريخ الميلاد (يوم/شهر/سنة)</label>
             <DatePicker
               value={form.birth_date}
               onChange={(iso) => setForm({ ...form, birth_date: iso, isChildOverride: null })}
@@ -188,33 +183,20 @@ export default function PatientsListPage() {
             )}
           </div>
 
-          <div>
-            <label className="mb-1 block text-sm text-ink/70">الهاتف</label>
-            <input
-              value={form.phone}
-              onChange={(e) => setForm({ ...form, phone: e.target.value })}
-              className="w-full rounded-xl border border-ink/10 px-3 py-2 text-sm focus:border-accent focus:outline-none"
-            />
-          </div>
+          <Input label="الهاتف" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
           <div />
-          <div>
-            <label className="mb-1 block text-sm text-ink/70">اسم ولي الأمر (اختياري)</label>
-            <input
-              value={form.guardian_name}
-              onChange={(e) => setForm({ ...form, guardian_name: e.target.value })}
-              className="w-full rounded-xl border border-ink/10 px-3 py-2 text-sm focus:border-accent focus:outline-none"
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-sm text-ink/70">هاتف ولي الأمر</label>
-            <input
-              value={form.guardian_phone}
-              onChange={(e) => setForm({ ...form, guardian_phone: e.target.value })}
-              className="w-full rounded-xl border border-ink/10 px-3 py-2 text-sm focus:border-accent focus:outline-none"
-            />
-          </div>
+          <Input
+            label="اسم ولي الأمر (اختياري)"
+            value={form.guardian_name}
+            onChange={(e) => setForm({ ...form, guardian_name: e.target.value })}
+          />
+          <Input
+            label="هاتف ولي الأمر"
+            value={form.guardian_phone}
+            onChange={(e) => setForm({ ...form, guardian_phone: e.target.value })}
+          />
 
-          <div className="col-span-2 rounded-xl border border-accent/30 bg-accent/5 p-4">
+          <div className="col-span-2 rounded-xl border border-accent/30 bg-accent-soft p-4">
             <label className="flex items-center gap-2 text-sm text-ink">
               <input
                 type="checkbox"
@@ -227,19 +209,18 @@ export default function PatientsListPage() {
             </label>
             {form.walkIn && (
               <div className="mt-3">
-                <label className="mb-1 block text-xs text-ink/60">الطبيب المناوب</label>
-                <select
+                <Select
+                  label="الطبيب المناوب"
                   required={form.walkIn}
                   value={form.walkInDoctorId}
                   onChange={(e) => setForm({ ...form, walkInDoctorId: e.target.value })}
-                  className="w-full rounded-lg border border-ink/10 px-3 py-2 text-sm focus:border-accent focus:outline-none"
                 >
                   <option value="">اختر طبيباً</option>
                   {doctors.map((d) => (
                     <option key={d.id} value={d.id}>{d.full_name}</option>
                   ))}
-                </select>
-                <p className="mt-1 text-xs text-ink/50">
+                </Select>
+                <p className="mt-1 text-xs text-muted">
                   رح يتسجّل الموعد فوراً بالوقت الحالي، وبتقدر تفتح ملف المريض وترسم أسنانه على طول.
                 </p>
               </div>
@@ -249,65 +230,56 @@ export default function PatientsListPage() {
           {error && <p className="col-span-2 text-sm text-danger">{error}</p>}
 
           <div className="col-span-2 flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => setShowForm(false)}
-              className="rounded-xl px-4 py-2 text-sm text-ink/70 hover:bg-background"
-            >
+            <Button type="button" variant="ghost" onClick={() => setShowForm(false)}>
               إلغاء
-            </button>
-            <button
-              type="submit"
-              disabled={submitting}
-              className="rounded-xl bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60"
-            >
+            </Button>
+            <Button type="submit" loading={submitting}>
               {submitting ? 'جارِ الحفظ...' : 'حفظ'}
-            </button>
+            </Button>
           </div>
         </form>
+        </Card>
       )}
 
-      <div className="overflow-hidden rounded-xl bg-white shadow-sm">
+      <Card>
         {loading ? (
-          <p className="p-6 text-sm text-ink/50">جارِ التحميل...</p>
-        ) : patients.length === 0 ? (
-          <p className="p-6 text-sm text-ink/50">لا يوجد مرضى بعد.</p>
+          <TableSkeleton />
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-ink/10 text-right text-ink/60">
-                <th className="p-4 font-medium">الكود</th>
-                <th className="p-4 font-medium">الاسم</th>
-                <th className="p-4 font-medium">الفئة</th>
-                <th className="p-4 font-medium">الهاتف</th>
-                <th className="p-4 font-medium">تاريخ التسجيل</th>
-              </tr>
-            </thead>
+          <Table>
+            <Thead>
+              <Th>الكود</Th>
+              <Th>الاسم</Th>
+              <Th>الفئة</Th>
+              <Th>الهاتف</Th>
+              <Th>تاريخ التسجيل</Th>
+            </Thead>
             <tbody>
-              {patients.map((p) => (
-                <tr key={p.id} className="border-b border-ink/5 last:border-0 hover:bg-background">
-                  <td className="p-4">
-                    <Link to={`/patients/${p.id}`} className="flex items-center gap-2 text-accent">
-                      <FontAwesomeIcon icon={faUser} className="text-ink/30" />
-                      {p.code}
-                    </Link>
-                  </td>
-                  <td className="p-4">
-                    <Link to={`/patients/${p.id}`}>{p.full_name}</Link>
-                  </td>
-                  <td className="p-4">
-                    <span className={`rounded-lg px-2 py-0.5 text-xs ${p.is_child ? 'bg-accent/10 text-accent' : 'bg-ink/5 text-ink/60'}`}>
-                      {p.is_child ? 'طفل' : 'بالغ'}
-                    </span>
-                  </td>
-                  <td className="p-4 text-ink/70">{p.phone ?? '—'}</td>
-                  <td className="p-4 text-ink/70">{p.created_at}</td>
-                </tr>
-              ))}
+              {patients.length === 0 ? (
+                <EmptyRow colSpan={5}>لا يوجد مرضى بعد.</EmptyRow>
+              ) : (
+                patients.map((p) => (
+                  <Tr key={p.id}>
+                    <Td>
+                      <Link to={`/patients/${p.id}`} className="flex items-center gap-2 text-accent hover:underline">
+                        <FontAwesomeIcon icon={faUser} className="text-ink/30" />
+                        {p.code}
+                      </Link>
+                    </Td>
+                    <Td>
+                      <Link to={`/patients/${p.id}`} className="hover:underline">{p.full_name}</Link>
+                    </Td>
+                    <Td>
+                      <Badge variant={p.is_child ? 'accent' : 'neutral'}>{p.is_child ? 'طفل' : 'بالغ'}</Badge>
+                    </Td>
+                    <Td className="text-muted">{p.phone ?? '—'}</Td>
+                    <Td className="text-muted">{p.created_at}</Td>
+                  </Tr>
+                ))
+              )}
             </tbody>
-          </table>
+          </Table>
         )}
-      </div>
+      </Card>
     </div>
   )
 }

@@ -6,6 +6,7 @@ import { api } from '../lib/api'
 import ToothChart from '../components/ToothChart'
 import TreatmentPlanPanel from '../components/TreatmentPlanPanel'
 import PatientLedgerPanel from '../components/PatientLedgerPanel'
+import { Card, Badge, Button } from '../components/ui'
 import type { PatientProfile, Service } from '../types'
 
 export default function PatientProfilePage() {
@@ -30,38 +31,39 @@ export default function PatientProfilePage() {
     load()
   }
 
-  if (!profile) return <p className="text-sm text-ink/50">جارِ التحميل...</p>
+  if (!profile) return <p className="text-sm text-muted">جارِ التحميل...</p>
 
   const { patient, tooth_states, tooth_findings, appointments, notes } = profile
 
   return (
     <div>
-      <Link to="/patients" className="mb-4 flex w-fit items-center gap-2 text-sm text-ink/60 hover:text-ink">
+      <Link to="/patients" className="mb-4 flex w-fit items-center gap-2 text-sm text-muted hover:text-ink">
         <FontAwesomeIcon icon={faArrowRight} />
         العودة للمرضى
       </Link>
 
-      <div className="mb-6 flex items-center justify-between rounded-xl bg-white p-6 shadow-sm">
+      <Card className="mb-6 flex items-center justify-between p-6">
         <div>
           <h1 className="text-xl font-semibold text-ink">{patient.full_name}</h1>
-          <p className="text-sm text-ink/60">
-            {patient.code} · {patient.gender === 'male' ? 'ذكر' : 'أنثى'}
-            {patient.birth_date && ` · ${patient.birth_date}`}
-            {patient.is_child && ' · طفل'}
-            {patient.phone && ` · ${patient.phone}`}
-          </p>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted">
+            <span>{patient.code}</span>
+            <span>·</span>
+            <span>{patient.gender === 'male' ? 'ذكر' : 'أنثى'}</span>
+            {patient.birth_date && <span>· {patient.birth_date}</span>}
+            {patient.is_child && <Badge variant="accent">طفل</Badge>}
+            {patient.phone && <span>· {patient.phone}</span>}
+          </div>
           {patient.guardian_name && (
-            <p className="text-sm text-ink/60">ولي الأمر: {patient.guardian_name} ({patient.guardian_phone})</p>
+            <p className="mt-1 text-sm text-muted">ولي الأمر: {patient.guardian_name} ({patient.guardian_phone})</p>
           )}
         </div>
-        <Link
-          to={`/appointments?patient_id=${patient.id}`}
-          className="flex items-center gap-2 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover"
-        >
-          <FontAwesomeIcon icon={faCalendarPlus} />
-          حجز موعد
+        <Link to={`/appointments?patient_id=${patient.id}`}>
+          <Button>
+            <FontAwesomeIcon icon={faCalendarPlus} />
+            حجز موعد
+          </Button>
         </Link>
-      </div>
+      </Card>
 
       <h2 className="mb-3 text-sm font-medium text-ink/70">رسمة الأسنان</h2>
       <div className="mb-6">
@@ -81,51 +83,51 @@ export default function PatientProfilePage() {
       </div>
 
       <div className="grid grid-cols-2 gap-6">
-        <div className="rounded-xl bg-white p-6 shadow-sm">
+        <Card className="p-6">
           <h2 className="mb-3 text-sm font-medium text-ink/70">المواعيد</h2>
           {appointments.length === 0 ? (
-            <p className="text-sm text-ink/40">لا توجد مواعيد.</p>
+            <p className="text-sm text-muted">لا توجد مواعيد.</p>
           ) : (
             <ul className="space-y-2">
               {appointments.map((a) => (
-                <li key={a.id} className="flex justify-between text-sm">
+                <li key={a.id} className="flex justify-between border-b border-border/70 pb-2 text-sm last:border-0">
                   <span>{a.doctor_name}</span>
-                  <span className="text-ink/60">{a.starts_at_display}</span>
-                  <span className="text-ink/60">{a.status}</span>
+                  <span className="text-muted">{a.starts_at_display}</span>
+                  <span className="text-muted">{a.status}</span>
                 </li>
               ))}
             </ul>
           )}
-        </div>
+        </Card>
 
-        <div className="rounded-xl bg-white p-6 shadow-sm">
+        <Card className="p-6">
           <h2 className="mb-3 text-sm font-medium text-ink/70">الملاحظات</h2>
           <div className="mb-3 flex gap-2">
             <input
               value={noteBody}
               onChange={(e) => setNoteBody(e.target.value)}
               placeholder="أضف ملاحظة..."
-              className="flex-1 rounded-lg border border-ink/10 px-3 py-1.5 text-sm focus:border-accent focus:outline-none"
+              className="flex-1 rounded-lg border border-border bg-surface px-3 py-1.5 text-sm focus:border-accent focus:outline-none"
             />
-            <button onClick={addNote} className="rounded-lg bg-accent px-3 py-1.5 text-sm text-white hover:bg-accent-hover">
+            <Button onClick={addNote} className="px-3 py-1.5">
               إضافة
-            </button>
+            </Button>
           </div>
           {notes.length === 0 ? (
-            <p className="text-sm text-ink/40">لا توجد ملاحظات.</p>
+            <p className="text-sm text-muted">لا توجد ملاحظات.</p>
           ) : (
             <ul className="space-y-2">
               {notes.map((n) => (
-                <li key={n.id} className="text-sm">
+                <li key={n.id} className="border-b border-border/70 pb-2 text-sm last:border-0">
                   <p className="text-ink">{n.body}</p>
-                  <p className="text-xs text-ink/40">
+                  <p className="text-xs text-muted">
                     {n.author} · {n.created_at}
                   </p>
                 </li>
               ))}
             </ul>
           )}
-        </div>
+        </Card>
       </div>
     </div>
   )

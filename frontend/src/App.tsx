@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { AuthProvider } from './contexts/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import Layout from './components/Layout'
@@ -16,6 +16,8 @@ import SuppliersPage from './pages/SuppliersPage'
 import ItemsPage from './pages/ItemsPage'
 import PurchaseInvoicesPage from './pages/PurchaseInvoicesPage'
 import ChecksPage from './pages/ChecksPage'
+import SettingsPage from './pages/SettingsPage'
+import DashboardPage from './pages/DashboardPage'
 
 function App() {
   return (
@@ -30,7 +32,7 @@ function App() {
               </ProtectedRoute>
             }
           >
-            <Route path="/" element={<Navigate to="/patients" replace />} />
+            <Route path="/" element={<DashboardPage />} />
             <Route path="/patients" element={<PatientsListPage />} />
             <Route path="/patients/:id" element={<PatientProfilePage />} />
             <Route path="/doctors" element={<DoctorsPage />} />
@@ -44,6 +46,7 @@ function App() {
             <Route path="/items" element={<ItemsPage />} />
             <Route path="/purchase-invoices" element={<PurchaseInvoicesPage />} />
             <Route path="/checks" element={<ChecksPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
           </Route>
         </Routes>
       </AuthProvider>

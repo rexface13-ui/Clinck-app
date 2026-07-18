@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faDatabase, faDownload, faTriangleExclamation, faUpload } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
+import { Card, PageHeader, Button, Table, Thead, Th, Td, Tr, EmptyRow, TableSkeleton } from '../components/ui'
 
 interface BackupFile {
   name: string
@@ -10,7 +11,7 @@ interface BackupFile {
 }
 
 export default function BackupPage() {
-  const [backups, setBackups] = useState<BackupFile[]>([])
+  const [backups, setBackups] = useState<BackupFile[] | null>(null)
   const [creating, setCreating] = useState(false)
   const [restoring, setRestoring] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
@@ -74,25 +75,21 @@ export default function BackupPage() {
 
   return (
     <div>
-      <h1 className="mb-6 text-xl font-semibold text-ink">النسخ الاحتياطي</h1>
+      <PageHeader title="النسخ الاحتياطي" subtitle="حفظ واستعادة نسخ قاعدة البيانات" />
 
       <div className="mb-6 grid grid-cols-2 gap-6">
-        <div className="rounded-xl bg-white p-6 shadow-sm">
+        <Card className="p-6">
           <h2 className="mb-3 flex items-center gap-2 text-sm font-medium text-ink/70">
-            <FontAwesomeIcon icon={faDatabase} />
+            <FontAwesomeIcon icon={faDatabase} className="text-accent" />
             إنشاء نسخة احتياطية
           </h2>
-          <p className="mb-4 text-sm text-ink/50">تُنشئ نسخة كاملة من قاعدة البيانات الآن ويمكن تحميلها.</p>
-          <button
-            onClick={createBackup}
-            disabled={creating}
-            className="rounded-xl bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60"
-          >
+          <p className="mb-4 text-sm text-muted">تُنشئ نسخة كاملة من قاعدة البيانات الآن ويمكن تحميلها.</p>
+          <Button onClick={createBackup} loading={creating}>
             {creating ? 'جارِ الإنشاء...' : 'إنشاء نسخة الآن'}
-          </button>
-        </div>
+          </Button>
+        </Card>
 
-        <div className="rounded-xl border border-danger/30 bg-danger/5 p-6">
+        <Card className="border-danger/30 bg-danger-soft p-6">
           <h2 className="mb-3 flex items-center gap-2 text-sm font-medium text-danger">
             <FontAwesomeIcon icon={faTriangleExclamation} />
             استعادة نسخة احتياطية
@@ -101,52 +98,48 @@ export default function BackupPage() {
             يمسح كل البيانات الحالية ويستبدلها بمحتوى الملف المرفوع. لا يمكن التراجع.
           </p>
           <input ref={fileInputRef} type="file" accept=".dump" onChange={handleRestoreFile} className="hidden" />
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={restoring}
-            className="flex items-center gap-2 rounded-xl bg-danger px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60"
-          >
+          <Button variant="danger" onClick={() => fileInputRef.current?.click()} loading={restoring}>
             <FontAwesomeIcon icon={faUpload} />
             {restoring ? 'جارِ الاستعادة...' : 'رفع ملف واستعادة'}
-          </button>
-        </div>
+          </Button>
+        </Card>
       </div>
 
-      {message && <p className="mb-4 rounded-xl bg-accent/10 p-3 text-sm text-accent">{message}</p>}
-      {error && <p className="mb-4 rounded-xl bg-danger/10 p-3 text-sm text-danger">{error}</p>}
+      {message && <p className="mb-4 rounded-xl bg-accent-soft p-3 text-sm text-accent">{message}</p>}
+      {error && <p className="mb-4 rounded-xl bg-danger-soft p-3 text-sm text-danger">{error}</p>}
 
-      <div className="overflow-hidden rounded-xl bg-white shadow-sm">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-ink/10 text-right text-ink/60">
-              <th className="p-4 font-medium">الملف</th>
-              <th className="p-4 font-medium">الحجم</th>
-              <th className="p-4 font-medium">التاريخ</th>
-              <th className="p-4 font-medium"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {backups.length === 0 ? (
-              <tr>
-                <td colSpan={4} className="p-6 text-center text-sm text-ink/40">لا توجد نسخ احتياطية بعد.</td>
-              </tr>
-            ) : (
-              backups.map((b) => (
-                <tr key={b.name} className="border-b border-ink/5 last:border-0">
-                  <td className="p-4 font-mono text-xs">{b.name}</td>
-                  <td className="p-4 text-ink/70">{b.size_kb} KB</td>
-                  <td className="p-4 text-ink/70">{b.created_at}</td>
-                  <td className="p-4">
-                    <button onClick={() => downloadBackup(b.name)} className="text-accent hover:text-accent-hover">
-                      <FontAwesomeIcon icon={faDownload} />
-                    </button>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+      <Card>
+        {!backups ? (
+          <TableSkeleton />
+        ) : (
+          <Table>
+            <Thead>
+              <Th>الملف</Th>
+              <Th>الحجم</Th>
+              <Th>التاريخ</Th>
+              <Th></Th>
+            </Thead>
+            <tbody>
+              {backups.length === 0 ? (
+                <EmptyRow colSpan={4}>لا توجد نسخ احتياطية بعد.</EmptyRow>
+              ) : (
+                backups.map((b) => (
+                  <Tr key={b.name}>
+                    <Td className="font-mono text-xs">{b.name}</Td>
+                    <Td className="text-muted">{b.size_kb} KB</Td>
+                    <Td className="text-muted">{b.created_at}</Td>
+                    <Td>
+                      <button onClick={() => downloadBackup(b.name)} className="text-accent hover:text-accent-hover">
+                        <FontAwesomeIcon icon={faDownload} />
+                      </button>
+                    </Td>
+                  </Tr>
+                ))
+              )}
+            </tbody>
+          </Table>
+        )}
+      </Card>
     </div>
   )
 }

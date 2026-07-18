@@ -3,6 +3,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faPlus, faTruck } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
+import { Card, PageHeader, Button, Table, Thead, Th, Td, Tr, EmptyRow } from '../components/ui'
 import type { Cashbox, Supplier, SupplierLedger } from '../types'
 
 export default function SuppliersPage() {
@@ -62,104 +63,99 @@ export default function SuppliersPage() {
 
   return (
     <div>
-      <h1 className="mb-6 text-xl font-semibold text-ink">الموردون</h1>
+      <PageHeader title="الموردون" subtitle="كشوف حسابات وتسديد الموردين" />
 
       <div className="grid grid-cols-3 gap-6">
         <div className="col-span-1">
           {canManage && (
-            <button
-              onClick={() => setShowForm((v) => !v)}
-              className="mb-4 flex items-center gap-2 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover"
-            >
+            <Button onClick={() => setShowForm((v) => !v)} className="mb-4">
               <FontAwesomeIcon icon={faPlus} />
               مورد جديد
-            </button>
+            </Button>
           )}
 
           {showForm && (
-            <div className="mb-4 space-y-2 rounded-xl bg-white p-4 shadow-sm">
-              <input placeholder="اسم المورد" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full rounded-lg border border-ink/10 px-2 py-1.5 text-sm" />
-              <input placeholder="الهاتف (اختياري)" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="w-full rounded-lg border border-ink/10 px-2 py-1.5 text-sm" />
-              <button onClick={submit} disabled={busy} className="w-full rounded-lg bg-accent px-4 py-1.5 text-sm text-white hover:bg-accent-hover disabled:opacity-60">
+            <Card className="mb-4 space-y-2 p-4">
+              <input placeholder="اسم المورد" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
+              <input placeholder="الهاتف (اختياري)" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
+              <Button onClick={submit} loading={busy} className="w-full justify-center">
                 حفظ
-              </button>
-            </div>
+              </Button>
+            </Card>
           )}
 
-          <div className="overflow-hidden rounded-xl bg-white shadow-sm">
+          <Card>
             {suppliers.length === 0 ? (
-              <p className="p-6 text-center text-sm text-ink/40">لا يوجد موردون.</p>
+              <p className="p-6 text-center text-sm text-muted">لا يوجد موردون.</p>
             ) : (
               suppliers.map((s) => (
                 <button
                   key={s.id}
                   onClick={() => loadLedger(s)}
-                  className={`flex w-full items-center gap-3 border-b border-ink/5 p-4 text-right text-sm last:border-0 hover:bg-background ${selected?.id === s.id ? 'bg-background' : ''}`}
+                  className={`flex w-full items-center gap-3 border-b border-border/70 p-4 text-right text-sm last:border-0 hover:bg-background ${selected?.id === s.id ? 'bg-background' : ''}`}
                 >
                   <FontAwesomeIcon icon={faTruck} className="text-ink/40" />
                   <div>
                     <p className="font-medium text-ink">{s.name}</p>
-                    <p className="text-xs text-ink/50">{s.phone ?? '—'}</p>
+                    <p className="text-xs text-muted">{s.phone ?? '—'}</p>
                   </div>
                 </button>
               ))
             )}
-          </div>
+          </Card>
         </div>
 
         <div className="col-span-2">
           {!selected ? (
-            <p className="rounded-xl bg-white p-6 text-center text-sm text-ink/40 shadow-sm">اختر مورداً لعرض كشف الحساب.</p>
+            <Card className="p-6 text-center text-sm text-muted">اختر مورداً لعرض كشف الحساب.</Card>
           ) : (
             <div className="space-y-4">
-              <div className="rounded-xl bg-white p-4 shadow-sm">
-                <p className="text-sm text-ink/60">الرصيد المستحق للمورد</p>
+              <Card className="p-4">
+                <p className="text-sm text-muted">الرصيد المستحق للمورد</p>
                 <p className={`text-2xl font-semibold ${Number(ledger?.outstanding_ils ?? 0) > 0 ? 'text-danger' : 'text-ink'}`}>
                   {ledger?.outstanding_ils ?? 0} ₪
                 </p>
-              </div>
+              </Card>
 
               {canManage && (
-                <div className="flex flex-wrap items-end gap-2 rounded-xl bg-white p-4 shadow-sm">
-                  <select value={payForm.cashbox_id} onChange={(e) => setPayForm({ ...payForm, cashbox_id: e.target.value })} className="rounded-lg border border-ink/10 px-2 py-1.5 text-sm">
+                <Card className="flex flex-wrap items-end gap-2 p-4">
+                  <select value={payForm.cashbox_id} onChange={(e) => setPayForm({ ...payForm, cashbox_id: e.target.value })} className="rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
                     <option value="">الصندوق...</option>
                     {cashboxes.map((c) => (
                       <option key={c.id} value={c.id}>{c.name} ({c.currency})</option>
                     ))}
                   </select>
-                  <input type="number" placeholder="المبلغ" value={payForm.amount} onChange={(e) => setPayForm({ ...payForm, amount: e.target.value })} className="w-28 rounded-lg border border-ink/10 px-2 py-1.5 text-sm" />
-                  <button onClick={pay} disabled={busy} className="rounded-lg bg-accent px-4 py-1.5 text-sm text-white hover:bg-accent-hover disabled:opacity-60">
+                  <input type="number" placeholder="المبلغ" value={payForm.amount} onChange={(e) => setPayForm({ ...payForm, amount: e.target.value })} className="w-28 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
+                  <Button onClick={pay} loading={busy} className="px-4 py-1.5">
                     دفع للمورد
-                  </button>
-                </div>
+                  </Button>
+                </Card>
               )}
 
-              <div className="overflow-hidden rounded-xl bg-white shadow-sm">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-ink/10 text-right text-ink/60">
-                      <th className="p-4 font-medium">النوع</th>
-                      <th className="p-4 font-medium">المبلغ</th>
-                      <th className="p-4 font-medium">الرصيد</th>
-                      <th className="p-4 font-medium">التاريخ</th>
-                    </tr>
-                  </thead>
+              <Card>
+                <Table>
+                  <Thead>
+                    <Th>النوع</Th>
+                    <Th>المبلغ</Th>
+                    <Th>الرصيد</Th>
+                    <Th>التاريخ</Th>
+                  </Thead>
                   <tbody>
                     {(ledger?.transactions ?? []).length === 0 ? (
-                      <tr><td colSpan={4} className="p-6 text-center text-sm text-ink/40">لا توجد حركات.</td></tr>
+                      <EmptyRow colSpan={4}>لا توجد حركات.</EmptyRow>
                     ) : (
                       ledger!.transactions.map((t) => (
-                        <tr key={t.id} className="border-b border-ink/5 last:border-0">
-                          <td className="p-4">{t.type}</td>
-                          <td className="p-4 text-ink/70">{t.amount_ils} ₪</td>
-                          <td className="p-4 text-ink/70">{t.balance_after_ils} ₪</td>
-                          <td className="p-4 text-ink/70">{t.occurred_at}</td>
-                        </tr>
+                        <Tr key={t.id}>
+                          <Td>{t.type}</Td>
+                          <Td className="text-muted">{t.amount_ils} ₪</Td>
+                          <Td className="text-muted">{t.balance_after_ils} ₪</Td>
+                          <Td className="text-muted">{t.occurred_at}</Td>
+                        </Tr>
                       ))
                     )}
                   </tbody>
-                </table>
-              </div>
+                </Table>
+              </Card>
             </div>
           )}
         </div>

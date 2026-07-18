@@ -5,6 +5,8 @@ import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import DatePicker from '../components/DatePicker'
 import { formatDate } from '../lib/formatDate'
+import { Card, PageHeader, Badge, Button, Modal, Table, Thead, Th, Td, Tr, EmptyRow, TableSkeleton } from '../components/ui'
+import type { BadgeVariant } from '../components/ui'
 import type { CheckItem, Patient, Supplier, Cashbox } from '../types'
 
 type Direction = 'incoming' | 'outgoing'
@@ -16,18 +18,18 @@ const STATUS_LABELS: Record<CheckItem['status'], string> = {
   cleared: 'محصّل',
 }
 
-const STATUS_COLORS: Record<CheckItem['status'], string> = {
-  in_wallet: 'bg-ink/10 text-ink/60',
-  endorsed: 'bg-blue-100 text-blue-700',
-  bounced: 'bg-danger/10 text-danger',
-  cleared: 'bg-green-100 text-green-700',
+const STATUS_VARIANTS: Record<CheckItem['status'], BadgeVariant> = {
+  in_wallet: 'neutral',
+  endorsed: 'info',
+  bounced: 'danger',
+  cleared: 'success',
 }
 
 export default function ChecksPage() {
   const { can } = useAuth()
   const canManage = can('checks.manage')
   const [direction, setDirection] = useState<Direction>('incoming')
-  const [checks, setChecks] = useState<CheckItem[]>([])
+  const [checks, setChecks] = useState<CheckItem[] | null>(null)
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [patients, setPatients] = useState<Patient[]>([])
   const [cashboxes, setCashboxes] = useState<Cashbox[]>([])
@@ -112,37 +114,37 @@ export default function ChecksPage() {
 
   return (
     <div>
-      <h1 className="mb-6 text-xl font-semibold text-ink">الشيكات</h1>
+      <PageHeader title="الشيكات" subtitle="متابعة الشيكات الواردة والصادرة" />
 
       <div className="mb-4 flex items-center justify-between">
-        <div className="flex gap-2">
-          <button onClick={() => setDirection('incoming')} className={`rounded-xl px-4 py-2 text-sm ${direction === 'incoming' ? 'bg-accent text-white' : 'bg-white text-ink/70'}`}>
+        <div className="flex gap-2 rounded-xl border border-border bg-surface p-1">
+          <button onClick={() => setDirection('incoming')} className={`rounded-lg px-4 py-1.5 text-sm transition-colors ${direction === 'incoming' ? 'bg-accent text-white' : 'text-ink/70 hover:bg-background'}`}>
             واردة (من مرضى)
           </button>
-          <button onClick={() => setDirection('outgoing')} className={`rounded-xl px-4 py-2 text-sm ${direction === 'outgoing' ? 'bg-accent text-white' : 'bg-white text-ink/70'}`}>
+          <button onClick={() => setDirection('outgoing')} className={`rounded-lg px-4 py-1.5 text-sm transition-colors ${direction === 'outgoing' ? 'bg-accent text-white' : 'text-ink/70 hover:bg-background'}`}>
             صادرة (لموردين)
           </button>
         </div>
         {canManage && (
-          <button onClick={() => setShowForm((v) => !v)} className="flex items-center gap-2 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover">
+          <Button onClick={() => setShowForm((v) => !v)}>
             <FontAwesomeIcon icon={faPlus} />
             استلام شيك
-          </button>
+          </Button>
         )}
       </div>
 
       {showForm && (
-        <div className="mb-6 flex flex-wrap items-end gap-2 rounded-xl bg-white p-4 shadow-sm">
-          <select value={form.party_id} onChange={(e) => setForm({ ...form, party_id: e.target.value })} className="rounded-lg border border-ink/10 px-2 py-1.5 text-sm">
+        <Card className="mb-6 flex flex-wrap items-end gap-2 p-4">
+          <select value={form.party_id} onChange={(e) => setForm({ ...form, party_id: e.target.value })} className="rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
             <option value="">{partyType === 'patient' ? 'المريض...' : 'المورد...'}</option>
             {partyOptions.map((p) => (
               <option key={p.id} value={p.id}>{'full_name' in p ? p.full_name : p.name}</option>
             ))}
           </select>
-          <input placeholder="رقم الشيك" value={form.check_number} onChange={(e) => setForm({ ...form, check_number: e.target.value })} className="w-32 rounded-lg border border-ink/10 px-2 py-1.5 text-sm" />
-          <input placeholder="اسم البنك" value={form.bank_name} onChange={(e) => setForm({ ...form, bank_name: e.target.value })} className="w-32 rounded-lg border border-ink/10 px-2 py-1.5 text-sm" />
-          <input type="number" placeholder="المبلغ" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} className="w-28 rounded-lg border border-ink/10 px-2 py-1.5 text-sm" />
-          <select value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })} className="rounded-lg border border-ink/10 px-2 py-1.5 text-sm">
+          <input placeholder="رقم الشيك" value={form.check_number} onChange={(e) => setForm({ ...form, check_number: e.target.value })} className="w-32 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
+          <input placeholder="اسم البنك" value={form.bank_name} onChange={(e) => setForm({ ...form, bank_name: e.target.value })} className="w-32 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
+          <input type="number" placeholder="المبلغ" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} className="w-28 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
+          <select value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })} className="rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
             <option value="ILS">ILS</option>
             <option value="USD">USD</option>
             <option value="JOD">JOD</option>
@@ -150,94 +152,96 @@ export default function ChecksPage() {
           <div className="w-40">
             <DatePicker value={form.due_date} onChange={(v) => setForm({ ...form, due_date: v })} placeholder="تاريخ الاستحقاق" />
           </div>
-          <button onClick={submit} disabled={busy} className="rounded-lg bg-accent px-4 py-1.5 text-sm text-white hover:bg-accent-hover disabled:opacity-60">
+          <Button onClick={submit} loading={busy} className="px-4 py-1.5">
             حفظ
-          </button>
-        </div>
+          </Button>
+        </Card>
       )}
 
-      <div className="overflow-hidden rounded-xl bg-white shadow-sm">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-ink/10 text-right text-ink/60">
-              <th className="p-4 font-medium">الطرف</th>
-              <th className="p-4 font-medium">رقم الشيك</th>
-              <th className="p-4 font-medium">البنك</th>
-              <th className="p-4 font-medium">المبلغ</th>
-              <th className="p-4 font-medium">الاستحقاق</th>
-              <th className="p-4 font-medium">الحالة</th>
-              {canManage && <th className="p-4"></th>}
-            </tr>
-          </thead>
-          <tbody>
-            {checks.length === 0 ? (
-              <tr><td colSpan={7} className="p-6 text-center text-sm text-ink/40">لا توجد شيكات.</td></tr>
-            ) : (
-              checks.map((c) => (
-                <tr key={c.id} className="border-b border-ink/5 last:border-0">
-                  <td className="flex items-center gap-2 p-4">
-                    <FontAwesomeIcon icon={faMoneyCheckDollar} className="text-ink/30" />
-                    {partyName(c)}
-                  </td>
-                  <td className="p-4 text-ink/70">{c.check_number}</td>
-                  <td className="p-4 text-ink/70">{c.bank_name ?? '—'}</td>
-                  <td className="p-4 text-ink/70">{c.amount} {c.currency}</td>
-                  <td className="p-4 text-ink/70">{formatDate(c.due_date)}</td>
-                  <td className="p-4">
-                    <span className={`rounded-full px-2 py-0.5 text-xs ${STATUS_COLORS[c.status]}`}>{STATUS_LABELS[c.status]}</span>
-                  </td>
-                  {canManage && (
-                    <td className="flex gap-2 p-4">
-                      {c.status === 'in_wallet' && c.direction === 'incoming' && (
-                        <button onClick={() => setEndorseTarget(c)} className="rounded-lg bg-blue-50 px-2 py-1 text-xs text-blue-700 hover:bg-blue-100">تظهير</button>
-                      )}
-                      {c.status === 'in_wallet' || c.status === 'endorsed' ? (
-                        <>
-                          <button onClick={() => setClearTarget(c)} className="rounded-lg bg-green-50 px-2 py-1 text-xs text-green-700 hover:bg-green-100">تحصيل</button>
-                          <button onClick={() => bounce(c)} className="rounded-lg bg-danger/10 px-2 py-1 text-xs text-danger hover:bg-danger/20">رجوع</button>
-                        </>
-                      ) : null}
-                    </td>
-                  )}
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+      <Card>
+        {!checks ? (
+          <TableSkeleton />
+        ) : (
+          <Table>
+            <Thead>
+              <Th>الطرف</Th>
+              <Th>رقم الشيك</Th>
+              <Th>البنك</Th>
+              <Th>المبلغ</Th>
+              <Th>الاستحقاق</Th>
+              <Th>الحالة</Th>
+              {canManage && <Th></Th>}
+            </Thead>
+            <tbody>
+              {checks.length === 0 ? (
+                <EmptyRow colSpan={7}>لا توجد شيكات.</EmptyRow>
+              ) : (
+                checks.map((c) => (
+                  <Tr key={c.id}>
+                    <Td className="flex items-center gap-2">
+                      <FontAwesomeIcon icon={faMoneyCheckDollar} className="text-ink/30" />
+                      {partyName(c)}
+                    </Td>
+                    <Td className="text-muted">{c.check_number}</Td>
+                    <Td className="text-muted">{c.bank_name ?? '—'}</Td>
+                    <Td className="text-muted">{c.amount} {c.currency}</Td>
+                    <Td className="text-muted">{formatDate(c.due_date)}</Td>
+                    <Td>
+                      <Badge variant={STATUS_VARIANTS[c.status]}>{STATUS_LABELS[c.status]}</Badge>
+                    </Td>
+                    {canManage && (
+                      <Td>
+                        <div className="flex gap-2">
+                          {c.status === 'in_wallet' && c.direction === 'incoming' && (
+                            <button onClick={() => setEndorseTarget(c)} className="rounded-lg bg-info-soft px-2 py-1 text-xs text-info hover:opacity-80">تظهير</button>
+                          )}
+                          {c.status === 'in_wallet' || c.status === 'endorsed' ? (
+                            <>
+                              <button onClick={() => setClearTarget(c)} className="rounded-lg bg-success-soft px-2 py-1 text-xs text-success hover:opacity-80">تحصيل</button>
+                              <button onClick={() => bounce(c)} className="rounded-lg bg-danger-soft px-2 py-1 text-xs text-danger hover:opacity-80">رجوع</button>
+                            </>
+                          ) : null}
+                        </div>
+                      </Td>
+                    )}
+                  </Tr>
+                ))
+              )}
+            </tbody>
+          </Table>
+        )}
+      </Card>
 
       {endorseTarget && (
-        <div className="fixed inset-0 flex items-center justify-center bg-black/30 p-4" onClick={() => setEndorseTarget(null)}>
-          <div className="w-80 space-y-3 rounded-xl bg-white p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
-            <p className="text-sm font-medium text-ink">تظهير الشيك #{endorseTarget.check_number} لمورد</p>
-            <select value={endorseSupplier} onChange={(e) => setEndorseSupplier(e.target.value)} className="w-full rounded-lg border border-ink/10 px-2 py-1.5 text-sm">
+        <Modal title={`تظهير الشيك #${endorseTarget.check_number} لمورد`} onClose={() => setEndorseTarget(null)}>
+          <div className="space-y-3">
+            <select value={endorseSupplier} onChange={(e) => setEndorseSupplier(e.target.value)} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
               <option value="">المورد...</option>
               {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
-            <button onClick={endorse} disabled={busy} className="w-full rounded-lg bg-accent px-4 py-1.5 text-sm text-white hover:bg-accent-hover disabled:opacity-60">
+            <Button onClick={endorse} loading={busy} className="w-full justify-center">
               تأكيد التظهير
-            </button>
+            </Button>
           </div>
-        </div>
+        </Modal>
       )}
 
       {clearTarget && (
-        <div className="fixed inset-0 flex items-center justify-center bg-black/30 p-4" onClick={() => setClearTarget(null)}>
-          <div className="w-80 space-y-3 rounded-xl bg-white p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
-            <p className="text-sm font-medium text-ink">تحصيل الشيك #{clearTarget.check_number}</p>
+        <Modal title={`تحصيل الشيك #${clearTarget.check_number}`} onClose={() => setClearTarget(null)}>
+          <div className="space-y-3">
             {(clearTarget.direction === 'incoming' && clearTarget.status === 'in_wallet') || clearTarget.direction === 'outgoing' ? (
-              <select value={clearCashbox} onChange={(e) => setClearCashbox(e.target.value)} className="w-full rounded-lg border border-ink/10 px-2 py-1.5 text-sm">
+              <select value={clearCashbox} onChange={(e) => setClearCashbox(e.target.value)} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
                 <option value="">الصندوق...</option>
                 {cashboxes.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.currency})</option>)}
               </select>
             ) : (
-              <p className="text-xs text-ink/50">شيك مظهّر مسبقاً — لا حاجة لصندوق.</p>
+              <p className="text-xs text-muted">شيك مظهّر مسبقاً — لا حاجة لصندوق.</p>
             )}
-            <button onClick={clear} disabled={busy} className="w-full rounded-lg bg-accent px-4 py-1.5 text-sm text-white hover:bg-accent-hover disabled:opacity-60">
+            <Button onClick={clear} loading={busy} className="w-full justify-center">
               تأكيد التحصيل
-            </button>
+            </Button>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   )

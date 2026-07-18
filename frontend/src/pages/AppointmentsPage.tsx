@@ -5,14 +5,15 @@ import { faChevronLeft, faChevronRight, faClock, faUserDoctor } from '@fortaweso
 import { api } from '../lib/api'
 import { formatDate, formatTime } from '../lib/formatDate'
 import DatePicker from '../components/DatePicker'
+import { Card, PageHeader, Button, Select } from '../components/ui'
 import type { Appointment, Doctor, Patient, Slot } from '../types'
 
 const STATUS_STYLES: Record<Appointment['status'], string> = {
-  scheduled: 'bg-accent/10 text-accent border-accent/30',
+  scheduled: 'bg-accent-soft text-accent border-accent/30',
   confirmed: 'bg-accent/20 text-accent border-accent/40',
   done: 'bg-ink/10 text-ink/50 border-ink/10',
-  cancelled: 'bg-danger/10 text-danger/60 border-danger/20 line-through',
-  no_show: 'bg-danger/10 text-danger/60 border-danger/20',
+  cancelled: 'bg-danger-soft text-danger/60 border-danger/20 line-through',
+  no_show: 'bg-danger-soft text-danger/60 border-danger/20',
 }
 
 const STATUS_LABELS: Record<Appointment['status'], string> = {
@@ -140,16 +141,16 @@ export default function AppointmentsPage() {
 
   return (
     <div>
-      <h1 className="mb-6 text-xl font-semibold text-ink">المواعيد</h1>
+      <PageHeader title="المواعيد" subtitle="جدول الحجوزات اليومي حسب الطبيب" />
 
-      <div className="mb-6 flex flex-wrap items-center gap-4 rounded-xl bg-white p-4 shadow-sm">
+      <Card className="mb-6 flex flex-wrap items-center gap-4 p-4">
         <div className="flex flex-wrap gap-2">
           {doctors.map((d) => (
             <button
               key={d.id}
               onClick={() => setDoctorId(d.id)}
               className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-sm transition-colors ${
-                doctorId === d.id ? 'border-accent bg-accent text-white' : 'border-ink/10 text-ink/70 hover:border-accent/40'
+                doctorId === d.id ? 'border-accent bg-accent text-white' : 'border-border text-ink/70 hover:border-accent/40'
               }`}
             >
               <FontAwesomeIcon icon={faUserDoctor} />
@@ -159,35 +160,35 @@ export default function AppointmentsPage() {
         </div>
 
         <div className="mr-auto flex items-center gap-2">
-          <button onClick={() => setDate(todayIso())} className="rounded-lg px-3 py-1.5 text-xs text-accent hover:bg-accent/10">
+          <button onClick={() => setDate(todayIso())} className="rounded-lg px-3 py-1.5 text-xs text-accent hover:bg-accent-soft">
             اليوم
           </button>
-          <button onClick={() => setDate(addDays(date, -1))} className="rounded-lg p-2 text-ink/60 hover:bg-background">
+          <button onClick={() => setDate(addDays(date, -1))} className="rounded-lg p-2 text-muted hover:bg-background">
             <FontAwesomeIcon icon={faChevronRight} />
           </button>
           <div className="w-40">
             <DatePicker value={date} onChange={(iso) => iso && setDate(iso)} allowClear={false} />
           </div>
-          <button onClick={() => setDate(addDays(date, 1))} className="rounded-lg p-2 text-ink/60 hover:bg-background">
+          <button onClick={() => setDate(addDays(date, 1))} className="rounded-lg p-2 text-muted hover:bg-background">
             <FontAwesomeIcon icon={faChevronLeft} />
           </button>
         </div>
-      </div>
+      </Card>
 
       <div className="grid grid-cols-3 gap-6">
-        <div className="col-span-2 rounded-xl bg-white p-4 shadow-sm">
+        <Card className="col-span-2 p-4">
           <h2 className="mb-2 flex items-center gap-2 px-2 text-sm font-medium text-ink/70">
-            <FontAwesomeIcon icon={faClock} />
+            <FontAwesomeIcon icon={faClock} className="text-accent" />
             {formatDate(date)}
           </h2>
 
           {timeline.length === 0 ? (
-            <p className="p-6 text-center text-sm text-ink/40">لا يوجد دوام لهذا الطبيب في هذا اليوم.</p>
+            <p className="p-6 text-center text-sm text-muted">لا يوجد دوام لهذا الطبيب في هذا اليوم.</p>
           ) : (
-            <div className="divide-y divide-ink/5">
+            <div className="divide-y divide-border/70">
               {timeline.map((row) => (
                 <div key={row.minutes} className="flex items-center gap-3 py-1.5">
-                  <span className="w-12 shrink-0 text-xs text-ink/40">{row.label}</span>
+                  <span className="w-12 shrink-0 font-mono text-xs text-muted">{row.label}</span>
                   {row.appointment ? (
                     <div className={`flex-1 rounded-lg border px-3 py-2 text-sm ${STATUS_STYLES[row.appointment.status]}`}>
                       <span className="font-medium">{row.appointment.patient_name}</span>
@@ -198,8 +199,8 @@ export default function AppointmentsPage() {
                       onClick={() => setSelectedSlot(row.slot)}
                       className={`flex-1 rounded-lg border border-dashed px-3 py-2 text-start text-sm transition-colors ${
                         selectedSlot?.starts_at === row.slot.starts_at
-                          ? 'border-accent bg-accent/10 text-accent'
-                          : 'border-ink/15 text-ink/40 hover:border-accent hover:text-accent'
+                          ? 'border-accent bg-accent-soft text-accent'
+                          : 'border-border text-muted hover:border-accent hover:text-accent'
                       }`}
                     >
                       متاح
@@ -211,41 +212,32 @@ export default function AppointmentsPage() {
               ))}
             </div>
           )}
-        </div>
+        </Card>
 
-        <div className="rounded-xl bg-white p-6 shadow-sm">
+        <Card className="p-6">
           <h2 className="mb-4 text-sm font-medium text-ink/70">حجز موعد</h2>
           {!selectedSlot ? (
-            <p className="text-sm text-ink/40">اختر وقتاً متاحاً من الجدول.</p>
+            <p className="text-sm text-muted">اختر وقتاً متاحاً من الجدول.</p>
           ) : (
             <>
               <p className="mb-3 text-sm text-ink">
                 الوقت: <span className="font-medium">{selectedSlot.starts_at_display}</span>
               </p>
-              <label className="mb-1 block text-sm text-ink/70">المريض</label>
-              <select
-                value={patientId}
-                onChange={(e) => setPatientId(e.target.value)}
-                className="mb-3 w-full rounded-lg border border-ink/10 px-3 py-2 text-sm focus:border-accent focus:outline-none"
-              >
+              <Select label="المريض" value={patientId} onChange={(e) => setPatientId(e.target.value)} className="mb-3">
                 <option value="">اختر مريضاً</option>
                 {patients.map((p) => (
                   <option key={p.id} value={p.id}>{p.full_name} ({p.code})</option>
                 ))}
-              </select>
+              </Select>
 
               {error && <p className="mb-2 text-sm text-danger">{error}</p>}
 
-              <button
-                onClick={book}
-                disabled={!patientId || booking}
-                className="w-full rounded-lg bg-accent py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60"
-              >
+              <Button onClick={book} disabled={!patientId || booking} loading={booking} className="w-full justify-center">
                 {booking ? 'جارِ الحجز...' : 'تأكيد الحجز'}
-              </button>
+              </Button>
             </>
           )}
-        </div>
+        </Card>
       </div>
     </div>
   )

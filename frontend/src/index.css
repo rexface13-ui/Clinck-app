@@ -12,11 +12,22 @@
 @theme {
   --font-sans: 'IBM Plex Sans Arabic', system-ui, sans-serif;
 
-  --color-background: #fafaf9;
+  --color-background: #f5f6f4;
+  --color-surface: #ffffff;
+  --color-border: #e4e7e2;
   --color-ink: #1e293b;
+  --color-muted: #6b7a72;
   --color-accent: #4d6a5b;
   --color-accent-hover: #3e5548;
+  --color-accent-soft: #eaf0ec;
   --color-danger: #dc2626;
+  --color-danger-soft: #fdecec;
+  --color-success: #15803d;
+  --color-success-soft: #e9f7ee;
+  --color-warning: #b45309;
+  --color-warning-soft: #fdf3e2;
+  --color-info: #1d4ed8;
+  --color-info-soft: #e9f0fd;
 
   /* dental chart legend */
   --color-tooth-planned: #dc2626;
@@ -33,4 +44,9 @@ body {
   background-color: var(--color-background);
   color: var(--color-ink);
   font-variant-numeric: tabular-nums;
+}
+
+::selection {
+  background-color: var(--color-accent-soft);
+  color: var(--color-accent-hover);
 }
