@@ -1,0 +1,3 @@
+# local tooling — not part of the project, downloaded per-machine
+/php83/
+/composer.phar

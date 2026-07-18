@@ -1,0 +1,36 @@
+@import 'tailwindcss';
+@import '@fontsource/ibm-plex-sans-arabic/400.css';
+@import '@fontsource/ibm-plex-sans-arabic/500.css';
+@import '@fontsource/ibm-plex-sans-arabic/600.css';
+@import '@fontsource/ibm-plex-sans-arabic/700.css';
+
+/*
+ * DentaFlow design tokens. Defined once here — components reference the
+ * Tailwind utilities generated from these (bg-background, text-ink,
+ * text-accent, border-danger, ...), never raw hex values.
+ */
+@theme {
+  --font-sans: 'IBM Plex Sans Arabic', system-ui, sans-serif;
+
+  --color-background: #fafaf9;
+  --color-ink: #1e293b;
+  --color-accent: #4d6a5b;
+  --color-accent-hover: #3e5548;
+  --color-danger: #dc2626;
+
+  /* dental chart legend */
+  --color-tooth-planned: #dc2626;
+  --color-tooth-done: #2563eb;
+  --color-tooth-missing: #94a3b8;
+}
+
+html {
+  font-family: var(--font-sans);
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-background);
+  color: var(--color-ink);
+  font-variant-numeric: tabular-nums;
+}

@@ -1,0 +1,30 @@
+<?php
+
+namespace App\Http\Resources;
+
+use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\JsonResource;
+
+class ServiceResource extends JsonResource
+{
+    public function toArray(Request $request): array
+    {
+        return [
+            'id' => $this->id,
+            'service_category_id' => $this->service_category_id,
+            'name' => $this->name,
+            'default_price' => $this->default_price,
+            'default_currency' => $this->default_currency,
+            'default_sessions' => $this->default_sessions,
+            'default_interval_days' => $this->default_interval_days,
+            'default_commission_percent' => $this->default_commission_percent,
+            'is_active' => $this->is_active,
+            'branch_prices' => $this->whenLoaded('branchPrices', fn () => $this->branchPrices->map(fn ($p) => [
+                'id' => $p->id,
+                'branch_id' => $p->branch_id,
+                'price' => $p->price,
+                'surcharge' => $p->surcharge,
+            ])),
+        ];
+    }
+}
