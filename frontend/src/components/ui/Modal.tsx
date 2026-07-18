@@ -16,7 +16,7 @@ export default function Modal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4 backdrop-blur-[2px]" onClick={onClose}>
       <div
-        className={`${width} rounded-2xl border border-border bg-surface p-6 shadow-lg`}
+        className={`${width} max-h-[90vh] overflow-y-auto rounded-2xl border border-border bg-surface p-6 shadow-lg`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-center justify-between">

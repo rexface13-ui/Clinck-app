@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faPlus, faCheck, faTrash, faFileInvoiceDollar } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import DatePicker from '../components/DatePicker'
-import { Card, PageHeader, Badge, Button, Table, Thead, Th, Td, Tr, EmptyRow } from '../components/ui'
+import { Card, PageHeader, Badge, Button, Modal, Table, Thead, Th, Td, Tr, EmptyRow } from '../components/ui'
 import type { BadgeVariant } from '../components/ui'
 import type { Branch, Item, PurchaseInvoice, StockMovement, Supplier } from '../types'
 
@@ -14,13 +15,14 @@ const STATUS_VARIANTS: Record<PurchaseInvoice['status'], BadgeVariant> = { draft
 export default function PurchaseInvoicesPage() {
   const { can } = useAuth()
   const canManage = can('purchasing.manage')
+  const [searchParams, setSearchParams] = useSearchParams()
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [branches, setBranches] = useState<Branch[]>([])
   const [items, setItems] = useState<Item[]>([])
   const [invoices, setInvoices] = useState<PurchaseInvoice[]>([])
   const [selected, setSelected] = useState<PurchaseInvoice | null>(null)
   const [movements, setMovements] = useState<StockMovement[]>([])
-  const [showForm, setShowForm] = useState(false)
+  const [showForm, setShowForm] = useState(() => searchParams.get('new') === '1')
   const [newForm, setNewForm] = useState({ supplier_id: '', branch_id: '' })
   const [lineForm, setLineForm] = useState({ item_id: '', quantity: '', unit_price: '', currency: 'ILS', lot_number: '', expiry_date: '' })
   const [busy, setBusy] = useState(false)
@@ -33,6 +35,15 @@ export default function PurchaseInvoicesPage() {
   }
 
   useEffect(loadAll, [])
+
+  useEffect(() => {
+    if (searchParams.get('new') === '1') {
+      setShowForm(true)
+      searchParams.delete('new')
+      setSearchParams(searchParams, { replace: true })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   function openInvoice(invoice: PurchaseInvoice) {
     api.get(`/purchase-invoices/${invoice.id}`).then((res) => setSelected(res.data))
@@ -134,19 +145,21 @@ export default function PurchaseInvoicesPage() {
           )}
 
           {showForm && (
-            <Card className="mb-4 space-y-2 p-4">
-              <select value={newForm.supplier_id} onChange={(e) => setNewForm({ ...newForm, supplier_id: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
-                <option value="">المورد...</option>
-                {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-              </select>
-              <select value={newForm.branch_id} onChange={(e) => setNewForm({ ...newForm, branch_id: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
-                <option value="">الفرع...</option>
-                {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-              </select>
-              <Button onClick={createInvoice} loading={busy} className="w-full justify-center">
-                إنشاء مسودة
-              </Button>
-            </Card>
+            <Modal title="فاتورة شراء جديدة" onClose={() => setShowForm(false)}>
+              <div className="space-y-3">
+                <select value={newForm.supplier_id} onChange={(e) => setNewForm({ ...newForm, supplier_id: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
+                  <option value="">المورد...</option>
+                  {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+                <select value={newForm.branch_id} onChange={(e) => setNewForm({ ...newForm, branch_id: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
+                  <option value="">الفرع...</option>
+                  {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                </select>
+                <Button onClick={createInvoice} loading={busy} className="w-full justify-center">
+                  إنشاء مسودة
+                </Button>
+              </div>
+            </Modal>
           )}
 
           <Card>

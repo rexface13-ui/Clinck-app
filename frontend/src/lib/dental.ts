@@ -101,10 +101,31 @@ export interface ArchConfig {
   radius: number
   /** +1 bulges the arch downward (lower jaw), -1 bulges it upward (upper jaw). */
   direction: 1 | -1
+  /** Degrees to inset the arch's start/end from the shared horizontal midline, so the upper and lower arches don't collide where they meet on each side. */
+  posStartDeg: number
+  posEndDeg: number
 }
 
-export const UPPER_ARCH: ArchConfig = { cx: 260, cy: 155, radius: 132, direction: -1 }
-export const LOWER_ARCH: ArchConfig = { cx: 260, cy: 185, radius: 132, direction: 1 }
+/**
+ * Both arches share one circle (same center + radius) so they read as a
+ * single continuous ring, matching a real circular dental chart. Each arch
+ * only occupies its half (top for upper, bottom for lower); GAP_DEG insets
+ * the start/end of each half so the outermost teeth (18/28, 48/38) don't
+ * overlap the other arch's outermost teeth at the sides.
+ */
+const CIRCLE_CX = 260
+const CIRCLE_CY = 172
+const CIRCLE_RADIUS = 148
+const GAP_DEG = 7
+
+export const UPPER_ARCH: ArchConfig = {
+  cx: CIRCLE_CX, cy: CIRCLE_CY, radius: CIRCLE_RADIUS, direction: -1,
+  posStartDeg: 180 - GAP_DEG, posEndDeg: GAP_DEG,
+}
+export const LOWER_ARCH: ArchConfig = {
+  cx: CIRCLE_CX, cy: CIRCLE_CY, radius: CIRCLE_RADIUS, direction: 1,
+  posStartDeg: 180 + GAP_DEG, posEndDeg: 360 - GAP_DEG,
+}
 
 /**
  * Position tooth `index` of `total` along the arch (index 0 = leftmost /
@@ -113,13 +134,18 @@ export const LOWER_ARCH: ArchConfig = { cx: 260, cy: 185, radius: 132, direction
  */
 export function archPosition(index: number, total: number, arch: ArchConfig): ArchPosition {
   const t = total === 1 ? 0.5 : index / (total - 1)
-  const angle = Math.PI * (1 - t) // 180deg (left) -> 0deg (right)
-  const x = arch.cx + arch.radius * Math.cos(angle)
-  const y = arch.cy - arch.direction * arch.radius * Math.sin(angle)
-  const angleDeg = (angle * 180) / Math.PI
+
+  // x/y walk around the shared circle using the arch's own (gapped) angle range.
+  const posAngle = ((arch.posStartDeg + t * (arch.posEndDeg - arch.posStartDeg)) * Math.PI) / 180
+  const x = arch.cx + arch.radius * Math.cos(posAngle)
+  const y = arch.cy - arch.radius * Math.sin(posAngle)
+
+  // Rotation uses the un-gapped 180deg->0deg mapping so tooth orientation
+  // (cusp pointing toward the center of the mouth) stays exactly as tuned before.
+  const angleDeg = 180 * (1 - t)
   const rotationDeg = arch.direction === -1 ? angleDeg - 90 : 90 - angleDeg
 
   return { x, y, rotationDeg }
 }
 
-export const VIEWBOX = { width: 520, height: 340 }
+export const VIEWBOX = { width: 520, height: 344 }

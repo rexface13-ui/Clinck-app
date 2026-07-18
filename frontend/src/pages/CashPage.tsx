@@ -1,24 +1,35 @@
 import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faPlus, faWallet } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
-import { Card, PageHeader, Button, Table, Thead, Th, Td, Tr, EmptyRow, TableSkeleton, CardSkeleton } from '../components/ui'
+import { Card, PageHeader, Button, Modal, Table, Thead, Th, Td, Tr, EmptyRow, TableSkeleton, CardSkeleton } from '../components/ui'
 import type { Cashbox, CashEntry, ExpenseCategory, IncomeCategory } from '../types'
 
 type Tab = 'expenses' | 'incomes'
 
 export default function CashPage() {
   const { can } = useAuth()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [tab, setTab] = useState<Tab>('expenses')
   const [cashboxes, setCashboxes] = useState<Cashbox[] | null>(null)
   const [expenseCategories, setExpenseCategories] = useState<ExpenseCategory[]>([])
   const [incomeCategories, setIncomeCategories] = useState<IncomeCategory[]>([])
   const [expenses, setExpenses] = useState<CashEntry[] | null>(null)
   const [incomes, setIncomes] = useState<CashEntry[] | null>(null)
-  const [showForm, setShowForm] = useState(false)
+  const [showForm, setShowForm] = useState(() => searchParams.get('new') === '1')
   const [form, setForm] = useState({ category_id: '', cashbox_id: '', amount: '', description: '' })
   const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    if (searchParams.get('new') === '1') {
+      setShowForm(true)
+      searchParams.delete('new')
+      setSearchParams(searchParams, { replace: true })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   function loadAll() {
     api.get('/cashboxes').then((res) => setCashboxes(res.data))
@@ -105,25 +116,27 @@ export default function CashPage() {
       </div>
 
       {showForm && (
-        <Card className="mb-6 flex flex-wrap items-end gap-2 p-4">
-          <select value={form.category_id} onChange={(e) => setForm({ ...form, category_id: e.target.value })} className="rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
-            <option value="">التصنيف...</option>
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
-          <select value={form.cashbox_id} onChange={(e) => setForm({ ...form, cashbox_id: e.target.value })} className="rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
-            <option value="">الصندوق...</option>
-            {(cashboxes ?? []).map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
-          <input type="number" placeholder="المبلغ" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} className="w-28 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
-          <input placeholder="وصف (اختياري)" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className="flex-1 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
-          <Button onClick={submit} loading={busy} className="px-4 py-1.5">
-            حفظ
-          </Button>
-        </Card>
+        <Modal title={tab === 'expenses' ? 'مصروف جديد' : 'وارد جديد'} onClose={() => setShowForm(false)}>
+          <div className="space-y-3">
+            <select value={form.category_id} onChange={(e) => setForm({ ...form, category_id: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
+              <option value="">التصنيف...</option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+            <select value={form.cashbox_id} onChange={(e) => setForm({ ...form, cashbox_id: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
+              <option value="">الصندوق...</option>
+              {(cashboxes ?? []).map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+            <input type="number" placeholder="المبلغ" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
+            <input placeholder="وصف (اختياري)" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
+            <Button onClick={submit} loading={busy} className="w-full justify-center">
+              حفظ
+            </Button>
+          </div>
+        </Modal>
       )}
 
       <Card>

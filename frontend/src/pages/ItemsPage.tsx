@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faPlus, faBoxesStacked } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
-import { Card, PageHeader, Button, Table, Thead, Th, Td, Tr, EmptyRow, TableSkeleton } from '../components/ui'
+import { Card, PageHeader, Button, Modal, Table, Thead, Th, Td, Tr, EmptyRow, TableSkeleton } from '../components/ui'
 import type { Item, ItemCategory } from '../types'
 
 const TYPE_LABELS: Record<Item['type'], string> = {
@@ -15,9 +16,10 @@ const TYPE_LABELS: Record<Item['type'], string> = {
 export default function ItemsPage() {
   const { can } = useAuth()
   const canManage = can('inventory.manage')
+  const [searchParams, setSearchParams] = useSearchParams()
   const [categories, setCategories] = useState<ItemCategory[]>([])
   const [items, setItems] = useState<Item[] | null>(null)
-  const [showItemForm, setShowItemForm] = useState(false)
+  const [showItemForm, setShowItemForm] = useState(() => searchParams.get('new') === '1')
   const [showCategoryForm, setShowCategoryForm] = useState(false)
   const [categoryName, setCategoryName] = useState('')
   const [form, setForm] = useState({ item_category_id: '', name: '', type: 'simple_stock' as Item['type'], unit: 'piece' })
@@ -29,6 +31,15 @@ export default function ItemsPage() {
   }
 
   useEffect(loadAll, [])
+
+  useEffect(() => {
+    if (searchParams.get('new') === '1') {
+      setShowItemForm(true)
+      searchParams.delete('new')
+      setSearchParams(searchParams, { replace: true })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   async function submitCategory() {
     if (!categoryName) return
@@ -92,24 +103,26 @@ export default function ItemsPage() {
       )}
 
       {showItemForm && (
-        <Card className="mb-6 flex flex-wrap items-end gap-2 p-4">
-          <select value={form.item_category_id} onChange={(e) => setForm({ ...form, item_category_id: e.target.value })} className="rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
-            <option value="">بدون تصنيف</option>
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
-          <input placeholder="اسم الصنف" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
-          <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as Item['type'] })} className="rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
-            <option value="direct_expense">مصروف مباشر</option>
-            <option value="simple_stock">مخزون بسيط</option>
-            <option value="tracked">دفعات وصلاحية</option>
-          </select>
-          <input placeholder="الوحدة" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} className="w-24 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
-          <Button onClick={submitItem} loading={busy} className="px-4 py-1.5">
-            حفظ
-          </Button>
-        </Card>
+        <Modal title="صنف جديد" onClose={() => setShowItemForm(false)}>
+          <div className="space-y-3">
+            <select value={form.item_category_id} onChange={(e) => setForm({ ...form, item_category_id: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
+              <option value="">بدون تصنيف</option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+            <input placeholder="اسم الصنف" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
+            <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as Item['type'] })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
+              <option value="direct_expense">مصروف مباشر</option>
+              <option value="simple_stock">مخزون بسيط</option>
+              <option value="tracked">دفعات وصلاحية</option>
+            </select>
+            <input placeholder="الوحدة" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
+            <Button onClick={submitItem} loading={busy} className="w-full justify-center">
+              حفظ
+            </Button>
+          </div>
+        </Modal>
       )}
 
       <Card>

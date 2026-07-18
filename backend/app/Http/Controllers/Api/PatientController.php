@@ -11,12 +11,29 @@ use App\Http\Resources\PatientResource;
 use App\Http\Resources\ToothFindingResource;
 use App\Http\Resources\ToothStateResource;
 use App\Models\Patient;
+use Illuminate\Http\Request;
 
 class PatientController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
         $this->authorize('viewAny', Patient::class);
+
+        if ($request->filled('search')) {
+            $search = $request->input('search');
+
+            return PatientResource::collection(
+                Patient::query()
+                    ->where(function ($query) use ($search) {
+                        $query->where('full_name', 'ilike', "%{$search}%")
+                            ->orWhere('phone', 'ilike', "%{$search}%")
+                            ->orWhere('code', 'ilike', "%{$search}%");
+                    })
+                    ->orderBy('full_name')
+                    ->limit(15)
+                    ->get()
+            );
+        }
 
         return PatientResource::collection(
             Patient::query()->orderByDesc('created_at')->paginate(25)

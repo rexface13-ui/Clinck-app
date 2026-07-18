@@ -18,12 +18,14 @@ export default function StatCard({
   const toneClasses = tone === 'danger' ? 'bg-danger-soft text-danger' : 'bg-accent-soft text-accent'
 
   return (
-    <Card className="p-5">
-      <span className={`flex size-10 items-center justify-center rounded-xl ${toneClasses}`}>
+    <Card className="flex items-start justify-between gap-4 p-6">
+      <div>
+        <p className="text-sm font-medium text-muted">{label}</p>
+        <p className="mt-2 text-[26px] font-bold leading-none text-ink">{masked ? '••••' : value}</p>
+      </div>
+      <span className={`flex size-11 shrink-0 items-center justify-center rounded-xl text-lg ${toneClasses}`}>
         <FontAwesomeIcon icon={icon} />
       </span>
-      <p className="mt-4 text-sm text-muted">{label}</p>
-      <p className="mt-1 text-2xl font-semibold text-ink">{masked ? '••••' : value}</p>
     </Card>
   )
 }

@@ -19,11 +19,11 @@ export function Thead({ children }: { children: ReactNode }) {
 }
 
 export function Th({ className = '', ...rest }: ThHTMLAttributes<HTMLTableCellElement>) {
-  return <th className={`px-4 py-3 font-medium ${className}`} {...rest} />
+  return <th className={`px-5 py-3.5 font-medium ${className}`} {...rest} />
 }
 
 export function Td({ className = '', ...rest }: TdHTMLAttributes<HTMLTableCellElement>) {
-  return <td className={`px-4 py-3 text-ink/80 ${className}`} {...rest} />
+  return <td className={`px-5 py-3.5 text-ink/80 ${className}`} {...rest} />
 }
 
 export function Tr({ className = '', ...rest }: HTMLAttributes<HTMLTableRowElement>) {

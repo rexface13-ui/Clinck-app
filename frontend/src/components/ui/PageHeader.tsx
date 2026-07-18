@@ -10,10 +10,10 @@ export default function PageHeader({
   action?: ReactNode
 }) {
   return (
-    <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+    <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
       <div>
-        <h1 className="text-xl font-semibold text-ink">{title}</h1>
-        {subtitle && <p className="mt-0.5 text-sm text-muted">{subtitle}</p>}
+        <h1 className="text-2xl font-bold tracking-tight text-ink">{title}</h1>
+        {subtitle && <p className="mt-1 text-sm text-muted">{subtitle}</p>}
       </div>
       {action}
     </div>

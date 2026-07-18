@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faPlus, faMoneyCheckDollar } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
@@ -28,12 +29,13 @@ const STATUS_VARIANTS: Record<CheckItem['status'], BadgeVariant> = {
 export default function ChecksPage() {
   const { can } = useAuth()
   const canManage = can('checks.manage')
+  const [searchParams, setSearchParams] = useSearchParams()
   const [direction, setDirection] = useState<Direction>('incoming')
   const [checks, setChecks] = useState<CheckItem[] | null>(null)
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [patients, setPatients] = useState<Patient[]>([])
   const [cashboxes, setCashboxes] = useState<Cashbox[]>([])
-  const [showForm, setShowForm] = useState(false)
+  const [showForm, setShowForm] = useState(() => searchParams.get('new') === '1')
   const [form, setForm] = useState({ party_id: '', check_number: '', bank_name: '', amount: '', currency: 'ILS', due_date: '' })
   const [endorseTarget, setEndorseTarget] = useState<CheckItem | null>(null)
   const [endorseSupplier, setEndorseSupplier] = useState('')
@@ -49,6 +51,15 @@ export default function ChecksPage() {
   }
 
   useEffect(loadAll, [direction])
+
+  useEffect(() => {
+    if (searchParams.get('new') === '1') {
+      setShowForm(true)
+      searchParams.delete('new')
+      setSearchParams(searchParams, { replace: true })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const partyType: CheckItem['party_type'] = direction === 'incoming' ? 'patient' : 'supplier'
   const partyOptions = partyType === 'patient' ? patients : suppliers
@@ -134,28 +145,30 @@ export default function ChecksPage() {
       </div>
 
       {showForm && (
-        <Card className="mb-6 flex flex-wrap items-end gap-2 p-4">
-          <select value={form.party_id} onChange={(e) => setForm({ ...form, party_id: e.target.value })} className="rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
-            <option value="">{partyType === 'patient' ? 'المريض...' : 'المورد...'}</option>
-            {partyOptions.map((p) => (
-              <option key={p.id} value={p.id}>{'full_name' in p ? p.full_name : p.name}</option>
-            ))}
-          </select>
-          <input placeholder="رقم الشيك" value={form.check_number} onChange={(e) => setForm({ ...form, check_number: e.target.value })} className="w-32 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
-          <input placeholder="اسم البنك" value={form.bank_name} onChange={(e) => setForm({ ...form, bank_name: e.target.value })} className="w-32 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
-          <input type="number" placeholder="المبلغ" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} className="w-28 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
-          <select value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })} className="rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
-            <option value="ILS">ILS</option>
-            <option value="USD">USD</option>
-            <option value="JOD">JOD</option>
-          </select>
-          <div className="w-40">
+        <Modal title="استلام شيك" onClose={() => setShowForm(false)}>
+          <div className="space-y-3">
+            <select value={form.party_id} onChange={(e) => setForm({ ...form, party_id: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
+              <option value="">{partyType === 'patient' ? 'المريض...' : 'المورد...'}</option>
+              {partyOptions.map((p) => (
+                <option key={p.id} value={p.id}>{'full_name' in p ? p.full_name : p.name}</option>
+              ))}
+            </select>
+            <input placeholder="رقم الشيك" value={form.check_number} onChange={(e) => setForm({ ...form, check_number: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
+            <input placeholder="اسم البنك" value={form.bank_name} onChange={(e) => setForm({ ...form, bank_name: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
+            <div className="flex gap-2">
+              <input type="number" placeholder="المبلغ" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} className="flex-1 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
+              <select value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })} className="rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
+                <option value="ILS">ILS</option>
+                <option value="USD">USD</option>
+                <option value="JOD">JOD</option>
+              </select>
+            </div>
             <DatePicker value={form.due_date} onChange={(v) => setForm({ ...form, due_date: v })} placeholder="تاريخ الاستحقاق" />
+            <Button onClick={submit} loading={busy} className="w-full justify-center">
+              حفظ
+            </Button>
           </div>
-          <Button onClick={submit} loading={busy} className="px-4 py-1.5">
-            حفظ
-          </Button>
-        </Card>
+        </Modal>
       )}
 
       <Card>

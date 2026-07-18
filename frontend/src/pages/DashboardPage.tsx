@@ -21,25 +21,29 @@ import {
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
+import PatientSearchModal from '../components/PatientSearchModal'
 import { Card, PageHeader, StatCard, Badge, Button, Table, Thead, Th, Td, Tr, EmptyRow, TableSkeleton, CardSkeleton } from '../components/ui'
 import type { BadgeVariant } from '../components/ui'
 
 interface QuickAction {
-  to: string
+  to?: string
+  onClick?: () => void
   label: string
   icon: IconDefinition
   permission: string | null
 }
 
-const QUICK_ACTIONS: QuickAction[] = [
-  { to: '/patients', label: 'مريض جديد', icon: faUserPlus, permission: 'patients.manage' },
-  { to: '/appointments', label: 'حجز موعد', icon: faCalendarPlus, permission: 'appointments.view' },
-  { to: '/cash', label: 'مصروف / وارد', icon: faMoneyBillWave, permission: 'cash.manage' },
-  { to: '/checks', label: 'استلام شيك', icon: faMoneyCheckDollar, permission: 'checks.manage' },
-  { to: '/purchase-invoices', label: 'فاتورة شراء', icon: faFileInvoiceDollar, permission: 'purchasing.manage' },
-  { to: '/items', label: 'صنف جديد', icon: faBoxesStacked, permission: 'inventory.manage' },
-  { to: '/backups', label: 'نسخة احتياطية', icon: faDatabase, permission: 'settings.manage' },
-]
+function buildQuickActions(openPatientSearch: () => void): QuickAction[] {
+  return [
+    { onClick: openPatientSearch, label: 'تسجيل زيارة', icon: faUserPlus, permission: 'patients.manage' },
+    { to: '/appointments', label: 'حجز موعد', icon: faCalendarPlus, permission: 'appointments.view' },
+    { to: '/cash?new=1', label: 'مصروف / وارد', icon: faMoneyBillWave, permission: 'cash.manage' },
+    { to: '/checks?new=1', label: 'استلام شيك', icon: faMoneyCheckDollar, permission: 'checks.manage' },
+    { to: '/purchase-invoices?new=1', label: 'فاتورة شراء', icon: faFileInvoiceDollar, permission: 'purchasing.manage' },
+    { to: '/items?new=1', label: 'صنف جديد', icon: faBoxesStacked, permission: 'inventory.manage' },
+    { to: '/backups', label: 'نسخة احتياطية', icon: faDatabase, permission: 'settings.manage' },
+  ]
+}
 
 interface Appointment {
   id: number
@@ -120,7 +124,15 @@ const statusVariants: Record<string, BadgeVariant> = {
 
 function money(value: number | null) {
   if (value === null) return '—'
-  return new Intl.NumberFormat('ar-EG', { maximumFractionDigits: 0 }).format(value)
+  return new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(value)
+}
+
+function formatDate(value: string) {
+  return new Date(value).toLocaleDateString('en-GB')
+}
+
+function formatTime(value: Date) {
+  return value.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })
 }
 
 export default function DashboardPage() {
@@ -128,6 +140,8 @@ export default function DashboardPage() {
   const [data, setData] = useState<Summary | null>(null)
   const [now, setNow] = useState(new Date())
   const [hideMoney, setHideMoney] = useState(() => localStorage.getItem('dashboard.hideMoney') === '1')
+  const [showPatientSearch, setShowPatientSearch] = useState(false)
+  const quickActions = buildQuickActions(() => setShowPatientSearch(true))
 
   useEffect(() => {
     api.get<Summary>('/dashboard/summary').then((res) => setData(res.data))
@@ -158,35 +172,56 @@ export default function DashboardPage() {
             </Button>
             <div className="flex items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2 font-mono text-sm text-muted">
               <FontAwesomeIcon icon={faClock} className="text-accent" />
-              {now.toLocaleTimeString('ar-EG')}
+              {formatTime(now)}
             </div>
           </div>
         }
       />
 
-      <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7">
-        {QUICK_ACTIONS.filter((a) => a.permission === null || can(a.permission)).map((a) => (
-          <Link
-            key={a.to}
-            to={a.to}
-            className="flex flex-col items-center gap-2 rounded-2xl border border-border bg-surface px-3 py-4 text-center shadow-sm transition-colors hover:border-accent hover:bg-accent-soft"
-          >
-            <span className="flex size-10 items-center justify-center rounded-xl bg-accent-soft text-accent">
-              <FontAwesomeIcon icon={a.icon} />
-            </span>
-            <span className="text-xs font-medium text-ink/80">{a.label}</span>
-          </Link>
-        ))}
+      <div className="mb-8">
+        <h2 className="mb-3 text-sm font-semibold text-muted">إجراءات سريعة</h2>
+        <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 lg:grid-cols-7">
+          {quickActions
+            .filter((a) => a.permission === null || can(a.permission))
+            .map((a) =>
+              a.onClick ? (
+                <button
+                  key={a.label}
+                  type="button"
+                  onClick={a.onClick}
+                  className="flex flex-col items-center gap-2.5 rounded-2xl border border-border bg-surface px-3 py-5 text-center shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition-all hover:-translate-y-0.5 hover:border-accent hover:shadow-md"
+                >
+                  <span className="flex size-11 items-center justify-center rounded-xl bg-accent-soft text-lg text-accent">
+                    <FontAwesomeIcon icon={a.icon} />
+                  </span>
+                  <span className="text-xs font-medium text-ink/80">{a.label}</span>
+                </button>
+              ) : (
+                <Link
+                  key={a.label}
+                  to={a.to!}
+                  className="flex flex-col items-center gap-2.5 rounded-2xl border border-border bg-surface px-3 py-5 text-center shadow-[0_1px_2px_rgba(16,24,40,0.04)] transition-all hover:-translate-y-0.5 hover:border-accent hover:shadow-md"
+                >
+                  <span className="flex size-11 items-center justify-center rounded-xl bg-accent-soft text-lg text-accent">
+                    <FontAwesomeIcon icon={a.icon} />
+                  </span>
+                  <span className="text-xs font-medium text-ink/80">{a.label}</span>
+                </Link>
+              ),
+            )}
+        </div>
       </div>
 
+      {showPatientSearch && <PatientSearchModal onClose={() => setShowPatientSearch(false)} />}
+
       {!data ? (
-        <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-6">
+        <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-3">
           {Array.from({ length: 6 }).map((_, i) => (
             <CardSkeleton key={i} />
           ))}
         </div>
       ) : (
-        <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-6">
+        <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <StatCard icon={faCalendarCheck} label="مواعيد اليوم" value={String(data.kpis.today_appointments)} />
           {data.kpis.month_revenue_ils !== null && (
             <StatCard icon={faSackDollar} label="إيرادات الشهر" value={`${money(data.kpis.month_revenue_ils)} ₪`} masked={hideMoney} />
@@ -218,9 +253,9 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Card className="p-5">
-          <h2 className="mb-3 flex items-center gap-2 text-sm font-medium text-ink/70">
+      <div className="mb-8 grid grid-cols-1 gap-5 lg:grid-cols-2">
+        <Card className="p-6">
+          <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-ink/80">
             <FontAwesomeIcon icon={faTriangleExclamation} className="text-danger" />
             شيكات مستحقة خلال 7 أيام
           </h2>
@@ -229,12 +264,12 @@ export default function DashboardPage() {
           ) : data.alerts.checks_due.length === 0 ? (
             <p className="py-4 text-sm text-muted">لا يوجد شيكات مستحقة قريباً</p>
           ) : (
-            <ul className="space-y-2 text-sm">
+            <ul className="space-y-3 text-sm">
               {data.alerts.checks_due.map((c) => (
                 <li key={c.id} className="flex items-center justify-between border-b border-border/70 pb-2 last:border-0">
                   <span className="text-ink/80">{c.check_number}</span>
                   <span className="text-muted">
-                    {hideMoney ? '••••' : `${money(c.amount)} ${c.currency}`} — {new Date(c.due_date).toLocaleDateString('ar-EG')}
+                    {hideMoney ? '••••' : `${money(c.amount)} ${c.currency}`} — {formatDate(c.due_date)}
                   </span>
                 </li>
               ))}
@@ -242,8 +277,8 @@ export default function DashboardPage() {
           )}
         </Card>
 
-        <Card className="p-5">
-          <h2 className="mb-3 flex items-center gap-2 text-sm font-medium text-ink/70">
+        <Card className="p-6">
+          <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-ink/80">
             <FontAwesomeIcon icon={faTriangleExclamation} className="text-danger" />
             أصناف قاربت على الانتهاء
           </h2>
@@ -252,13 +287,13 @@ export default function DashboardPage() {
           ) : data.alerts.expiring_lots.length === 0 ? (
             <p className="py-4 text-sm text-muted">لا يوجد أصناف قاربت على الانتهاء</p>
           ) : (
-            <ul className="space-y-2 text-sm">
+            <ul className="space-y-3 text-sm">
               {data.alerts.expiring_lots.map((l, idx) => (
                 <li key={idx} className="flex items-center justify-between border-b border-border/70 pb-2 last:border-0">
                   <span className="text-ink/80">
                     {l.item_name} <span className="text-muted">({l.lot_number})</span>
                   </span>
-                  <span className="text-muted">{new Date(l.expiry_date).toLocaleDateString('ar-EG')}</span>
+                  <span className="text-muted">{formatDate(l.expiry_date)}</span>
                 </li>
               ))}
             </ul>
@@ -266,9 +301,9 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <Card className="lg:col-span-2">
-          <h2 className="p-5 pb-0 text-sm font-medium text-ink/70">مواعيد اليوم</h2>
+          <h2 className="p-6 pb-0 text-sm font-semibold text-ink/80">مواعيد اليوم</h2>
           {!data ? (
             <TableSkeleton />
           ) : (
@@ -299,14 +334,14 @@ export default function DashboardPage() {
           )}
         </Card>
 
-        <Card className="p-5">
-          <h2 className="mb-3 text-sm font-medium text-ink/70">أعلى الأطباء (هذا الشهر)</h2>
+        <Card className="p-6">
+          <h2 className="mb-4 text-sm font-semibold text-ink/80">أعلى الأطباء (هذا الشهر)</h2>
           {!data ? (
             <TableSkeleton rows={4} cols={2} />
           ) : data.top_doctors.length === 0 ? (
             <p className="py-4 text-sm text-muted">لا توجد بيانات بعد</p>
           ) : (
-            <ul className="space-y-2 text-sm">
+            <ul className="space-y-3 text-sm">
               {data.top_doctors.map((d, idx) => (
                 <li key={idx} className="flex items-center justify-between border-b border-border/70 pb-2 last:border-0">
                   <span className="text-ink/80">{d.doctor_name}</span>
@@ -319,7 +354,7 @@ export default function DashboardPage() {
       </div>
 
       <Card className="mt-4">
-        <h2 className="p-5 pb-0 text-sm font-medium text-ink/70">آخر الفواتير</h2>
+        <h2 className="p-6 pb-0 text-sm font-semibold text-ink/80">آخر الفواتير</h2>
         {!data ? (
           <TableSkeleton />
         ) : (
@@ -343,7 +378,7 @@ export default function DashboardPage() {
                     <Td>
                       <Badge variant={statusVariants[inv.status] ?? 'neutral'}>{statusLabels[inv.status] ?? inv.status}</Badge>
                     </Td>
-                    <Td className="text-muted">{new Date(inv.issued_at).toLocaleDateString('ar-EG')}</Td>
+                    <Td className="text-muted">{formatDate(inv.issued_at)}</Td>
                   </Tr>
                 ))
               )}

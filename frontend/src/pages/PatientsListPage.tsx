@@ -1,11 +1,11 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faPlus, faUser, faBolt } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import DatePicker from '../components/DatePicker'
-import { Card, PageHeader, Badge, Button, Table, Thead, Th, Td, Tr, EmptyRow, TableSkeleton, Input, Select } from '../components/ui'
+import { Card, PageHeader, Badge, Button, Modal, Table, Thead, Th, Td, Tr, EmptyRow, TableSkeleton, Input, Select } from '../components/ui'
 import type { Branch, Doctor, Patient } from '../types'
 
 /** Same rule as backend/app/Models/Patient.php: under 12 defaults to child. */
@@ -21,17 +21,28 @@ function isChildFromBirthDate(birthDate: string): boolean {
 export default function PatientsListPage() {
   const { data, can } = useAuth()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [patients, setPatients] = useState<Patient[]>([])
   const [doctors, setDoctors] = useState<Doctor[]>([])
   const [loading, setLoading] = useState(true)
-  const [showForm, setShowForm] = useState(false)
+  const [showForm, setShowForm] = useState(() => searchParams.get('new') === '1')
   const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => {
+    if (searchParams.get('new') === '1') {
+      setShowForm(true)
+      searchParams.delete('new')
+      searchParams.delete('name')
+      setSearchParams(searchParams, { replace: true })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const branches: Branch[] = data?.branches ?? []
 
   const [form, setForm] = useState({
     branch_id: branches[0]?.id ?? 1,
-    full_name: '',
+    full_name: searchParams.get('name') ?? '',
     gender: 'male' as 'male' | 'female',
     birth_date: '',
     isChildOverride: null as boolean | null,
@@ -121,9 +132,7 @@ export default function PatientsListPage() {
       />
 
       {showForm && (
-        <Card
-          className="mb-6 p-6"
-        >
+        <Modal title="مريض جديد" onClose={() => setShowForm(false)} width="w-[640px]">
         <form onSubmit={handleCreate} className="grid grid-cols-2 gap-4">
           <Input
             label="الاسم الكامل"
@@ -238,7 +247,7 @@ export default function PatientsListPage() {
             </Button>
           </div>
         </form>
-        </Card>
+        </Modal>
       )}
 
       <Card>
