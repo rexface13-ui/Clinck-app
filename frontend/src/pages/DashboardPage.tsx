@@ -17,6 +17,7 @@ import {
   faMoneyBillWave,
   faBoxesStacked,
   faDatabase,
+  faCoins,
 } from '@fortawesome/free-solid-svg-icons'
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core'
 import { api } from '../lib/api'
@@ -33,9 +34,10 @@ interface QuickAction {
   permission: string | null
 }
 
-function buildQuickActions(openPatientSearch: () => void): QuickAction[] {
+function buildQuickActions(openPatientSearch: () => void, openPaymentSearch: () => void): QuickAction[] {
   return [
     { onClick: openPatientSearch, label: 'تسجيل زيارة', icon: faUserPlus, permission: 'patients.manage' },
+    { onClick: openPaymentSearch, label: 'تحصيل دفعة', icon: faCoins, permission: 'billing.manage' },
     { to: '/appointments', label: 'حجز موعد', icon: faCalendarPlus, permission: 'appointments.view' },
     { to: '/cash?new=1', label: 'مصروف / وارد', icon: faMoneyBillWave, permission: 'cash.manage' },
     { to: '/checks?new=1', label: 'استلام شيك', icon: faMoneyCheckDollar, permission: 'checks.manage' },
@@ -141,7 +143,8 @@ export default function DashboardPage() {
   const [now, setNow] = useState(new Date())
   const [hideMoney, setHideMoney] = useState(() => localStorage.getItem('dashboard.hideMoney') === '1')
   const [showPatientSearch, setShowPatientSearch] = useState(false)
-  const quickActions = buildQuickActions(() => setShowPatientSearch(true))
+  const [showPaymentSearch, setShowPaymentSearch] = useState(false)
+  const quickActions = buildQuickActions(() => setShowPatientSearch(true), () => setShowPaymentSearch(true))
 
   useEffect(() => {
     api.get<Summary>('/dashboard/summary').then((res) => setData(res.data))
@@ -180,7 +183,7 @@ export default function DashboardPage() {
 
       <div className="mb-8">
         <h2 className="mb-3 text-sm font-semibold text-muted">إجراءات سريعة</h2>
-        <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 lg:grid-cols-7">
+        <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 lg:grid-cols-4 xl:grid-cols-8">
           {quickActions
             .filter((a) => a.permission === null || can(a.permission))
             .map((a) =>
@@ -213,6 +216,7 @@ export default function DashboardPage() {
       </div>
 
       {showPatientSearch && <PatientSearchModal onClose={() => setShowPatientSearch(false)} />}
+      {showPaymentSearch && <PatientSearchModal mode="pay" onClose={() => setShowPaymentSearch(false)} />}
 
       {!data ? (
         <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-3">

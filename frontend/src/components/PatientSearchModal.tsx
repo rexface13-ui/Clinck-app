@@ -6,7 +6,13 @@ import { api } from '../lib/api'
 import { Modal } from './ui'
 import type { Patient } from '../types'
 
-export default function PatientSearchModal({ onClose }: { onClose: () => void }) {
+interface Props {
+  onClose: () => void
+  /** 'visit' opens the patient's profile; 'pay' jumps straight to the payment form on that profile. */
+  mode?: 'visit' | 'pay'
+}
+
+export default function PatientSearchModal({ onClose, mode = 'visit' }: Props) {
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<Patient[] | null>(null)
@@ -35,7 +41,7 @@ export default function PatientSearchModal({ onClose }: { onClose: () => void })
 
   function goToPatient(id: number) {
     onClose()
-    navigate(`/patients/${id}`)
+    navigate(mode === 'pay' ? `/patients/${id}?pay=1` : `/patients/${id}`)
   }
 
   function addAsNew() {
@@ -44,7 +50,7 @@ export default function PatientSearchModal({ onClose }: { onClose: () => void })
   }
 
   return (
-    <Modal title="تسجيل زيارة" onClose={onClose} width="w-[480px]">
+    <Modal title={mode === 'pay' ? 'تحصيل دفعة' : 'تسجيل زيارة'} onClose={onClose} width="w-[480px]">
       <div className="relative mb-3">
         <FontAwesomeIcon icon={faMagnifyingGlass} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted" />
         <input
@@ -85,7 +91,11 @@ export default function PatientSearchModal({ onClose }: { onClose: () => void })
         </ul>
       )}
 
-      {query.trim().length >= 2 && !loading && results && results.length === 0 && (
+      {query.trim().length >= 2 && !loading && results && results.length === 0 && mode === 'pay' && (
+        <p className="py-6 text-center text-sm text-muted">ما في مريض مسجّل بهالاسم.</p>
+      )}
+
+      {query.trim().length >= 2 && !loading && results && results.length === 0 && mode === 'visit' && (
         <div className="py-4 text-center">
           <p className="mb-3 text-sm text-muted">ما في مريض مسجّل بهالاسم.</p>
           <button

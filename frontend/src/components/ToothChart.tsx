@@ -37,11 +37,18 @@ interface LaidOutTooth {
   rotationDeg: number
   crownPath: string
   cusps: { x: number; y: number; r: number }[]
-  labelOffset: number
+  labelX: number
+  labelY: number
 }
 
 function layoutArch(numbers: number[], primaryNumbers: number[], isChild: boolean, arch: ArchConfig): LaidOutTooth[] {
-  const list = isChild ? [...numbers.slice(0, 3), ...primaryNumbers, ...numbers.slice(-3)] : numbers
+  // A child with only primary dentition has no molars/premolars/wisdom teeth
+  // erupted yet, so their chart shows just the 10 real primary tooth numbers
+  // per arch — not a mix of primary teeth plus fabricated permanent numbers
+  // (16/17/18 etc.) for teeth that don't exist yet. archPosition spaces
+  // whatever list it's given evenly across the same arc, so a shorter list
+  // still fills the row correctly.
+  const list = isChild ? primaryNumbers : numbers
 
   return list.map((number, i) => {
     const isPrimary = number >= 51
@@ -57,7 +64,8 @@ function layoutArch(numbers: number[], primaryNumbers: number[], isChild: boolea
       rotationDeg: pos.rotationDeg,
       crownPath: toothCrownPath(type, w, h),
       cusps: cuspPositions(type, w, h),
-      labelOffset: arch.direction * (h / 2 + 12),
+      labelX: pos.labelX,
+      labelY: pos.labelY,
     }
   })
 }
@@ -158,29 +166,30 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
           <line x1={UPPER_ARCH.cx} y1={20} x2={UPPER_ARCH.cx} y2={VIEWBOX.height - 20} stroke="#e2e8f0" strokeDasharray="4 4" />
 
           {teeth.map((t) => (
-            <g
-              key={t.number}
-              onClick={() => openTooth(t.number)}
-              className="cursor-pointer"
-              transform={`translate(${t.x},${t.y}) rotate(${t.rotationDeg})`}
-            >
-              <path
-                d={t.crownPath}
-                fill={toothColor(t.number)}
-                stroke={selectedTooth === t.number ? 'var(--color-accent)' : '#c9b8a8'}
-                strokeWidth={selectedTooth === t.number ? 2.5 : 1.2}
-              />
-              {t.cusps.map((c, i) => (
-                <circle key={i} cx={c.x} cy={c.y} r={c.r} fill="#00000010" />
-              ))}
+            <g key={t.number} onClick={() => openTooth(t.number)} className="cursor-pointer">
+              <g transform={`translate(${t.x},${t.y}) rotate(${t.rotationDeg})`}>
+                <path
+                  d={t.crownPath}
+                  fill={toothColor(t.number)}
+                  stroke={selectedTooth === t.number ? 'var(--color-accent)' : '#c9b8a8'}
+                  strokeWidth={selectedTooth === t.number ? 2.5 : 1.2}
+                />
+                {t.cusps.map((c, i) => (
+                  <circle key={i} cx={c.x} cy={c.y} r={c.r} fill="#00000010" />
+                ))}
+              </g>
+              {/* Label is positioned in absolute chart coordinates (not inside the rotated
+                  group) so it always sits cleanly outside the ring, regardless of this
+                  tooth's rotation — prevents labels clustering/overlapping at the apex
+                  and sides. */}
               <text
-                x={0}
-                y={t.labelOffset}
+                x={t.labelX}
+                y={t.labelY}
                 textAnchor="middle"
+                dominantBaseline="middle"
                 fontSize="10"
                 fill="var(--color-ink)"
                 className="select-none"
-                transform={`rotate(${-t.rotationDeg})`}
               >
                 {t.number}
               </text>

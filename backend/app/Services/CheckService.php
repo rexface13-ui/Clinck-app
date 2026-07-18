@@ -10,10 +10,17 @@ use App\Models\Patient;
 use App\Models\PatientTransaction;
 use App\Models\Supplier;
 use App\Models\SupplierTransaction;
+use App\Models\TelegramLink;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 
 class CheckService
 {
+    public function __construct(protected TelegramService $telegram)
+    {
+    }
+
     public function receive(
         string $direction,
         string $partyType,
@@ -23,8 +30,11 @@ class CheckService
         float $amount,
         string $currency,
         string $dueDate,
+        ?UploadedFile $image = null,
     ): CheckModel {
-        return DB::transaction(function () use ($direction, $partyType, $partyId, $checkNumber, $bankName, $amount, $currency, $dueDate) {
+        $check = DB::transaction(function () use ($direction, $partyType, $partyId, $checkNumber, $bankName, $amount, $currency, $dueDate, $image) {
+            $imagePath = $image?->store('checks', 'local');
+
             $check = CheckModel::create([
                 'direction' => $direction,
                 'party_type' => $partyType,
@@ -34,6 +44,7 @@ class CheckService
                 'amount' => $amount,
                 'currency' => $currency,
                 'due_date' => $dueDate,
+                'image_path' => $imagePath,
                 'status' => 'in_wallet',
                 'received_at' => now(),
             ]);
@@ -47,6 +58,33 @@ class CheckService
 
             return $check->fresh('events');
         });
+
+        if ($check->image_path) {
+            $this->notifyImageReceived($check);
+        }
+
+        return $check;
+    }
+
+    /**
+     * Notifies every owner/accountant with a linked Telegram chat as soon as
+     * a check's photo is on file, so they can verify it without opening the app.
+     */
+    protected function notifyImageReceived(CheckModel $check): void
+    {
+        $absolutePath = Storage::disk('local')->path($check->image_path);
+        $caption = sprintf(
+            "📎 صورة شيك جديدة\nرقم الشيك: %s\nالمبلغ: %s %s\nتاريخ الاستحقاق: %s",
+            $check->check_number,
+            $check->amount,
+            $check->currency,
+            $check->due_date->format('Y-m-d'),
+        );
+
+        TelegramLink::whereNotNull('linked_at')
+            ->get()
+            ->filter(fn (TelegramLink $link) => $link->user?->hasAnyRole(['owner', 'accountant']))
+            ->each(fn (TelegramLink $link) => $this->telegram->sendPhoto($link->telegram_chat_id, $absolutePath, $caption));
     }
 
     /**

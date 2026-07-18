@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faPlus, faMoneyCheckDollar } from '@fortawesome/free-solid-svg-icons'
+import { faPlus, faMoneyCheckDollar, faCamera, faImage } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import DatePicker from '../components/DatePicker'
@@ -37,6 +37,8 @@ export default function ChecksPage() {
   const [cashboxes, setCashboxes] = useState<Cashbox[]>([])
   const [showForm, setShowForm] = useState(() => searchParams.get('new') === '1')
   const [form, setForm] = useState({ party_id: '', check_number: '', bank_name: '', amount: '', currency: 'ILS', due_date: '' })
+  const [image, setImage] = useState<File | null>(null)
+  const imageInputRef = useRef<HTMLInputElement>(null)
   const [endorseTarget, setEndorseTarget] = useState<CheckItem | null>(null)
   const [endorseSupplier, setEndorseSupplier] = useState('')
   const [clearTarget, setClearTarget] = useState<CheckItem | null>(null)
@@ -73,17 +75,21 @@ export default function ChecksPage() {
     if (!form.party_id || !form.check_number || !form.amount || !form.due_date) return
     setBusy(true)
     try {
-      await api.post('/checks', {
-        direction,
-        party_type: partyType,
-        party_id: Number(form.party_id),
-        check_number: form.check_number,
-        bank_name: form.bank_name || null,
-        amount: Number(form.amount),
-        currency: form.currency,
-        due_date: form.due_date,
-      })
+      const data = new FormData()
+      data.append('direction', direction)
+      data.append('party_type', partyType)
+      data.append('party_id', form.party_id)
+      data.append('check_number', form.check_number)
+      if (form.bank_name) data.append('bank_name', form.bank_name)
+      data.append('amount', form.amount)
+      data.append('currency', form.currency)
+      data.append('due_date', form.due_date)
+      if (image) data.append('image', image)
+
+      await api.post('/checks', data, { headers: { 'Content-Type': 'multipart/form-data' } })
       setForm({ party_id: '', check_number: '', bank_name: '', amount: '', currency: 'ILS', due_date: '' })
+      setImage(null)
+      if (imageInputRef.current) imageInputRef.current.value = ''
       setShowForm(false)
       loadAll()
     } finally {
@@ -164,6 +170,23 @@ export default function ChecksPage() {
               </select>
             </div>
             <DatePicker value={form.due_date} onChange={(v) => setForm({ ...form, due_date: v })} placeholder="تاريخ الاستحقاق" />
+
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept="image/*"
+              onChange={(e) => setImage(e.target.files?.[0] ?? null)}
+              className="hidden"
+            />
+            <button
+              type="button"
+              onClick={() => imageInputRef.current?.click()}
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border px-3 py-2 text-sm text-muted hover:border-accent hover:text-accent"
+            >
+              <FontAwesomeIcon icon={faCamera} />
+              {image ? `تم اختيار: ${image.name}` : 'إرفاق صورة الشيك (اختياري)'}
+            </button>
+
             <Button onClick={submit} loading={busy} className="w-full justify-center">
               حفظ
             </Button>
@@ -195,7 +218,22 @@ export default function ChecksPage() {
                       <FontAwesomeIcon icon={faMoneyCheckDollar} className="text-ink/30" />
                       {partyName(c)}
                     </Td>
-                    <Td className="text-muted">{c.check_number}</Td>
+                    <Td className="text-muted">
+                      <span className="flex items-center gap-2">
+                        {c.check_number}
+                        {c.image_path && (
+                          <a
+                            href={`/api/checks/${c.id}/image`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-accent hover:text-accent-hover"
+                            title="عرض صورة الشيك"
+                          >
+                            <FontAwesomeIcon icon={faImage} />
+                          </a>
+                        )}
+                      </span>
+                    </Td>
                     <Td className="text-muted">{c.bank_name ?? '—'}</Td>
                     <Td className="text-muted">{c.amount} {c.currency}</Td>
                     <Td className="text-muted">{formatDate(c.due_date)}</Td>

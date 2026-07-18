@@ -60,4 +60,29 @@ class TelegramService
             return false;
         }
     }
+
+    /**
+     * Sends a photo from an absolute local file path, with an optional caption.
+     */
+    public function sendPhoto(int $chatId, string $absoluteFilePath, string $caption = ''): bool
+    {
+        if (! $this->enabled() || ! is_file($absoluteFilePath)) {
+            return false;
+        }
+
+        try {
+            $response = Http::timeout(20)
+                ->attach('photo', file_get_contents($absoluteFilePath), basename($absoluteFilePath))
+                ->post("https://api.telegram.org/bot{$this->token()}/sendPhoto", [
+                    'chat_id' => $chatId,
+                    'caption' => $caption,
+                ]);
+
+            return $response->successful();
+        } catch (\Throwable $e) {
+            Log::warning('Telegram sendPhoto failed', ['error' => $e->getMessage()]);
+
+            return false;
+        }
+    }
 }

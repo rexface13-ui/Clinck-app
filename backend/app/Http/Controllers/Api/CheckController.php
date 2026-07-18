@@ -43,6 +43,7 @@ class CheckController extends Controller
             'amount' => ['required', 'numeric', 'min:0.01'],
             'currency' => ['required', 'string', 'size:3'],
             'due_date' => ['required', 'date'],
+            'image' => ['nullable', 'image', 'max:5120'],
         ]);
 
         return $checkService->receive(
@@ -54,6 +55,7 @@ class CheckController extends Controller
             amount: (float) $data['amount'],
             currency: $data['currency'],
             dueDate: $data['due_date'],
+            image: $request->file('image'),
         );
     }
 
@@ -82,5 +84,13 @@ class CheckController extends Controller
         $cashbox = ! empty($data['cashbox_id']) ? Cashbox::findOrFail($data['cashbox_id']) : null;
 
         return $checkService->clear($check, $cashbox, $cashboxService);
+    }
+
+    public function image(Request $request, CheckModel $check)
+    {
+        abort_unless($request->user()->can('checks.view'), 403);
+        abort_unless($check->image_path, 404);
+
+        return response()->file(\Illuminate\Support\Facades\Storage::disk('local')->path($check->image_path));
     }
 }

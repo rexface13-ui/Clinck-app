@@ -5,15 +5,16 @@ import { faChevronLeft, faChevronRight, faClock, faUserDoctor } from '@fortaweso
 import { api } from '../lib/api'
 import { formatDate, formatTime } from '../lib/formatDate'
 import DatePicker from '../components/DatePicker'
-import { Card, PageHeader, Button, Select } from '../components/ui'
+import { Card, PageHeader, Button, Select, Badge } from '../components/ui'
+import type { BadgeVariant } from '../components/ui'
 import type { Appointment, Doctor, Patient, Slot } from '../types'
 
-const STATUS_STYLES: Record<Appointment['status'], string> = {
-  scheduled: 'bg-accent-soft text-accent border-accent/30',
-  confirmed: 'bg-accent/20 text-accent border-accent/40',
-  done: 'bg-ink/10 text-ink/50 border-ink/10',
-  cancelled: 'bg-danger-soft text-danger/60 border-danger/20 line-through',
-  no_show: 'bg-danger-soft text-danger/60 border-danger/20',
+const STATUS_VARIANTS: Record<Appointment['status'], BadgeVariant> = {
+  scheduled: 'info',
+  confirmed: 'accent',
+  done: 'neutral',
+  cancelled: 'danger',
+  no_show: 'danger',
 }
 
 const STATUS_LABELS: Record<Appointment['status'], string> = {
@@ -35,22 +36,11 @@ function addDays(iso: string, delta: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-function timeToMinutes(t: string): number {
-  const [h, m] = t.split(':').map(Number)
-  return h * 60 + m
-}
-
-function minutesToLabel(mins: number): string {
-  const h = Math.floor(mins / 60)
-  const m = mins % 60
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
-}
-
-interface TimelineRow {
-  minutes: number
-  label: string
-  slot: Slot | null
-  appointment: Appointment | null
+/** A bookable slot, tagged with which doctor/branch it belongs to — slots from every available doctor are merged into one flat, time-sorted list so booking doesn't require picking a doctor first. */
+interface OpenSlot extends Slot {
+  doctorId: number
+  doctorName: string
+  branchId: number
 }
 
 export default function AppointmentsPage() {
@@ -59,79 +49,83 @@ export default function AppointmentsPage() {
 
   const [doctors, setDoctors] = useState<Doctor[]>([])
   const [patients, setPatients] = useState<Patient[]>([])
-  const [doctorId, setDoctorId] = useState<number | null>(null)
-  const [branchId, setBranchId] = useState<number | null>(null)
+  const [doctorFilter, setDoctorFilter] = useState<number | 'all'>('all')
   const [date, setDate] = useState(todayIso())
-  const [slots, setSlots] = useState<Slot[]>([])
   const [dayAppointments, setDayAppointments] = useState<Appointment[]>([])
-  const [selectedSlot, setSelectedSlot] = useState<Slot | null>(null)
+  const [openSlots, setOpenSlots] = useState<OpenSlot[]>([])
+  const [loadingSlots, setLoadingSlots] = useState(false)
+  const [selectedSlot, setSelectedSlot] = useState<OpenSlot | null>(null)
   const [patientId, setPatientId] = useState(preselectedPatient ?? '')
   const [error, setError] = useState<string | null>(null)
   const [booking, setBooking] = useState(false)
 
   useEffect(() => {
-    api.get('/doctors').then((res) => {
-      setDoctors(res.data.data)
-      if (res.data.data.length > 0) setDoctorId(res.data.data[0].id)
-    })
+    api.get('/doctors').then((res) => setDoctors(res.data.data))
     api.get('/patients').then((res) => setPatients(res.data.data))
   }, [])
 
-  const selectedDoctor = doctors.find((d) => d.id === doctorId)
-  const weekday = new Date(date + 'T00:00:00').getDay()
-  const todaysAvailability = (selectedDoctor?.availability ?? []).filter((a) => a.weekday === weekday)
-
-  useEffect(() => {
-    const branch = selectedDoctor?.availability?.[0]?.branch_id
-    if (branch) setBranchId(branch)
-  }, [doctorId, selectedDoctor])
-
-  function loadSlots() {
-    if (!doctorId || !branchId) return
-    setSelectedSlot(null)
-    api
-      .get(`/doctors/${doctorId}/slots`, { params: { branch_id: branchId, date, duration: 30 } })
-      .then((res) => setSlots(res.data.slots))
-
+  function loadAppointments() {
     api
       .get('/appointments', {
-        params: { doctor_id: doctorId, from: `${date}T00:00:00Z`, to: `${date}T23:59:59Z` },
+        params: {
+          doctor_id: doctorFilter === 'all' ? undefined : doctorFilter,
+          from: `${date}T00:00:00Z`,
+          to: `${date}T23:59:59Z`,
+        },
       })
       .then((res) => setDayAppointments(res.data.data))
   }
 
-  useEffect(loadSlots, [doctorId, branchId, date])
+  useEffect(loadAppointments, [date, doctorFilter])
 
-  const timeline = useMemo<TimelineRow[]>(() => {
-    if (todaysAvailability.length === 0) return []
+  function loadOpenSlots() {
+    const weekday = new Date(date + 'T00:00:00').getDay()
+    const candidates = doctors
+      .filter((d) => doctorFilter === 'all' || d.id === doctorFilter)
+      .map((d) => ({ doctor: d, branchId: d.availability?.find((a) => a.weekday === weekday)?.branch_id }))
+      .filter((c): c is { doctor: Doctor; branchId: number } => !!c.branchId)
 
-    const startMin = Math.min(...todaysAvailability.map((a) => timeToMinutes(a.start_time)))
-    const endMin = Math.max(...todaysAvailability.map((a) => timeToMinutes(a.end_time)))
-
-    const rows: TimelineRow[] = []
-    for (let m = startMin; m < endMin; m += 30) {
-      const label = minutesToLabel(m)
-      const slot = slots.find((s) => s.starts_at_display === label) ?? null
-      const appointment = dayAppointments.find((a) => formatTime(a.starts_at) === label) ?? null
-      rows.push({ minutes: m, label, slot, appointment })
+    if (candidates.length === 0) {
+      setOpenSlots([])
+      return
     }
-    return rows
-  }, [todaysAvailability, slots, dayAppointments])
+
+    setLoadingSlots(true)
+    Promise.all(
+      candidates.map(({ doctor, branchId }) =>
+        api
+          .get(`/doctors/${doctor.id}/slots`, { params: { branch_id: branchId, date, duration: 30 } })
+          .then((res) => (res.data.slots as Slot[]).map((s) => ({ ...s, doctorId: doctor.id, doctorName: doctor.full_name, branchId }))),
+      ),
+    )
+      .then((groups) => {
+        const merged = groups.flat().sort((a, b) => a.starts_at.localeCompare(b.starts_at))
+        setOpenSlots(merged)
+      })
+      .finally(() => setLoadingSlots(false))
+  }
+
+  useEffect(() => {
+    setSelectedSlot(null)
+    loadOpenSlots()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [date, doctorFilter, doctors])
 
   async function book() {
-    if (!selectedSlot || !doctorId || !branchId || !patientId) return
+    if (!selectedSlot || !patientId) return
     setBooking(true)
     setError(null)
     try {
       await api.post('/appointments', {
-        branch_id: branchId,
+        branch_id: selectedSlot.branchId,
         patient_id: Number(patientId),
-        doctor_id: doctorId,
+        doctor_id: selectedSlot.doctorId,
         starts_at: selectedSlot.starts_at,
         ends_at: selectedSlot.ends_at,
       })
       setSelectedSlot(null)
-      loadSlots()
+      loadAppointments()
+      loadOpenSlots()
     } catch {
       setError('تعذّر الحجز — قد يكون الوقت محجوزاً بالفعل.')
     } finally {
@@ -139,18 +133,31 @@ export default function AppointmentsPage() {
     }
   }
 
+  const sortedAppointments = useMemo(
+    () => [...dayAppointments].sort((a, b) => a.starts_at.localeCompare(b.starts_at)),
+    [dayAppointments],
+  )
+
   return (
     <div>
-      <PageHeader title="المواعيد" subtitle="جدول الحجوزات اليومي حسب الطبيب" />
+      <PageHeader title="المواعيد" subtitle="مواعيد اليوم عبر كل الأطباء، واحجز بأي وقت متاح بغض النظر عن الطبيب" />
 
       <Card className="mb-6 flex flex-wrap items-center gap-4 p-4">
         <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => setDoctorFilter('all')}
+            className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-sm transition-colors ${
+              doctorFilter === 'all' ? 'border-accent bg-accent text-white' : 'border-border text-ink/70 hover:border-accent/40'
+            }`}
+          >
+            كل الأطباء
+          </button>
           {doctors.map((d) => (
             <button
               key={d.id}
-              onClick={() => setDoctorId(d.id)}
+              onClick={() => setDoctorFilter(d.id)}
               className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-sm transition-colors ${
-                doctorId === d.id ? 'border-accent bg-accent text-white' : 'border-border text-ink/70 hover:border-accent/40'
+                doctorFilter === d.id ? 'border-accent bg-accent text-white' : 'border-border text-ink/70 hover:border-accent/40'
               }`}
             >
               <FontAwesomeIcon icon={faUserDoctor} />
@@ -179,36 +186,48 @@ export default function AppointmentsPage() {
         <Card className="col-span-2 p-4">
           <h2 className="mb-2 flex items-center gap-2 px-2 text-sm font-medium text-ink/70">
             <FontAwesomeIcon icon={faClock} className="text-accent" />
-            {formatDate(date)}
+            مواعيد {formatDate(date)}
           </h2>
 
-          {timeline.length === 0 ? (
-            <p className="p-6 text-center text-sm text-muted">لا يوجد دوام لهذا الطبيب في هذا اليوم.</p>
+          {sortedAppointments.length === 0 ? (
+            <p className="p-6 text-center text-sm text-muted">لا يوجد مواعيد بهذا اليوم.</p>
           ) : (
             <div className="divide-y divide-border/70">
-              {timeline.map((row) => (
-                <div key={row.minutes} className="flex items-center gap-3 py-1.5">
-                  <span className="w-12 shrink-0 font-mono text-xs text-muted">{row.label}</span>
-                  {row.appointment ? (
-                    <div className={`flex-1 rounded-lg border px-3 py-2 text-sm ${STATUS_STYLES[row.appointment.status]}`}>
-                      <span className="font-medium">{row.appointment.patient_name}</span>
-                      <span className="mr-2 text-xs opacity-70">{STATUS_LABELS[row.appointment.status]}</span>
-                    </div>
-                  ) : row.slot ? (
-                    <button
-                      onClick={() => setSelectedSlot(row.slot)}
-                      className={`flex-1 rounded-lg border border-dashed px-3 py-2 text-start text-sm transition-colors ${
-                        selectedSlot?.starts_at === row.slot.starts_at
-                          ? 'border-accent bg-accent-soft text-accent'
-                          : 'border-border text-muted hover:border-accent hover:text-accent'
-                      }`}
-                    >
-                      متاح
-                    </button>
-                  ) : (
-                    <div className="flex-1 rounded-lg px-3 py-2 text-sm text-ink/20">—</div>
-                  )}
+              {sortedAppointments.map((a) => (
+                <div key={a.id} className="flex items-center gap-3 px-2 py-2.5 text-sm">
+                  <span className="w-14 shrink-0 font-mono text-xs text-muted">{formatTime(a.starts_at)}</span>
+                  <span className="flex-1 font-medium text-ink">{a.patient_name}</span>
+                  <span className="text-xs text-muted">{a.doctor_name}</span>
+                  <Badge variant={STATUS_VARIANTS[a.status]}>{STATUS_LABELS[a.status]}</Badge>
                 </div>
+              ))}
+            </div>
+          )}
+
+          <h2 className="mb-2 mt-6 flex items-center gap-2 border-t border-border px-2 pt-4 text-sm font-medium text-ink/70">
+            <FontAwesomeIcon icon={faClock} className="text-accent" />
+            الأوقات المتاحة — اختر أي وقت، بأي طبيب
+          </h2>
+
+          {loadingSlots ? (
+            <p className="p-6 text-center text-sm text-muted">جارِ التحميل...</p>
+          ) : openSlots.length === 0 ? (
+            <p className="p-6 text-center text-sm text-muted">لا يوجد دوام أو أوقات متاحة بهذا اليوم.</p>
+          ) : (
+            <div className="flex flex-wrap gap-2 px-2 py-2">
+              {openSlots.map((s) => (
+                <button
+                  key={`${s.doctorId}-${s.starts_at}`}
+                  onClick={() => setSelectedSlot(s)}
+                  className={`flex items-center gap-2 rounded-lg border border-dashed px-3 py-2 text-sm transition-colors ${
+                    selectedSlot?.doctorId === s.doctorId && selectedSlot?.starts_at === s.starts_at
+                      ? 'border-accent bg-accent-soft text-accent'
+                      : 'border-border text-muted hover:border-accent hover:text-accent'
+                  }`}
+                >
+                  <span className="font-mono">{s.starts_at_display}</span>
+                  {doctorFilter === 'all' && <span className="text-xs opacity-70">· {s.doctorName}</span>}
+                </button>
               ))}
             </div>
           )}
@@ -217,12 +236,13 @@ export default function AppointmentsPage() {
         <Card className="p-6">
           <h2 className="mb-4 text-sm font-medium text-ink/70">حجز موعد</h2>
           {!selectedSlot ? (
-            <p className="text-sm text-muted">اختر وقتاً متاحاً من الجدول.</p>
+            <p className="text-sm text-muted">اختر وقتاً متاحاً من القائمة.</p>
           ) : (
             <>
-              <p className="mb-3 text-sm text-ink">
+              <p className="mb-1 text-sm text-ink">
                 الوقت: <span className="font-medium">{selectedSlot.starts_at_display}</span>
               </p>
+              <p className="mb-3 text-sm text-muted">مع {selectedSlot.doctorName}</p>
               <Select label="المريض" value={patientId} onChange={(e) => setPatientId(e.target.value)} className="mb-3">
                 <option value="">اختر مريضاً</option>
                 {patients.map((p) => (

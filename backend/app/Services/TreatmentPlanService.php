@@ -39,7 +39,7 @@ class TreatmentPlanService
             $total = 0;
 
             foreach ($plan->items as $item) {
-                $exchangeRate = $item->currency === 'ILS' ? 1 : 1; // no live FX source yet; ILS-only in practice
+                $exchangeRate = 1; // no live FX source yet; ILS-only in practice
                 $lineAmount = $item->unit_price * $item->sessions_count;
                 $amountIls = $lineAmount * $exchangeRate;
                 $total += $amountIls;

@@ -93,6 +93,9 @@ export interface ArchPosition {
   x: number
   y: number
   rotationDeg: number
+  /** Absolute (un-rotated) position for the tooth number label, sitting just outside the ring at this tooth's true circle angle. */
+  labelX: number
+  labelY: number
 }
 
 export interface ArchConfig {
@@ -114,7 +117,7 @@ export interface ArchConfig {
  * overlap the other arch's outermost teeth at the sides.
  */
 const CIRCLE_CX = 260
-const CIRCLE_CY = 172
+const CIRCLE_CY = 190
 const CIRCLE_RADIUS = 148
 const GAP_DEG = 7
 
@@ -140,12 +143,19 @@ export function archPosition(index: number, total: number, arch: ArchConfig): Ar
   const x = arch.cx + arch.radius * Math.cos(posAngle)
   const y = arch.cy - arch.radius * Math.sin(posAngle)
 
+  // Label sits at the same true circle angle, just further out — computed
+  // independently of tooth rotation so labels never cluster, overlap, or
+  // get pushed off-canvas at the sides/apex the way a rotated local offset would.
+  const labelRadius = arch.radius + 17
+  const labelX = arch.cx + labelRadius * Math.cos(posAngle)
+  const labelY = arch.cy - labelRadius * Math.sin(posAngle)
+
   // Rotation uses the un-gapped 180deg->0deg mapping so tooth orientation
   // (cusp pointing toward the center of the mouth) stays exactly as tuned before.
   const angleDeg = 180 * (1 - t)
   const rotationDeg = arch.direction === -1 ? angleDeg - 90 : 90 - angleDeg
 
-  return { x, y, rotationDeg }
+  return { x, y, rotationDeg, labelX, labelY }
 }
 
-export const VIEWBOX = { width: 520, height: 344 }
+export const VIEWBOX = { width: 520, height: 380 }

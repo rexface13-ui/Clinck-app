@@ -136,6 +136,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('checks/{check}/endorse', [CheckController::class, 'endorse']);
     Route::post('checks/{check}/bounce', [CheckController::class, 'bounce']);
     Route::post('checks/{check}/clear', [CheckController::class, 'clear']);
+    Route::get('checks/{check}/image', [CheckController::class, 'image']);
 
     // Telegram linking (Phase 4)
     Route::get('telegram-link', [TelegramLinkController::class, 'show']);

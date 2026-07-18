@@ -20,7 +20,11 @@ class StorePaymentRequest extends FormRequest
             'amount' => ['required', 'numeric', 'min:0.01'],
             'currency' => ['required', 'string', 'size:3'],
             'exchange_rate' => ['required', 'numeric', 'min:0.000001'],
-            'method' => ['required', Rule::in(['cash', 'card', 'transfer', 'check'])],
+            // 'check' is intentionally excluded — a check isn't cash-in-hand, it
+            // shouldn't credit the cashbox until it clears. Checks go through
+            // POST /checks (CheckService::receive) instead, which only credits
+            // the cashbox on clear().
+            'method' => ['required', Rule::in(['cash', 'card', 'transfer'])],
         ];
     }
 }

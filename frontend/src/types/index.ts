@@ -176,7 +176,7 @@ export interface Payment {
   currency: string
   exchange_rate: string
   amount_ils: string
-  method: 'cash' | 'card' | 'transfer' | 'check'
+  method: 'cash' | 'card' | 'transfer'
   paid_at: string
 }
 
@@ -321,6 +321,7 @@ export interface CheckItem {
   amount: string
   currency: string
   due_date: string
+  image_path: string | null
   status: 'in_wallet' | 'endorsed' | 'bounced' | 'cleared'
   received_at: string
   events?: CheckEvent[]
