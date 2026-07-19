@@ -3,7 +3,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faPlus, faTruck } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
-import { Card, PageHeader, Button, Table, Thead, Th, Td, Tr, EmptyRow } from '../components/ui'
+import { Card, PageHeader, Button, Table, Thead, Th, Td, Tr, EmptyRow, SearchableSelect } from '../components/ui'
 import type { Cashbox, Supplier, SupplierLedger } from '../types'
 
 export default function SuppliersPage() {
@@ -119,12 +119,13 @@ export default function SuppliersPage() {
 
               {canManage && (
                 <Card className="flex flex-wrap items-end gap-2 p-4">
-                  <select value={payForm.cashbox_id} onChange={(e) => setPayForm({ ...payForm, cashbox_id: e.target.value })} className="rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
-                    <option value="">الصندوق...</option>
-                    {cashboxes.map((c) => (
-                      <option key={c.id} value={c.id}>{c.name} ({c.currency})</option>
-                    ))}
-                  </select>
+                  <SearchableSelect
+                    options={cashboxes.map((c) => ({ value: String(c.id), label: c.name, sublabel: c.currency }))}
+                    value={payForm.cashbox_id}
+                    onChange={(value) => setPayForm({ ...payForm, cashbox_id: value })}
+                    placeholder="الصندوق..."
+                    className="w-48"
+                  />
                   <input type="number" placeholder="المبلغ" value={payForm.amount} onChange={(e) => setPayForm({ ...payForm, amount: e.target.value })} className="w-28 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
                   <Button onClick={pay} loading={busy} className="px-4 py-1.5">
                     دفع للمورد

@@ -18,6 +18,7 @@ import PurchaseInvoicesPage from './pages/PurchaseInvoicesPage'
 import ChecksPage from './pages/ChecksPage'
 import SettingsPage from './pages/SettingsPage'
 import DashboardPage from './pages/DashboardPage'
+import DebtsPage from './pages/DebtsPage'
 
 function App() {
   return (
@@ -46,6 +47,7 @@ function App() {
             <Route path="/items" element={<ItemsPage />} />
             <Route path="/purchase-invoices" element={<PurchaseInvoicesPage />} />
             <Route path="/checks" element={<ChecksPage />} />
+            <Route path="/debts" element={<DebtsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Route>
         </Routes>

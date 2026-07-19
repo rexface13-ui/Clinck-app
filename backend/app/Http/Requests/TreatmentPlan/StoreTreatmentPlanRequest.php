@@ -16,7 +16,8 @@ class StoreTreatmentPlanRequest extends FormRequest
     {
         return [
             'patient_id' => ['required', Rule::exists('patients', 'id')],
-            'doctor_id' => ['required', Rule::exists('doctors', 'id')],
+            'doctor_id' => ['nullable', Rule::exists('doctors', 'id')],
+            'appointment_id' => ['nullable', Rule::exists('appointments', 'id')],
             'notes' => ['nullable', 'string'],
         ];
     }

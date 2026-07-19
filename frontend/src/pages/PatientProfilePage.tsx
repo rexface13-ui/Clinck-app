@@ -8,13 +8,25 @@ import {
   faCheck,
   faClockRotateLeft,
   faUserXmark,
+  faPen,
+  faTrash,
 } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import ToothChart from '../components/ToothChart'
 import TreatmentPlanPanel from '../components/TreatmentPlanPanel'
 import PatientLedgerPanel from '../components/PatientLedgerPanel'
+import DatePicker from '../components/DatePicker'
+import CompleteVisitModal from '../components/CompleteVisitModal'
 import { Card, Badge, Button } from '../components/ui'
-import type { PatientProfile, Service, Ledger } from '../types'
+import type { PatientProfile, Service, Ledger, Doctor, TreatmentPlan } from '../types'
+
+const STATUS_LABELS: Record<string, string> = {
+  scheduled: 'مجدول',
+  confirmed: 'مؤكد',
+  done: 'تمت',
+  cancelled: 'ملغى',
+  no_show: 'لم يحضر',
+}
 
 function isToday(iso: string): boolean {
   const d = new Date(iso)
@@ -29,16 +41,82 @@ export default function PatientProfilePage() {
   const [ledger, setLedger] = useState<Ledger | null>(null)
   const [noteBody, setNoteBody] = useState('')
   const [updatingVisit, setUpdatingVisit] = useState(false)
+  const [pickingForPlanId, setPickingForPlanId] = useState<number | null>(null)
+  const [pickedTooth, setPickedTooth] = useState<{ planId: number; toothNumbers: number[] } | null>(null)
+  const [busyToothNumbers, setBusyToothNumbers] = useState<Map<number, string[]>>(new Map())
+  const [doctors, setDoctors] = useState<Doctor[]>([])
+  const [editingAppointmentId, setEditingAppointmentId] = useState<number | null>(null)
+  const [editForm, setEditForm] = useState({ date: '', time: '', doctor_id: '' })
+  const [editError, setEditError] = useState<string | null>(null)
+  const [savingEdit, setSavingEdit] = useState(false)
+  const [completingVisit, setCompletingVisit] = useState<{ id: number; doctorId: number | null } | null>(null)
+  const [startingWalkIn, setStartingWalkIn] = useState(false)
+  const [plansRefreshSignal, setPlansRefreshSignal] = useState(0)
 
   function load() {
     api.get(`/patients/${id}/profile`).then((res) => setProfile(res.data))
     api.get(`/patients/${id}/ledger`).then((res) => setLedger(res.data))
+    setPlansRefreshSignal((n) => n + 1)
   }
 
   useEffect(() => {
     load()
     api.get('/services').then((res) => setServices(res.data.data))
+    api.get('/doctors').then((res) => setDoctors(res.data.data))
   }, [id])
+
+  function startEditAppointment(a: { id: number; starts_at: string; doctor_id: number | null }) {
+    const d = new Date(a.starts_at)
+    const pad = (n: number) => String(n).padStart(2, '0')
+    setEditingAppointmentId(a.id)
+    setEditForm({
+      date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
+      time: `${pad(d.getHours())}:${pad(d.getMinutes())}`,
+      doctor_id: a.doctor_id ? String(a.doctor_id) : '',
+    })
+    setEditError(null)
+  }
+
+  async function saveEditAppointment() {
+    if (!editingAppointmentId || !editForm.date || !editForm.time) return
+    setSavingEdit(true)
+    setEditError(null)
+    try {
+      const startsAt = new Date(`${editForm.date}T${editForm.time}:00`)
+      const endsAt = new Date(startsAt.getTime() + 30 * 60000)
+      await api.put(`/appointments/${editingAppointmentId}`, {
+        doctor_id: editForm.doctor_id ? Number(editForm.doctor_id) : null,
+        starts_at: startsAt.toISOString(),
+        ends_at: endsAt.toISOString(),
+      })
+      setEditingAppointmentId(null)
+      load()
+    } catch {
+      setEditError('تعذّر الحفظ — تأكد إنه الطبيب مو مشغول بهذا الوقت.')
+    } finally {
+      setSavingEdit(false)
+    }
+  }
+
+  function handlePlansLoaded(plans: TreatmentPlan[]) {
+    const planStatusLabel: Record<TreatmentPlan['status'], string> = { draft: 'مسودة', approved: 'معتمدة', cancelled: 'ملغاة' }
+    const busy = new Map<number, string[]>()
+    for (const plan of plans) {
+      if (plan.status === 'cancelled') continue
+      for (const item of plan.items) {
+        if (!item.tooth_number) continue
+        const detail = `${item.service_name ?? 'خدمة'} — خطة ${planStatusLabel[plan.status]}${plan.doctor_name ? ` (${plan.doctor_name})` : ''}`
+        busy.set(item.tooth_number, [...(busy.get(item.tooth_number) ?? []), detail])
+      }
+    }
+    setBusyToothNumbers(busy)
+  }
+
+  async function deleteAppointment(appointmentId: number) {
+    if (!window.confirm('حذف الموعد نهائياً؟ لو كان مرتبط بجلسة من خطة علاج بترجع الجلسة "بانتظار الجدولة"، ولو كان موعد "زيارة الآن" بتتلغى خطته وفاتورته وديونه تلقائياً معه.')) return
+    await api.delete(`/appointments/${appointmentId}`)
+    load()
+  }
 
   async function setVisitOutcome(appointmentId: number, status: 'done' | 'cancelled' | 'no_show') {
     setUpdatingVisit(true)
@@ -47,6 +125,24 @@ export default function PatientProfilePage() {
       load()
     } finally {
       setUpdatingVisit(false)
+    }
+  }
+
+  async function startWalkInVisit() {
+    setStartingWalkIn(true)
+    try {
+      const now = new Date()
+      const ends = new Date(now.getTime() + 30 * 60000)
+      const res = await api.post('/appointments', {
+        branch_id: patient.branch_id,
+        patient_id: Number(id),
+        doctor_id: null,
+        starts_at: now.toISOString(),
+        ends_at: ends.toISOString(),
+      })
+      setCompletingVisit({ id: res.data.data.id, doctorId: null })
+    } finally {
+      setStartingWalkIn(false)
     }
   }
 
@@ -94,12 +190,18 @@ export default function PatientProfilePage() {
             <p className="mt-1 text-sm text-muted">ولي الأمر: {patient.guardian_name} ({patient.guardian_phone})</p>
           )}
         </div>
-        <Link to={`/appointments?patient_id=${patient.id}`}>
-          <Button>
-            <FontAwesomeIcon icon={faCalendarPlus} />
-            حجز موعد
+        <div className="flex gap-2">
+          <Button variant="secondary" onClick={startWalkInVisit} disabled={startingWalkIn}>
+            <FontAwesomeIcon icon={faCheck} />
+            {startingWalkIn ? 'جارِ التسجيل...' : 'اجاني هلق (بدون موعد)'}
           </Button>
-        </Link>
+          <Link to={`/appointments?patient_id=${patient.id}`}>
+            <Button>
+              <FontAwesomeIcon icon={faCalendarPlus} />
+              حجز موعد
+            </Button>
+          </Link>
+        </div>
       </Card>
 
       {todayAppointment && (
@@ -142,20 +244,42 @@ export default function PatientProfilePage() {
         </Card>
       )}
 
-      <h2 className="mb-3 text-sm font-medium text-ink/70">رسمة الأسنان</h2>
-      <div className="mb-6">
-        <ToothChart
+      <div className="mb-6 grid grid-cols-1 gap-6 2xl:grid-cols-[1fr_1.4fr]">
+        {/* DOM order matters here, not just visual: this app is RTL, so the first grid
+            child renders on the right. Tooth chart must appear on screen-left, so it's
+            written second even though it reads first in the page top-to-bottom. Its
+            column is also wider than the plan's — the chart is the thing that needs
+            room to be legible/clickable, the plan is just a table. */}
+        <TreatmentPlanPanel
           patientId={patient.id}
-          isChild={patient.is_child}
-          toothStates={tooth_states}
-          toothFindings={tooth_findings}
-          services={services}
-          onChanged={load}
+          pickedTooth={pickedTooth}
+          onToothConsumed={() => setPickedTooth(null)}
+          onRequestPickTooth={(planId) => setPickingForPlanId((cur) => (cur === planId ? null : planId))}
+          pickingForPlanId={pickingForPlanId}
+          onPlansLoaded={handlePlansLoaded}
+          refreshSignal={plansRefreshSignal}
         />
+        <div>
+          <h2 className="mb-3 text-sm font-medium text-ink/70">رسمة الأسنان</h2>
+          <ToothChart
+            patientId={patient.id}
+            isChild={patient.is_child}
+            toothStates={tooth_states}
+            toothFindings={tooth_findings}
+            services={services}
+            onChanged={load}
+            pickMode={pickingForPlanId !== null}
+            onPickTooth={(toothNumbers) => {
+              if (pickingForPlanId === null) return
+              setPickedTooth({ planId: pickingForPlanId, toothNumbers })
+              setPickingForPlanId(null)
+            }}
+            busyToothNumbers={busyToothNumbers}
+          />
+        </div>
       </div>
 
-      <div className="mb-6 grid grid-cols-2 gap-6">
-        <TreatmentPlanPanel patientId={patient.id} />
+      <div className="mb-6">
         <PatientLedgerPanel patientId={patient.id} />
       </div>
 
@@ -167,10 +291,73 @@ export default function PatientProfilePage() {
           ) : (
             <ul className="space-y-2">
               {appointments.map((a) => (
-                <li key={a.id} className="flex justify-between border-b border-border/70 pb-2 text-sm last:border-0">
-                  <span>{a.doctor_name}</span>
-                  <span className="text-muted">{a.starts_at_display}</span>
-                  <span className="text-muted">{a.status}</span>
+                <li key={a.id} className="border-b border-border/70 pb-2 text-sm last:border-0">
+                  <div className="flex items-center justify-between">
+                    <span>{a.doctor_name}</span>
+                    <span className="text-muted">{a.starts_at_display}</span>
+                    <span className="text-muted">{STATUS_LABELS[a.status] ?? a.status}</span>
+                    <div className="flex items-center gap-3">
+                      {(a.status === 'scheduled' || a.status === 'confirmed') && (
+                        <button
+                          onClick={() => setCompletingVisit({ id: a.id, doctorId: a.doctor_id })}
+                          className="rounded-lg bg-accent-soft px-2.5 py-1 text-xs font-medium text-accent hover:bg-accent hover:text-white"
+                        >
+                          تمّت الزيارة
+                        </button>
+                      )}
+                      {(a.status === 'scheduled' || a.status === 'confirmed') && (
+                        <button
+                          onClick={() => startEditAppointment(a)}
+                          className="flex items-center gap-1 text-xs text-accent hover:underline"
+                        >
+                          <FontAwesomeIcon icon={faPen} />
+                          تعديل
+                        </button>
+                      )}
+                      <button
+                        onClick={() => deleteAppointment(a.id)}
+                        className="flex items-center gap-1 text-xs text-danger hover:underline"
+                      >
+                        <FontAwesomeIcon icon={faTrash} />
+                        حذف
+                      </button>
+                    </div>
+                  </div>
+
+                  {editingAppointmentId === a.id && (
+                    <div className="mt-2 space-y-2 rounded-lg bg-background p-3">
+                      <div className="flex gap-2">
+                        <div className="flex-1">
+                          <DatePicker value={editForm.date} onChange={(v) => setEditForm({ ...editForm, date: v })} placeholder="التاريخ" />
+                        </div>
+                        <input
+                          type="time"
+                          value={editForm.time}
+                          onChange={(e) => setEditForm({ ...editForm, time: e.target.value })}
+                          className="rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
+                        />
+                      </div>
+                      <select
+                        value={editForm.doctor_id}
+                        onChange={(e) => setEditForm({ ...editForm, doctor_id: e.target.value })}
+                        className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
+                      >
+                        <option value="">بدون طبيب محدد</option>
+                        {doctors.map((d) => (
+                          <option key={d.id} value={d.id}>{d.full_name}</option>
+                        ))}
+                      </select>
+                      {editError && <p className="text-xs text-danger">{editError}</p>}
+                      <div className="flex gap-2">
+                        <Button onClick={saveEditAppointment} disabled={savingEdit} className="flex-1 justify-center px-3 py-1.5 text-xs">
+                          {savingEdit ? 'جارِ الحفظ...' : 'حفظ الموعد الجديد'}
+                        </Button>
+                        <button onClick={() => setEditingAppointmentId(null)} className="rounded-xl px-3 py-1.5 text-xs text-muted hover:bg-background">
+                          إلغاء
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>
@@ -206,6 +393,17 @@ export default function PatientProfilePage() {
           )}
         </Card>
       </div>
+
+      {completingVisit && (
+        <CompleteVisitModal
+          appointmentId={completingVisit.id}
+          patientId={patient.id}
+          patientName={patient.full_name}
+          doctorId={completingVisit.doctorId}
+          onClose={() => setCompletingVisit(null)}
+          onDone={load}
+        />
+      )}
     </div>
   )
 }

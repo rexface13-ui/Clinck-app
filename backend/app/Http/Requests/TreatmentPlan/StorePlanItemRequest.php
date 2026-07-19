@@ -22,6 +22,7 @@ class StorePlanItemRequest extends FormRequest
             'unit_price' => ['required', 'numeric', 'min:0'],
             'currency' => ['sometimes', 'string', 'size:3'],
             'sessions_count' => ['sometimes', 'integer', 'min:1'],
+            'interval_days' => ['nullable', 'integer', 'min:1'],
         ];
     }
 }

@@ -27,24 +27,36 @@ class DashboardController extends Controller
         $canViewInventory = $user->can('inventory.view');
         $canViewFinance = $canViewCash || $canViewCommissions || $canViewChecks;
 
-        $todayStart = Carbon::today();
-        $todayEnd = Carbon::tomorrow();
-        $monthStart = Carbon::now()->startOfMonth();
+        // "Today"/"this month" must be computed in the clinic's local timezone,
+        // not the server's storage timezone (UTC) — otherwise the boundary
+        // hours (e.g. 00:00-03:00 local) fall on the wrong calendar day.
+        $timezone = config('dentaflow.display_timezone');
+        $todayStart = Carbon::today($timezone)->timezone('UTC');
+        $todayEnd = Carbon::tomorrow($timezone)->timezone('UTC');
+        $monthStart = Carbon::now($timezone)->startOfMonth()->timezone('UTC');
 
         $todayAppointmentsCount = Appointment::whereBetween('starts_at', [$todayStart, $todayEnd])->count();
 
-        $monthRevenue = $canViewFinance ? (float) Invoice::where('status', '!=', 'cancelled')
+        // 'void' is the actual "cancelled" status on invoices (see Invoice
+        // status enum) — a plan that got cancelled voids its invoice, and
+        // that must not still count as revenue.
+        $monthRevenue = $canViewFinance ? (float) Invoice::where('status', '!=', 'void')
             ->whereBetween('issued_at', [$monthStart, Carbon::now()])
             ->sum('total_amount_ils') : null;
 
-        $outstandingBalance = $canViewFinance ? (float) PatientTransaction::sum('amount_ils') : null;
+        // Signed sum, matching PatientBillingController::ledger(): charges/
+        // adjustments increase what's owed, payments/refunds reduce it. A
+        // raw sum() double-counts every payment as if it were still owed.
+        $outstandingBalance = $canViewFinance ? (float) PatientTransaction::sum(DB::raw(
+            "CASE WHEN type IN ('charge','adjustment') THEN amount_ils ELSE -amount_ils END"
+        )) : null;
 
         $unsettledCommissions = $canViewCommissions ? (float) DoctorTransaction::whereNull('settled_at')->sum('amount_ils') : null;
 
         $cashboxesTotal = $canViewCash ? Cashbox::sum('balance') : null;
 
         $checksDueSoon = $canViewChecks ? CheckModel::where('status', 'in_wallet')
-            ->whereBetween('due_date', [Carbon::today(), Carbon::today()->addDays(7)])
+            ->whereBetween('due_date', [Carbon::today($timezone), Carbon::today($timezone)->addDays(7)])
             ->count() : null;
 
         return response()->json([
@@ -62,6 +74,8 @@ class DashboardController extends Controller
                 ->get(['id', 'patient_id', 'doctor_id', 'starts_at', 'status'])
                 ->map(fn (Appointment $a) => [
                     'id' => $a->id,
+                    'patient_id' => $a->patient_id,
+                    'doctor_id' => $a->doctor_id,
                     'time' => $a->starts_at->format('H:i'),
                     'patient_name' => $a->patient?->full_name,
                     'doctor_name' => $a->doctor?->full_name,
@@ -92,13 +106,13 @@ class DashboardController extends Controller
                 ]) : [],
             'alerts' => [
                 'checks_due' => $canViewChecks ? CheckModel::where('status', 'in_wallet')
-                    ->whereBetween('due_date', [Carbon::today(), Carbon::today()->addDays(7)])
+                    ->whereBetween('due_date', [Carbon::today($timezone), Carbon::today($timezone)->addDays(7)])
                     ->orderBy('due_date')
                     ->limit(5)
                     ->get(['id', 'check_number', 'amount', 'currency', 'due_date']) : [],
                 'expiring_lots' => $canViewInventory ? ItemLot::with('item:id,name')
                     ->whereNotNull('expiry_date')
-                    ->whereBetween('expiry_date', [Carbon::today(), Carbon::today()->addDays(30)])
+                    ->whereBetween('expiry_date', [Carbon::today($timezone), Carbon::today($timezone)->addDays(30)])
                     ->where('quantity_remaining', '>', 0)
                     ->orderBy('expiry_date')
                     ->limit(5)

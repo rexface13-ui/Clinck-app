@@ -6,7 +6,6 @@ use App\Models\Cashbox;
 use App\Models\CashboxTransaction;
 use App\Models\CheckEvent;
 use App\Models\CheckModel;
-use App\Models\Patient;
 use App\Models\PatientTransaction;
 use App\Models\Supplier;
 use App\Models\SupplierTransaction;
@@ -55,6 +54,25 @@ class CheckService
                 'event_type' => 'received',
                 'occurred_at' => now(),
             ]);
+
+            // A check in hand settles the patient's debt immediately — the
+            // clinic doesn't wait for the bank to clear it before the
+            // patient's balance reflects the payment. If the check later
+            // bounces, bounce() puts the charge back.
+            if ($direction === 'incoming' && $partyType === 'patient') {
+                PatientTransaction::create([
+                    'clinic_id' => $check->clinic_id,
+                    'patient_id' => $partyId,
+                    'type' => 'payment',
+                    'reference_type' => 'check',
+                    'reference_id' => $check->id,
+                    'amount' => $amount,
+                    'currency' => $currency,
+                    'exchange_rate' => 1,
+                    'amount_ils' => $amount,
+                    'occurred_at' => now(),
+                ]);
+            }
 
             return $check->fresh('events');
         });
@@ -159,16 +177,35 @@ class CheckService
                 ]);
             }
 
+            // receive() settled the patient's debt as soon as the check came
+            // in hand (regardless of it having since been endorsed) — a
+            // bounce reverses that settlement, so the debt goes back on the
+            // patient's ledger.
+            if ($check->direction === 'incoming' && $check->party_type === 'patient') {
+                PatientTransaction::create([
+                    'clinic_id' => $check->clinic_id,
+                    'patient_id' => $check->party_id,
+                    'type' => 'charge',
+                    'reference_type' => 'check',
+                    'reference_id' => $check->id,
+                    'amount' => $check->amount,
+                    'currency' => $check->currency,
+                    'exchange_rate' => 1,
+                    'amount_ils' => $check->amount,
+                    'occurred_at' => now(),
+                ]);
+            }
+
             return $check->fresh('events');
         });
     }
 
     /**
-     * Clearing an incoming check that was never endorsed IS a patient
-     * payment — it settles the patient's ledger and lands in a cashbox.
-     * Clearing an outgoing check to a supplier settles the supplier
-     * ledger. An incoming check that was already endorsed clears with no
-     * further ledger effect (the endorsement already settled it).
+     * The patient's ledger is already settled at receive() time — clearing
+     * an incoming check just means the money has physically landed, so this
+     * only moves the cashbox (skipped if it was already endorsed to a
+     * supplier, since the cash never passed through the clinic's hands).
+     * Clearing an outgoing check to a supplier settles the supplier ledger.
      */
     public function clear(CheckModel $check, ?Cashbox $cashbox, CashboxService $cashboxService): CheckModel
     {
@@ -189,21 +226,6 @@ class CheckService
             if ($check->direction === 'incoming' && $wasInWallet) {
                 abort_if(! $cashbox, 422, 'اختر الصندوق الذي استُلم فيه الشيك.');
                 abort_if($cashbox->currency !== $check->currency, 422, 'عملة الشيك لازم تطابق عملة الصندوق.');
-
-                $patient = Patient::withoutGlobalScopes()->findOrFail($check->party_id);
-
-                PatientTransaction::create([
-                    'clinic_id' => $check->clinic_id,
-                    'patient_id' => $patient->id,
-                    'type' => 'payment',
-                    'reference_type' => 'check',
-                    'reference_id' => $check->id,
-                    'amount' => $check->amount,
-                    'currency' => $check->currency,
-                    'exchange_rate' => 1,
-                    'amount_ils' => $check->amount,
-                    'occurred_at' => now(),
-                ]);
 
                 $cashboxService->record($cashbox, 'check_in', 'check', $check->id, (float) $check->amount);
             } elseif ($check->direction === 'outgoing') {

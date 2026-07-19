@@ -88,14 +88,14 @@ export default function PatientsListPage() {
       const res = await api.post('/patients', payload)
       const patientId = res.data.data.id
 
-      if (form.walkIn && form.walkInDoctorId) {
+      if (form.walkIn) {
         const now = new Date()
         const ends = new Date(now.getTime() + 30 * 60 * 1000)
         try {
           await api.post('/appointments', {
             branch_id: form.branch_id,
             patient_id: patientId,
-            doctor_id: Number(form.walkInDoctorId),
+            doctor_id: form.walkInDoctorId ? Number(form.walkInDoctorId) : null,
             starts_at: now.toISOString(),
             ends_at: ends.toISOString(),
           })
@@ -219,12 +219,11 @@ export default function PatientsListPage() {
             {form.walkIn && (
               <div className="mt-3">
                 <Select
-                  label="الطبيب المناوب"
-                  required={form.walkIn}
+                  label="الطبيب المناوب (اختياري)"
                   value={form.walkInDoctorId}
                   onChange={(e) => setForm({ ...form, walkInDoctorId: e.target.value })}
                 >
-                  <option value="">اختر طبيباً</option>
+                  <option value="">بدون طبيب محدد</option>
                   {doctors.map((d) => (
                     <option key={d.id} value={d.id}>{d.full_name}</option>
                   ))}

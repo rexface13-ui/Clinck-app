@@ -13,6 +13,7 @@ import {
   VIEWBOX,
   archPosition,
   cuspPositions,
+  primaryCanonicalIndex,
   toothCrownPath,
   toothShapeType,
   toothSize,
@@ -27,6 +28,11 @@ interface Props {
   toothFindings: ToothFinding[]
   services: Service[]
   onChanged: () => void
+  /** When set, teeth are picked (possibly several at once) instead of opening the finding editor — used to fill a treatment-plan item's tooth number(s) from the chart. */
+  pickMode?: boolean
+  onPickTooth?: (toothNumbers: number[]) => void
+  /** Tooth numbers that already have an item on a draft/approved treatment plan, mapped to a short description of what — surfaced so a second plan isn't accidentally created for the same tooth. */
+  busyToothNumbers?: Map<number, string[]>
 }
 
 interface LaidOutTooth {
@@ -45,14 +51,16 @@ function layoutArch(numbers: number[], primaryNumbers: number[], isChild: boolea
   // A child with only primary dentition has no molars/premolars/wisdom teeth
   // erupted yet, so their chart shows just the 10 real primary tooth numbers
   // per arch — not a mix of primary teeth plus fabricated permanent numbers
-  // (16/17/18 etc.) for teeth that don't exist yet. archPosition spaces
-  // whatever list it's given evenly across the same arc, so a shorter list
-  // still fills the row correctly.
+  // (16/17/18 etc.) for teeth that don't exist yet.
   const list = isChild ? primaryNumbers : numbers
 
   return list.map((number, i) => {
     const isPrimary = number >= 51
-    const pos = archPosition(i, list.length, arch)
+    // Primary teeth sit at the canonical slot their permanent successor
+    // would occupy (out of the full 16-slot arch) instead of being spread
+    // evenly across the whole arc — a child's arch is anatomically shorter
+    // since the back molar slots have nothing erupted into them yet.
+    const pos = isPrimary ? archPosition(primaryCanonicalIndex(number), 16, arch) : archPosition(i, list.length, arch)
     const type = toothShapeType(number, isPrimary)
     const { w, h } = toothSize(type, isPrimary)
 
@@ -70,16 +78,21 @@ function layoutArch(numbers: number[], primaryNumbers: number[], isChild: boolea
   })
 }
 
-export default function ToothChart({ patientId, isChild, toothStates, toothFindings, services, onChanged }: Props) {
+export default function ToothChart({ patientId, isChild, toothStates, toothFindings, services, onChanged, pickMode = false, onPickTooth, busyToothNumbers }: Props) {
   const { can } = useAuth()
-  const [selectedTooth, setSelectedTooth] = useState<number | null>(null)
+  const [selectedTeeth, setSelectedTeeth] = useState<number[]>([])
+  const [multiSelect, setMultiSelect] = useState(false)
   const [surfaces, setSurfaces] = useState<string[]>([])
   const [findingType, setFindingType] = useState('caries')
   const [status, setStatus] = useState<'planned' | 'in_progress' | 'done'>('planned')
+  const [markMissing, setMarkMissing] = useState(false)
   const [serviceId, setServiceId] = useState<string>('')
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [externalNoteOpen, setExternalNoteOpen] = useState(false)
+  const [externalNote, setExternalNote] = useState('')
+  const [savingExternalNote, setSavingExternalNote] = useState(false)
 
   const stateByTooth = useMemo(() => {
     const map = new Map<number, string>()
@@ -112,14 +125,46 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
     return '#fff8f0'
   }
 
-  function openTooth(tooth: number) {
-    setSelectedTooth(tooth)
+  function resetForm() {
     setSurfaces([])
     setFindingType('caries')
     setStatus('planned')
+    setMarkMissing(false)
     setServiceId('')
     setNote('')
     setError(null)
+  }
+
+  function openTooth(tooth: number) {
+    if (pickMode || multiSelect) {
+      setSelectedTeeth((prev) => (prev.includes(tooth) ? prev.filter((n) => n !== tooth) : [...prev, tooth]))
+      return
+    }
+    setSelectedTeeth([tooth])
+    resetForm()
+  }
+
+  function confirmPick() {
+    if (selectedTeeth.length === 0) return
+    onPickTooth?.(selectedTeeth)
+    setSelectedTeeth([])
+  }
+
+  function selectAll() {
+    setMultiSelect(true)
+    setSelectedTeeth(teeth.filter((t) => stateByTooth.get(t.number) !== 'missing').map((t) => t.number))
+    resetForm()
+  }
+
+  function selectArch(archTeeth: number[]) {
+    setMultiSelect(true)
+    setSelectedTeeth(archTeeth.filter((n) => teeth.some((t) => t.number === n) && stateByTooth.get(n) !== 'missing'))
+    resetForm()
+  }
+
+  function clearSelection() {
+    setMultiSelect(false)
+    setSelectedTeeth([])
   }
 
   function toggleSurface(s: string) {
@@ -127,19 +172,22 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
   }
 
   async function saveFinding() {
-    if (!selectedTooth) return
+    if (selectedTeeth.length === 0) return
     setSaving(true)
     setError(null)
     try {
-      await api.post(`/patients/${patientId}/chart/findings`, {
-        tooth_number: selectedTooth,
-        surfaces: surfaces.length ? surfaces.join('') : null,
-        finding_type: findingType,
-        status,
-        service_id: serviceId || null,
-        note: note || null,
-      })
-      setSelectedTooth(null)
+      for (const tooth of selectedTeeth) {
+        await api.post(`/patients/${patientId}/chart/findings`, {
+          tooth_number: tooth,
+          surfaces: surfaces.length ? surfaces.join('') : null,
+          finding_type: findingType,
+          status,
+          marks_missing: markMissing,
+          service_id: serviceId || null,
+          note: note || null,
+        })
+      }
+      clearSelection()
       onChanged()
     } catch {
       setError('تعذّر الحفظ. تحقق من الحقول.')
@@ -149,12 +197,66 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
   }
 
   const canManage = can('dental_chart.manage')
-  const history = selectedTooth ? toothFindings.filter((f) => f.tooth_number === selectedTooth) : []
+  const singleSelectedTooth = selectedTeeth.length === 1 ? selectedTeeth[0] : null
+  const history = singleSelectedTooth ? toothFindings.filter((f) => f.tooth_number === singleSelectedTooth) : []
+
+  async function saveExternalNote() {
+    if (!singleSelectedTooth || !externalNote.trim()) return
+    setSavingExternalNote(true)
+    try {
+      await api.post(`/patients/${patientId}/chart/findings`, {
+        tooth_number: singleSelectedTooth,
+        finding_type: 'ملاحظة: عيادة أخرى',
+        status: 'planned',
+        note: externalNote,
+      })
+      setExternalNote('')
+      setExternalNoteOpen(false)
+      onChanged()
+    } finally {
+      setSavingExternalNote(false)
+    }
+  }
 
   return (
-    <div className="flex gap-6">
-      <div className="rounded-xl bg-white p-4 shadow-sm">
-        <svg viewBox={`0 0 ${VIEWBOX.width} ${VIEWBOX.height}`} width={VIEWBOX.width} height={VIEWBOX.height}>
+    <div className="flex flex-col gap-6 2xl:flex-row">
+      <div className="min-w-0 flex-1 rounded-xl bg-white p-4 shadow-sm">
+        {pickMode && (
+          <p className="mb-3 rounded-lg bg-accent/10 px-3 py-2 text-center text-xs font-medium text-accent">
+            اضغط على الأسنان المطلوبة (تقدر تحدد أكتر من سن)، وبعدين "تأكيد الاختيار"
+          </p>
+        )}
+
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <button type="button" onClick={selectAll} className="rounded-lg border border-ink/10 px-2.5 py-1 text-xs text-ink/70 hover:border-accent hover:text-accent">
+            تحديد الكل
+          </button>
+          <button
+            type="button"
+            onClick={() => selectArch(isChild ? UPPER_PRIMARY : UPPER_PERMANENT)}
+            className="rounded-lg border border-ink/10 px-2.5 py-1 text-xs text-ink/70 hover:border-accent hover:text-accent"
+          >
+            النصف العلوي
+          </button>
+          <button
+            type="button"
+            onClick={() => selectArch(isChild ? LOWER_PRIMARY : LOWER_PERMANENT)}
+            className="rounded-lg border border-ink/10 px-2.5 py-1 text-xs text-ink/70 hover:border-accent hover:text-accent"
+          >
+            النصف السفلي
+          </button>
+          {selectedTeeth.length > 0 && (
+            <button type="button" onClick={clearSelection} className="rounded-lg border border-danger/20 px-2.5 py-1 text-xs text-danger/70 hover:border-danger hover:text-danger">
+              مسح التحديد
+            </button>
+          )}
+          {pickMode && selectedTeeth.length > 0 && (
+            <button type="button" onClick={confirmPick} className="rounded-lg bg-accent px-2.5 py-1 text-xs font-medium text-white hover:bg-accent-hover">
+              تأكيد الاختيار ({selectedTeeth.length})
+            </button>
+          )}
+        </div>
+        <svg viewBox={`0 0 ${VIEWBOX.width} ${VIEWBOX.height}`} className="w-full" style={{ maxWidth: 720 }}>
           <line
             x1={40}
             y1={VIEWBOX.height / 2}
@@ -171,8 +273,8 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
                 <path
                   d={t.crownPath}
                   fill={toothColor(t.number)}
-                  stroke={selectedTooth === t.number ? 'var(--color-accent)' : '#c9b8a8'}
-                  strokeWidth={selectedTooth === t.number ? 2.5 : 1.2}
+                  stroke={selectedTeeth.includes(t.number) ? 'var(--color-accent)' : '#c9b8a8'}
+                  strokeWidth={selectedTeeth.includes(t.number) ? 2.5 : 1.2}
                 />
                 {t.cusps.map((c, i) => (
                   <circle key={i} cx={c.x} cy={c.y} r={c.r} fill="#00000010" />
@@ -210,16 +312,41 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
         </div>
       </div>
 
-      {selectedTooth && (
-        <div className="w-72 shrink-0 rounded-xl bg-white p-4 shadow-sm">
+      {selectedTeeth.length > 0 && (
+        <div className="w-full shrink-0 rounded-xl bg-white p-4 shadow-sm 2xl:w-72">
           <div className="mb-3 flex items-center justify-between">
-            <h3 className="font-medium text-ink">السن {selectedTooth}</h3>
-            <button onClick={() => setSelectedTooth(null)} className="text-sm text-ink/50 hover:text-ink">
+            <h3 className="font-medium text-ink">
+              {singleSelectedTooth ? `السن ${singleSelectedTooth}` : `${selectedTeeth.length} سن محدد`}
+            </h3>
+            <button onClick={clearSelection} className="text-sm text-ink/50 hover:text-ink">
               إغلاق
             </button>
           </div>
 
-          {canManage && (
+          {!singleSelectedTooth && (
+            <p className="mb-3 text-xs text-ink/50">
+              {selectedTeeth.slice().sort((a, b) => a - b).join('، ')}
+            </p>
+          )}
+
+          {singleSelectedTooth && busyToothNumbers?.has(singleSelectedTooth) && (
+            <div className="mb-3 rounded-lg bg-warning-soft px-3 py-2 text-xs text-warning">
+              <p className="font-medium">⚠ هذا السن مشغول بخطة علاج قائمة:</p>
+              <ul className="mt-1 list-inside list-disc">
+                {busyToothNumbers.get(singleSelectedTooth)!.map((detail, i) => (
+                  <li key={i}>{detail}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {pickMode && (
+            <p className="mb-3 text-xs text-ink/50">
+              اضغط "تأكيد الاختيار" فوق الرسمة لإدخال الأسنان المحددة بخطة العلاج.
+            </p>
+          )}
+
+          {!pickMode && canManage && (
             <>
               <label className="mb-1 block text-xs text-ink/60">السطوح</label>
               <div className="mb-3 flex flex-wrap gap-1">
@@ -256,6 +383,11 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
                 <option value="done">منجز</option>
               </select>
 
+              <label className="mb-3 flex items-center gap-2 text-xs text-ink/70">
+                <input type="checkbox" checked={markMissing} onChange={(e) => setMarkMissing(e.target.checked)} className="size-3.5" />
+                هذا السن مفقود (خلع، سقوط، أو غير موجود من الأساس) — بيصير مستثنى من "تحديد الكل/النصف" لاحقاً
+              </label>
+
               <label className="mb-1 block text-xs text-ink/60">الخدمة المرتبطة (اختياري)</label>
               <select
                 value={serviceId}
@@ -285,27 +417,60 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
                 disabled={saving}
                 className="w-full rounded-lg bg-accent py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60"
               >
-                {saving ? 'جارِ الحفظ...' : 'إضافة'}
+                {saving ? 'جارِ الحفظ...' : singleSelectedTooth ? 'إضافة' : `إضافة لـ${selectedTeeth.length} سن`}
               </button>
             </>
           )}
 
-          <div className="mt-4 border-t border-ink/10 pt-3">
-            <h4 className="mb-2 text-xs font-medium text-ink/60">السجل</h4>
-            {history.length === 0 ? (
-              <p className="text-xs text-ink/40">لا يوجد سجل لهذا السن.</p>
-            ) : (
-              <ul className="space-y-2">
-                {history.map((f) => (
-                  <li key={f.id} className="text-xs text-ink/70">
-                    <span className="font-medium text-ink">{f.finding_type}</span>
-                    {f.surfaces && <span className="text-ink/50"> ({f.surfaces})</span>} — {f.status} —{' '}
-                    {f.recorded_at}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+          {!pickMode && singleSelectedTooth && canManage && (
+            <div className="mt-3 border-t border-ink/10 pt-3">
+              {!externalNoteOpen ? (
+                <button
+                  type="button"
+                  onClick={() => setExternalNoteOpen(true)}
+                  className="text-xs text-ink/50 underline hover:text-ink"
+                >
+                  + هذا السن مشغول بعيادة أخرى؟ أضف ملاحظة (اختياري)
+                </button>
+              ) : (
+                <>
+                  <label className="mb-1 block text-xs text-ink/60">تفاصيل (اسم العيادة، نوع العلاج...)</label>
+                  <textarea
+                    value={externalNote}
+                    onChange={(e) => setExternalNote(e.target.value)}
+                    rows={2}
+                    className="mb-2 w-full rounded-lg border border-ink/10 px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
+                  />
+                  <button
+                    onClick={saveExternalNote}
+                    disabled={savingExternalNote || !externalNote.trim()}
+                    className="w-full rounded-lg border border-ink/10 py-1.5 text-xs text-ink/70 hover:border-accent hover:text-accent disabled:opacity-60"
+                  >
+                    {savingExternalNote ? 'جارِ الحفظ...' : 'حفظ الملاحظة'}
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+
+          {singleSelectedTooth && (
+            <div className="mt-4 border-t border-ink/10 pt-3">
+              <h4 className="mb-2 text-xs font-medium text-ink/60">السجل</h4>
+              {history.length === 0 ? (
+                <p className="text-xs text-ink/40">لا يوجد سجل لهذا السن.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {history.map((f) => (
+                    <li key={f.id} className="text-xs text-ink/70">
+                      <span className="font-medium text-ink">{f.finding_type}</span>
+                      {f.surfaces && <span className="text-ink/50"> ({f.surfaces})</span>} — {f.status} —{' '}
+                      {f.recorded_at}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

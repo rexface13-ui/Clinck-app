@@ -5,6 +5,8 @@ import { faPlus, faCamera } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import DatePicker from './DatePicker'
+import { Card, Table, Thead, Th, Td, Tr, EmptyRow, Badge, SearchableSelect } from './ui'
+import type { BadgeVariant } from './ui'
 import type { Cashbox, Invoice, Ledger } from '../types'
 
 const TYPE_LABELS: Record<string, string> = {
@@ -12,6 +14,13 @@ const TYPE_LABELS: Record<string, string> = {
   payment: 'دفعة',
   refund: 'استرجاع',
   adjustment: 'تسوية',
+}
+
+const TYPE_VARIANTS: Record<string, BadgeVariant> = {
+  charge: 'danger',
+  payment: 'success',
+  refund: 'info',
+  adjustment: 'neutral',
 }
 
 type Tab = 'cash' | 'check'
@@ -112,12 +121,12 @@ export default function PatientLedgerPanel({ patientId }: { patientId: number })
   }
 
   return (
-    <div className="rounded-xl bg-white p-6 shadow-sm">
+    <Card className="p-6">
       <div className="mb-4 flex items-center justify-between">
         <div>
-          <h2 className="text-sm font-medium text-ink/70">كشف الحساب</h2>
+          <h2 className="text-sm font-medium text-muted">كشف الحساب</h2>
           {ledger && (
-            <p className={`text-lg font-semibold ${ledger.outstanding_ils > 0 ? 'text-danger' : 'text-accent'}`}>
+            <p className={`text-lg font-semibold ${ledger.outstanding_ils > 0 ? 'text-danger' : 'text-success'}`}>
               {ledger.outstanding_ils.toFixed(2)} ₪
             </p>
           )}
@@ -169,16 +178,13 @@ export default function PatientLedgerPanel({ patientId }: { patientId: number })
                 ))}
               </select>
               <div className="flex gap-2">
-                <select
+                <SearchableSelect
+                  options={cashboxes.map((c) => ({ value: String(c.id), label: c.name, sublabel: c.currency }))}
                   value={cashForm.cashbox_id}
-                  onChange={(e) => setCashForm({ ...cashForm, cashbox_id: e.target.value })}
-                  className="flex-1 rounded-lg border border-ink/10 px-2 py-1.5 text-sm"
-                >
-                  <option value="">الصندوق...</option>
-                  {cashboxes.map((c) => (
-                    <option key={c.id} value={c.id}>{c.name} ({c.currency})</option>
-                  ))}
-                </select>
+                  onChange={(value) => setCashForm({ ...cashForm, cashbox_id: value })}
+                  placeholder="الصندوق..."
+                  className="flex-1"
+                />
                 <input
                   type="number"
                   placeholder="المبلغ"
@@ -273,32 +279,32 @@ export default function PatientLedgerPanel({ patientId }: { patientId: number })
         </div>
       )}
 
-      {!ledger || ledger.transactions.length === 0 ? (
-        <p className="text-sm text-ink/40">لا توجد حركات مالية.</p>
-      ) : (
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="text-ink/50">
-              <th className="p-1 text-start font-normal">النوع</th>
-              <th className="p-1 text-start font-normal">المبلغ</th>
-              <th className="p-1 text-start font-normal">الرصيد بعدها</th>
-              <th className="p-1 text-start font-normal">التاريخ</th>
-            </tr>
-          </thead>
-          <tbody>
-            {ledger.transactions.map((t) => (
-              <tr key={t.id} className="border-t border-ink/5">
-                <td className="p-1">{TYPE_LABELS[t.type]}</td>
-                <td className={`p-1 ${t.type === 'charge' ? 'text-danger' : 'text-accent'}`}>
+      <Table>
+        <Thead>
+          <Th>النوع</Th>
+          <Th>المبلغ</Th>
+          <Th>الرصيد بعدها</Th>
+          <Th>التاريخ</Th>
+        </Thead>
+        <tbody>
+          {!ledger || ledger.transactions.length === 0 ? (
+            <EmptyRow colSpan={4}>لا توجد حركات مالية.</EmptyRow>
+          ) : (
+            ledger.transactions.map((t) => (
+              <Tr key={t.id}>
+                <Td>
+                  <Badge variant={TYPE_VARIANTS[t.type]}>{TYPE_LABELS[t.type]}</Badge>
+                </Td>
+                <Td className={t.type === 'charge' ? 'text-danger' : 'text-success'}>
                   {t.type === 'charge' ? '+' : '-'}{t.amount_ils} ₪
-                </td>
-                <td className="p-1">{t.balance_after_ils} ₪</td>
-                <td className="p-1 text-ink/60">{t.occurred_at}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </div>
+                </Td>
+                <Td>{t.balance_after_ils} ₪</Td>
+                <Td className="text-muted">{t.occurred_at}</Td>
+              </Tr>
+            ))
+          )}
+        </tbody>
+      </Table>
+    </Card>
   )
 }

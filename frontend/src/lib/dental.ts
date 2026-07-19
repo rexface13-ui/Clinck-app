@@ -135,6 +135,23 @@ export const LOWER_ARCH: ArchConfig = {
  * side tooth, index total-1 = rightmost / other side tooth, center teeth
  * sit at the arch's apex — matching UPPER_PERMANENT/LOWER_PERMANENT order).
  */
+/**
+ * A primary tooth's slot within the SAME 16-slot canonical range used for
+ * the permanent arch (not its own 0..9 index) — so it sits at the position
+ * its permanent successor would occupy, rather than being stretched evenly
+ * across the full adult-width arc. Primary quadrants 5/8 read first
+ * (descending, mirroring permanent quadrants 1/4); 6/7 read second
+ * (ascending, mirroring 2/3). Canonical positions 6/7/8 (the un-erupted
+ * premolar/molar slots) are simply never used, which is what leaves a
+ * child's arch visibly shorter than an adult's, matching real anatomy.
+ */
+export function primaryCanonicalIndex(toothNumber: number): number {
+  const quadrant = Math.floor(toothNumber / 10)
+  const position = toothNumber % 10
+  const isFirstInList = quadrant === 5 || quadrant === 8
+  return isFirstInList ? 8 - position : 7 + position
+}
+
 export function archPosition(index: number, total: number, arch: ArchConfig): ArchPosition {
   const t = total === 1 ? 0.5 : index / (total - 1)
 

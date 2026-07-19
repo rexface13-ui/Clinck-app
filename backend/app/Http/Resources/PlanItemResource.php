@@ -18,6 +18,7 @@ class PlanItemResource extends JsonResource
             'unit_price' => $this->unit_price,
             'currency' => $this->currency,
             'sessions_count' => $this->sessions_count,
+            'interval_days' => $this->interval_days,
             'sessions' => $this->whenLoaded('sessions', fn () => $this->sessions->map(fn ($s) => [
                 'id' => $s->id,
                 'session_number' => $s->session_number,

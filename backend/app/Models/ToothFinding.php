@@ -12,12 +12,12 @@ class ToothFinding extends Model
 
     protected $fillable = [
         'clinic_id', 'patient_id', 'tooth_number', 'surfaces', 'finding_type',
-        'status', 'service_id', 'doctor_id', 'note', 'recorded_at',
+        'status', 'marks_missing', 'service_id', 'doctor_id', 'note', 'recorded_at',
     ];
 
     protected function casts(): array
     {
-        return ['recorded_at' => 'datetime'];
+        return ['recorded_at' => 'datetime', 'marks_missing' => 'boolean'];
     }
 
     public function patient(): BelongsTo

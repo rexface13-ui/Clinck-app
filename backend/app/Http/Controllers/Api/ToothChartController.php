@@ -46,8 +46,7 @@ class ToothChartController extends Controller
             ->get();
 
         $missingTeeth = $findings
-            ->where('finding_type', 'extraction')
-            ->where('status', 'done')
+            ->where('marks_missing', true)
             ->pluck('tooth_number')
             ->unique();
 
@@ -73,12 +72,19 @@ class ToothChartController extends Controller
         $finding = DB::transaction(function () use ($data, $patient, $commissions) {
             $finding = $patient->toothFindings()->create($data);
 
-            $isExtractionDone = $data['finding_type'] === 'extraction' && $data['status'] === 'done';
-
-            $patient->toothStates()->updateOrCreate(
-                ['tooth_number' => $data['tooth_number']],
-                ['status' => $isExtractionDone ? 'missing' : 'present'],
-            );
+            // marks_missing is an explicit flag from the client (a checkbox, not
+            // a guess based on what the free-text finding_type says) — a tooth
+            // can go missing for any reason (extraction, trauma, congenitally
+            // absent...), so nothing here hinges on specific wording. Only ever
+            // flips a tooth TO missing here — reverting it to present happens
+            // when the finding that marked it missing is deleted (see
+            // destroyFinding), not as a side effect of unrelated findings.
+            if ($data['marks_missing'] ?? false) {
+                $patient->toothStates()->updateOrCreate(
+                    ['tooth_number' => $data['tooth_number']],
+                    ['status' => 'missing'],
+                );
+            }
 
             if ($data['status'] === 'done') {
                 $commissions->computeForFinding($finding);
@@ -100,15 +106,14 @@ class ToothChartController extends Controller
             $toothNumber = $finding->tooth_number;
             $finding->delete();
 
-            $stillExtracted = $patient->toothFindings()
+            $stillMissing = $patient->toothFindings()
                 ->where('tooth_number', $toothNumber)
-                ->where('finding_type', 'extraction')
-                ->where('status', 'done')
+                ->where('marks_missing', true)
                 ->exists();
 
             $patient->toothStates()->updateOrCreate(
                 ['tooth_number' => $toothNumber],
-                ['status' => $stillExtracted ? 'missing' : 'present'],
+                ['status' => $stillMissing ? 'missing' : 'present'],
             );
         });
 

@@ -29,6 +29,11 @@ class TreatmentPlanPolicy
 
     public function delete(User $user, TreatmentPlan $plan): bool
     {
-        return $user->can('treatment_plans.manage') && $plan->status === 'draft';
+        return $user->can('treatment_plans.manage') && in_array($plan->status, ['draft', 'cancelled'], true);
+    }
+
+    public function cancel(User $user, TreatmentPlan $plan): bool
+    {
+        return $user->can('treatment_plans.manage') && $plan->status === 'approved';
     }
 }

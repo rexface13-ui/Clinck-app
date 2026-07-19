@@ -11,7 +11,7 @@ class TreatmentPlan extends Model
 {
     use BelongsToClinic;
 
-    protected $fillable = ['clinic_id', 'patient_id', 'doctor_id', 'status', 'approved_at', 'notes'];
+    protected $fillable = ['clinic_id', 'patient_id', 'doctor_id', 'appointment_id', 'status', 'approved_at', 'notes'];
 
     protected function casts(): array
     {
@@ -26,6 +26,11 @@ class TreatmentPlan extends Model
     public function doctor(): BelongsTo
     {
         return $this->belongsTo(Doctor::class);
+    }
+
+    public function appointment(): BelongsTo
+    {
+        return $this->belongsTo(Appointment::class);
     }
 
     public function items(): HasMany

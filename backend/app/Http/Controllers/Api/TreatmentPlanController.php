@@ -93,4 +93,13 @@ class TreatmentPlanController extends Controller
 
         return new TreatmentPlanResource($plan->load(['doctor', 'items.service', 'items.sessions']));
     }
+
+    public function cancel(TreatmentPlan $treatmentPlan, TreatmentPlanService $service)
+    {
+        $this->authorize('cancel', $treatmentPlan);
+
+        $plan = $service->cancel($treatmentPlan);
+
+        return new TreatmentPlanResource($plan->load(['doctor', 'items.service', 'items.sessions']));
+    }
 }

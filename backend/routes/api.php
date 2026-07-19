@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\BranchServicePriceController;
 use App\Http\Controllers\Api\CashboxController;
 use App\Http\Controllers\Api\CheckController;
 use App\Http\Controllers\Api\DashboardController;
+use App\Http\Controllers\Api\DebtController;
 use App\Http\Controllers\Api\DoctorAvailabilityController;
 use App\Http\Controllers\Api\DoctorCommissionController;
 use App\Http\Controllers\Api\DoctorController;
@@ -37,6 +38,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/bootstrap', BootstrapController::class);
 
     Route::get('dashboard/summary', [DashboardController::class, 'summary']);
+
+    Route::get('debts/patients', [DebtController::class, 'patients']);
 
     Route::get('/branches', [BranchController::class, 'index']);
     Route::get('/roles', [RoleController::class, 'index']);
@@ -83,6 +86,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('treatment-plans/{treatmentPlan}', [TreatmentPlanController::class, 'destroy']);
     Route::post('treatment-plans/{treatmentPlan}/items', [TreatmentPlanController::class, 'addItem']);
     Route::delete('treatment-plans/{treatmentPlan}/items/{item}', [TreatmentPlanController::class, 'removeItem']);
+    Route::post('treatment-plans/{treatmentPlan}/cancel', [TreatmentPlanController::class, 'cancel']);
     Route::post('treatment-plans/{treatmentPlan}/approve', [TreatmentPlanController::class, 'approve']);
     Route::post('treatment-plans/{treatmentPlan}/schedule-sessions', [TreatmentPlanController::class, 'scheduleSessions']);
 

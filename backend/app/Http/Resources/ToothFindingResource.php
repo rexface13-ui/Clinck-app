@@ -15,6 +15,7 @@ class ToothFindingResource extends JsonResource
             'surfaces' => $this->surfaces,
             'finding_type' => $this->finding_type,
             'status' => $this->status,
+            'marks_missing' => (bool) $this->marks_missing,
             'service_id' => $this->service_id,
             'service_name' => $this->whenLoaded('service', fn () => $this->service?->name),
             'doctor_id' => $this->doctor_id,

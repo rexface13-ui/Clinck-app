@@ -87,6 +87,61 @@ class TreatmentPlanService
     }
 
     /**
+     * Cancelling an approved plan reverses its financial and scheduling
+     * footprint: the invoice is voided, a refund transaction cancels out
+     * the original charge (any payments already collected stay on the
+     * ledger as a credit — same convention as a real refund), pending/
+     * scheduled sessions are cancelled, and any booked appointments for
+     * those sessions are cancelled too (not deleted, so the slot's history
+     * stays visible).
+     */
+    public function cancel(TreatmentPlan $plan): TreatmentPlan
+    {
+        abort_if($plan->status !== 'approved', 422, 'إلغاء الخطة ممكن فقط للخطط المعتمدة.');
+
+        DB::transaction(function () use ($plan) {
+            $plan->loadMissing(['items.sessions', 'invoices']);
+
+            $invoice = $plan->invoices()->latest('id')->first();
+
+            if ($invoice) {
+                $invoice->update(['status' => 'void']);
+
+                PatientTransaction::create([
+                    'clinic_id' => $plan->clinic_id,
+                    'patient_id' => $plan->patient_id,
+                    'type' => 'refund',
+                    'reference_type' => 'treatment_plan_cancel',
+                    'reference_id' => $plan->id,
+                    'amount' => $invoice->total_amount_ils,
+                    'currency' => 'ILS',
+                    'exchange_rate' => 1,
+                    'amount_ils' => $invoice->total_amount_ils,
+                    'occurred_at' => now(),
+                ]);
+            }
+
+            foreach ($plan->items as $item) {
+                foreach ($item->sessions as $session) {
+                    if (in_array($session->status, ['done', 'cancelled'], true)) {
+                        continue;
+                    }
+
+                    if ($session->appointment_id) {
+                        Appointment::whereKey($session->appointment_id)->update(['status' => 'cancelled']);
+                    }
+
+                    $session->update(['status' => 'cancelled']);
+                }
+            }
+
+            $plan->update(['status' => 'cancelled']);
+        });
+
+        return $plan->fresh(['items.sessions']);
+    }
+
+    /**
      * Books the first open slot for the plan's doctor on/after each
      * session's target date (today + (n-1) * service.default_interval_days).
      * Sessions with no slot found within the search window stay pending —
@@ -95,6 +150,7 @@ class TreatmentPlanService
     public function scheduleSessions(TreatmentPlan $plan): TreatmentPlan
     {
         abort_if($plan->status !== 'approved', 422, 'يجب اعتماد الخطة أولاً.');
+        abort_if($plan->doctor_id === null, 422, 'لازم تحدد طبيب للخطة قبل جدولة الجلسات تلقائياً.');
 
         $plan->loadMissing(['items.sessions', 'items.service', 'patient']);
         $duration = 30;
@@ -102,7 +158,7 @@ class TreatmentPlanService
 
         DB::transaction(function () use ($plan, $duration, $searchWindowDays) {
             foreach ($plan->items as $item) {
-                $intervalDays = $item->service->default_interval_days ?? 7;
+                $intervalDays = $item->interval_days ?? $item->service->default_interval_days ?? 7;
 
                 foreach ($item->sessions as $session) {
                     if ($session->status !== 'pending') {

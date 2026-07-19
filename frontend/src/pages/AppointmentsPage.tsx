@@ -3,11 +3,13 @@ import { useSearchParams } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faChevronLeft, faChevronRight, faClock, faUserDoctor } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
+import { useAuth } from '../contexts/AuthContext'
 import { formatDate, formatTime } from '../lib/formatDate'
 import DatePicker from '../components/DatePicker'
+import CompleteVisitModal from '../components/CompleteVisitModal'
 import { Card, PageHeader, Button, Select, Badge } from '../components/ui'
 import type { BadgeVariant } from '../components/ui'
-import type { Appointment, Doctor, Patient, Slot } from '../types'
+import type { Appointment, Branch, Doctor, Patient, Slot } from '../types'
 
 const STATUS_VARIANTS: Record<Appointment['status'], BadgeVariant> = {
   scheduled: 'info',
@@ -44,11 +46,17 @@ interface OpenSlot extends Slot {
 }
 
 export default function AppointmentsPage() {
+  const { can } = useAuth()
   const [searchParams] = useSearchParams()
   const preselectedPatient = searchParams.get('patient_id')
+  const [completingVisit, setCompletingVisit] = useState<Appointment | null>(null)
 
   const [doctors, setDoctors] = useState<Doctor[]>([])
   const [patients, setPatients] = useState<Patient[]>([])
+  const [branches, setBranches] = useState<Branch[]>([])
+  const [manualBooking, setManualBooking] = useState(false)
+  const [manualTime, setManualTime] = useState('09:00')
+  const [manualDoctorId, setManualDoctorId] = useState('')
   const [doctorFilter, setDoctorFilter] = useState<number | 'all'>('all')
   const [date, setDate] = useState(todayIso())
   const [dayAppointments, setDayAppointments] = useState<Appointment[]>([])
@@ -62,6 +70,7 @@ export default function AppointmentsPage() {
   useEffect(() => {
     api.get('/doctors').then((res) => setDoctors(res.data.data))
     api.get('/patients').then((res) => setPatients(res.data.data))
+    api.get('/branches').then((res) => setBranches(res.data))
   }, [])
 
   function loadAppointments() {
@@ -124,6 +133,32 @@ export default function AppointmentsPage() {
         ends_at: selectedSlot.ends_at,
       })
       setSelectedSlot(null)
+      loadAppointments()
+      loadOpenSlots()
+    } catch {
+      setError('تعذّر الحجز — قد يكون الوقت محجوزاً بالفعل.')
+    } finally {
+      setBooking(false)
+    }
+  }
+
+  async function bookManual() {
+    const mainBranch = branches.find((b) => b.is_main) ?? branches[0]
+    if (!patientId || !mainBranch) return
+    setBooking(true)
+    setError(null)
+    try {
+      const startsAt = new Date(`${date}T${manualTime}:00`)
+      const endsAt = new Date(startsAt.getTime() + 30 * 60000)
+      await api.post('/appointments', {
+        branch_id: mainBranch.id,
+        patient_id: Number(patientId),
+        doctor_id: manualDoctorId ? Number(manualDoctorId) : null,
+        starts_at: startsAt.toISOString(),
+        ends_at: endsAt.toISOString(),
+      })
+      setManualBooking(false)
+      setManualDoctorId('')
       loadAppointments()
       loadOpenSlots()
     } catch {
@@ -197,8 +232,16 @@ export default function AppointmentsPage() {
                 <div key={a.id} className="flex items-center gap-3 px-2 py-2.5 text-sm">
                   <span className="w-14 shrink-0 font-mono text-xs text-muted">{formatTime(a.starts_at)}</span>
                   <span className="flex-1 font-medium text-ink">{a.patient_name}</span>
-                  <span className="text-xs text-muted">{a.doctor_name}</span>
+                  <span className="text-xs text-muted">{a.doctor_name ?? 'بدون طبيب محدد'}</span>
                   <Badge variant={STATUS_VARIANTS[a.status]}>{STATUS_LABELS[a.status]}</Badge>
+                  {(a.status === 'scheduled' || a.status === 'confirmed') && can('appointments.manage') && (
+                    <button
+                      onClick={() => setCompletingVisit(a)}
+                      className="rounded-lg bg-accent-soft px-2.5 py-1 text-xs font-medium text-accent hover:bg-accent hover:text-white"
+                    >
+                      تمّت الزيارة
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
@@ -234,8 +277,51 @@ export default function AppointmentsPage() {
         </Card>
 
         <Card className="p-6">
-          <h2 className="mb-4 text-sm font-medium text-ink/70">حجز موعد</h2>
-          {!selectedSlot ? (
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-sm font-medium text-ink/70">حجز موعد</h2>
+            <button
+              onClick={() => {
+                setManualBooking((v) => !v)
+                setSelectedSlot(null)
+              }}
+              className="text-xs text-accent hover:underline"
+            >
+              {manualBooking ? 'اختيار من الأوقات المتاحة' : 'حجز بدون تحديد طبيب'}
+            </button>
+          </div>
+
+          {manualBooking ? (
+            <>
+              <p className="mb-3 text-xs text-muted">
+                يحجز موعداً بدون ربطه بجدول طبيب معيّن — تقدر تحدد الطبيب لاحقاً، أو تخليه بدون طبيب.
+              </p>
+              <Select label="المريض" value={patientId} onChange={(e) => setPatientId(e.target.value)} className="mb-3">
+                <option value="">اختر مريضاً</option>
+                {patients.map((p) => (
+                  <option key={p.id} value={p.id}>{p.full_name} ({p.code})</option>
+                ))}
+              </Select>
+              <label className="mb-1 block text-sm text-muted">الوقت</label>
+              <input
+                type="time"
+                value={manualTime}
+                onChange={(e) => setManualTime(e.target.value)}
+                className="mb-3 w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none"
+              />
+              <Select label="الطبيب (اختياري)" value={manualDoctorId} onChange={(e) => setManualDoctorId(e.target.value)} className="mb-3">
+                <option value="">بدون طبيب محدد</option>
+                {doctors.map((d) => (
+                  <option key={d.id} value={d.id}>{d.full_name}</option>
+                ))}
+              </Select>
+
+              {error && <p className="mb-2 text-sm text-danger">{error}</p>}
+
+              <Button onClick={bookManual} disabled={!patientId || booking} loading={booking} className="w-full justify-center">
+                {booking ? 'جارِ الحجز...' : 'تأكيد الحجز'}
+              </Button>
+            </>
+          ) : !selectedSlot ? (
             <p className="text-sm text-muted">اختر وقتاً متاحاً من القائمة.</p>
           ) : (
             <>
@@ -259,6 +345,17 @@ export default function AppointmentsPage() {
           )}
         </Card>
       </div>
+
+      {completingVisit && (
+        <CompleteVisitModal
+          appointmentId={completingVisit.id}
+          patientId={completingVisit.patient_id}
+          patientName={completingVisit.patient_name ?? ''}
+          doctorId={completingVisit.doctor_id}
+          onClose={() => setCompletingVisit(null)}
+          onDone={loadAppointments}
+        />
+      )}
     </div>
   )
 }

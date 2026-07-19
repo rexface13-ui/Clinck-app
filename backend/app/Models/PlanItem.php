@@ -13,7 +13,7 @@ class PlanItem extends Model
 
     protected $fillable = [
         'clinic_id', 'treatment_plan_id', 'service_id', 'tooth_number',
-        'surfaces', 'unit_price', 'currency', 'sessions_count',
+        'surfaces', 'unit_price', 'currency', 'sessions_count', 'interval_days',
     ];
 
     protected function casts(): array

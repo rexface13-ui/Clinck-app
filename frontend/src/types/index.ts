@@ -80,6 +80,7 @@ export interface ToothFinding {
   surfaces: string | null
   finding_type: string
   status: 'planned' | 'in_progress' | 'done'
+  marks_missing: boolean
   service_id: number | null
   service_name: string | null
   doctor_id: number | null
@@ -93,7 +94,7 @@ export interface Appointment {
   branch_id: number
   patient_id: number
   patient_name: string | null
-  doctor_id: number
+  doctor_id: number | null
   doctor_name: string | null
   starts_at: string
   ends_at: string
@@ -133,13 +134,14 @@ export interface PlanItem {
   unit_price: string
   currency: string
   sessions_count: number
+  interval_days: number | null
   sessions?: PlanItemSessionRow[]
 }
 
 export interface TreatmentPlan {
   id: number
   patient_id: number
-  doctor_id: number
+  doctor_id: number | null
   doctor_name: string | null
   status: 'draft' | 'approved' | 'cancelled'
   approved_at: string | null

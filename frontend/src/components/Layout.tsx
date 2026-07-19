@@ -17,8 +17,10 @@ import {
   faMoneyCheckDollar,
   faGear,
   faGauge,
+  faBook,
 } from '@fortawesome/free-solid-svg-icons'
 import { useAuth } from '../contexts/AuthContext'
+import GlobalSearch from './GlobalSearch'
 
 interface NavItem {
   to: string
@@ -52,6 +54,7 @@ const navGroups: NavGroup[] = [
       { to: '/cash', label: 'الصناديق والمصاريف', icon: faWallet, permission: 'cash.view' },
       { to: '/commissions', label: 'عمولات الأطباء', icon: faSackDollar, permission: 'commissions.view' },
       { to: '/checks', label: 'الشيكات', icon: faMoneyCheckDollar, permission: 'checks.view' },
+      { to: '/debts', label: 'دفتر الديون', icon: faBook, permission: null },
     ],
   },
   {
@@ -148,6 +151,7 @@ export default function Layout() {
       <div className="flex flex-1 flex-col">
         <header className="flex items-center justify-between border-b border-border bg-surface px-8 py-4">
           <h2 className="text-sm font-medium text-muted">{pageTitle(location.pathname)}</h2>
+          <GlobalSearch />
         </header>
         <main className="flex-1 overflow-auto p-8">
           <Outlet />

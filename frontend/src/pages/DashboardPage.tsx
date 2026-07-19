@@ -23,6 +23,7 @@ import type { IconDefinition } from '@fortawesome/fontawesome-svg-core'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import PatientSearchModal from '../components/PatientSearchModal'
+import CompleteVisitModal from '../components/CompleteVisitModal'
 import { Card, PageHeader, StatCard, Badge, Button, Table, Thead, Th, Td, Tr, EmptyRow, TableSkeleton, CardSkeleton } from '../components/ui'
 import type { BadgeVariant } from '../components/ui'
 
@@ -49,6 +50,8 @@ function buildQuickActions(openPatientSearch: () => void, openPaymentSearch: () 
 
 interface Appointment {
   id: number
+  patient_id: number
+  doctor_id: number | null
   time: string
   patient_name: string | null
   doctor_name: string | null
@@ -111,6 +114,7 @@ const statusLabels: Record<string, string> = {
   paid: 'مدفوعة',
   partial: 'مدفوعة جزئياً',
   unpaid: 'غير مدفوعة',
+  void: 'ملغاة',
 }
 
 const statusVariants: Record<string, BadgeVariant> = {
@@ -122,6 +126,7 @@ const statusVariants: Record<string, BadgeVariant> = {
   paid: 'success',
   partial: 'warning',
   unpaid: 'danger',
+  void: 'neutral',
 }
 
 function money(value: number | null) {
@@ -144,11 +149,14 @@ export default function DashboardPage() {
   const [hideMoney, setHideMoney] = useState(() => localStorage.getItem('dashboard.hideMoney') === '1')
   const [showPatientSearch, setShowPatientSearch] = useState(false)
   const [showPaymentSearch, setShowPaymentSearch] = useState(false)
+  const [completingVisit, setCompletingVisit] = useState<Appointment | null>(null)
   const quickActions = buildQuickActions(() => setShowPatientSearch(true), () => setShowPaymentSearch(true))
 
-  useEffect(() => {
+  function loadSummary() {
     api.get<Summary>('/dashboard/summary').then((res) => setData(res.data))
-  }, [])
+  }
+
+  useEffect(loadSummary, [])
 
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000)
@@ -217,6 +225,16 @@ export default function DashboardPage() {
 
       {showPatientSearch && <PatientSearchModal onClose={() => setShowPatientSearch(false)} />}
       {showPaymentSearch && <PatientSearchModal mode="pay" onClose={() => setShowPaymentSearch(false)} />}
+      {completingVisit && (
+        <CompleteVisitModal
+          appointmentId={completingVisit.id}
+          patientId={completingVisit.patient_id}
+          patientName={completingVisit.patient_name ?? ''}
+          doctorId={completingVisit.doctor_id}
+          onClose={() => setCompletingVisit(null)}
+          onDone={loadSummary}
+        />
+      )}
 
       {!data ? (
         <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-3">
@@ -317,10 +335,11 @@ export default function DashboardPage() {
                 <Th>المريض</Th>
                 <Th>الطبيب</Th>
                 <Th>الحالة</Th>
+                <Th></Th>
               </Thead>
               <tbody>
                 {data.today_appointments.length === 0 ? (
-                  <EmptyRow colSpan={4}>لا يوجد مواعيد اليوم</EmptyRow>
+                  <EmptyRow colSpan={5}>لا يوجد مواعيد اليوم</EmptyRow>
                 ) : (
                   data.today_appointments.map((a) => (
                     <Tr key={a.id}>
@@ -329,6 +348,16 @@ export default function DashboardPage() {
                       <Td>{a.doctor_name}</Td>
                       <Td>
                         <Badge variant={statusVariants[a.status] ?? 'neutral'}>{statusLabels[a.status] ?? a.status}</Badge>
+                      </Td>
+                      <Td>
+                        {(a.status === 'scheduled' || a.status === 'confirmed') && can('appointments.manage') && (
+                          <button
+                            onClick={() => setCompletingVisit(a)}
+                            className="rounded-lg bg-accent-soft px-2.5 py-1 text-xs font-medium text-accent hover:bg-accent hover:text-white"
+                          >
+                            تمّت الزيارة
+                          </button>
+                        )}
                       </Td>
                     </Tr>
                   ))

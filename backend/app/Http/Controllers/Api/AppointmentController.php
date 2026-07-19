@@ -7,7 +7,11 @@ use App\Http\Requests\Appointment\StoreAppointmentRequest;
 use App\Http\Requests\Appointment\UpdateAppointmentRequest;
 use App\Http\Resources\AppointmentResource;
 use App\Models\Appointment;
+use App\Models\PlanItemSession;
+use App\Models\TreatmentPlan;
+use App\Services\TreatmentPlanService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class AppointmentController extends Controller
 {
@@ -65,10 +69,33 @@ class AppointmentController extends Controller
         return new AppointmentResource($appointment->fresh(['patient', 'doctor']));
     }
 
-    public function destroy(Appointment $appointment)
+    public function destroy(Appointment $appointment, TreatmentPlanService $planService)
     {
         $this->authorize('delete', $appointment);
-        $appointment->delete();
+
+        DB::transaction(function () use ($appointment, $planService) {
+            // Deleting an appointment that a treatment-plan session had booked
+            // must not leave that session silently stuck at "scheduled" with a
+            // now-null appointment_id — put it back to pending so it shows up
+            // as needing scheduling again.
+            PlanItemSession::where('appointment_id', $appointment->id)->update(['status' => 'pending']);
+
+            // A "زيارة الآن" visit creates the appointment and its treatment
+            // plan together as one unit (see CompleteVisitModal). Deleting
+            // that appointment must undo the plan too, or the invoice/charge
+            // it generated is silently orphaned — the account would keep
+            // showing a debt with no visible way to trace or reverse it.
+            $plan = TreatmentPlan::where('appointment_id', $appointment->id)->first();
+            if ($plan) {
+                if ($plan->status === 'approved') {
+                    $planService->cancel($plan);
+                } elseif ($plan->status === 'draft') {
+                    $plan->delete();
+                }
+            }
+
+            $appointment->delete();
+        });
 
         return response()->noContent();
     }
