@@ -5,7 +5,7 @@ import { faPlus, faCheck, faTrash, faFileInvoiceDollar } from '@fortawesome/free
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import DatePicker from '../components/DatePicker'
-import { Card, PageHeader, Badge, Button, Modal, Table, Thead, Th, Td, Tr, EmptyRow } from '../components/ui'
+import { Card, PageHeader, Badge, Button, Modal, Table, Thead, Th, Td, Tr, EmptyRow, SearchableSelect, Input } from '../components/ui'
 import type { BadgeVariant } from '../components/ui'
 import type { Branch, Item, PurchaseInvoice, StockMovement, Supplier } from '../types'
 
@@ -24,6 +24,9 @@ export default function PurchaseInvoicesPage() {
   const [movements, setMovements] = useState<StockMovement[]>([])
   const [showForm, setShowForm] = useState(() => searchParams.get('new') === '1')
   const [newForm, setNewForm] = useState({ supplier_id: '', branch_id: '' })
+  const [newSupplierName, setNewSupplierName] = useState<string | null>(null)
+  const [newSupplierPhone, setNewSupplierPhone] = useState('')
+  const [creatingSupplier, setCreatingSupplier] = useState(false)
   const [lineForm, setLineForm] = useState({ item_id: '', quantity: '', unit_price: '', currency: 'ILS', lot_number: '', expiry_date: '' })
   const [busy, setBusy] = useState(false)
 
@@ -54,6 +57,20 @@ export default function PurchaseInvoicesPage() {
       )
     } else {
       setMovements([])
+    }
+  }
+
+  async function createSupplier() {
+    if (!newSupplierName?.trim()) return
+    setCreatingSupplier(true)
+    try {
+      const res = await api.post('/suppliers', { name: newSupplierName.trim(), phone: newSupplierPhone || null })
+      setSuppliers((prev) => [...prev, res.data])
+      setNewForm({ ...newForm, supplier_id: String(res.data.id) })
+      setNewSupplierName(null)
+      setNewSupplierPhone('')
+    } finally {
+      setCreatingSupplier(false)
     }
   }
 
@@ -147,10 +164,42 @@ export default function PurchaseInvoicesPage() {
           {showForm && (
             <Modal title="فاتورة شراء جديدة" onClose={() => setShowForm(false)}>
               <div className="space-y-3">
-                <select value={newForm.supplier_id} onChange={(e) => setNewForm({ ...newForm, supplier_id: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
-                  <option value="">المورد...</option>
-                  {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select>
+                <SearchableSelect
+                  options={suppliers.map((s) => ({ value: String(s.id), label: s.name, sublabel: s.phone ?? undefined }))}
+                  value={newForm.supplier_id}
+                  onChange={(value) => setNewForm({ ...newForm, supplier_id: value })}
+                  placeholder="المورد..."
+                  onCreateNew={(query) => setNewSupplierName(query)}
+                  createNewLabel="مورد جديد"
+                />
+
+                {newSupplierName !== null && (
+                  <div className="space-y-2 rounded-lg bg-background p-3">
+                    <p className="text-xs font-medium text-ink/70">مورد جديد</p>
+                    <Input
+                      placeholder="اسم المورد"
+                      value={newSupplierName}
+                      onChange={(e) => setNewSupplierName(e.target.value)}
+                    />
+                    <Input
+                      placeholder="الهاتف (اختياري)"
+                      value={newSupplierPhone}
+                      onChange={(e) => setNewSupplierPhone(e.target.value)}
+                    />
+                    <div className="flex gap-2">
+                      <Button onClick={createSupplier} loading={creatingSupplier} className="flex-1 justify-center px-3 py-1.5 text-xs">
+                        إضافة ومتابعة
+                      </Button>
+                      <button
+                        type="button"
+                        onClick={() => setNewSupplierName(null)}
+                        className="rounded-xl px-3 py-1.5 text-xs text-muted hover:bg-surface"
+                      >
+                        إلغاء
+                      </button>
+                    </div>
+                  </div>
+                )}
                 <select value={newForm.branch_id} onChange={(e) => setNewForm({ ...newForm, branch_id: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
                   <option value="">الفرع...</option>
                   {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}

@@ -11,6 +11,7 @@ use App\Http\Resources\PatientResource;
 use App\Http\Resources\ToothFindingResource;
 use App\Http\Resources\ToothStateResource;
 use App\Models\Patient;
+use App\Support\Arabic;
 use Illuminate\Http\Request;
 
 class PatientController extends Controller
@@ -20,14 +21,21 @@ class PatientController extends Controller
         $this->authorize('viewAny', Patient::class);
 
         if ($request->filled('search')) {
-            $search = $request->input('search');
+            // Normalize both sides the same way (أ/إ/آ→ا, ة→ه, ى→ي, ...) so
+            // a search for "احمد" also finds "أحمد", "فاطمه" finds
+            // "فاطمة", etc. — the letter someone happens to type shouldn't
+            // matter.
+            $search = Arabic::normalize($request->input('search'));
+            $nameExpr = Arabic::normalizeSql('full_name');
+            $phoneExpr = Arabic::normalizeSql('phone');
+            $codeExpr = Arabic::normalizeSql('code');
 
             return PatientResource::collection(
                 Patient::query()
-                    ->where(function ($query) use ($search) {
-                        $query->where('full_name', 'ilike', "%{$search}%")
-                            ->orWhere('phone', 'ilike', "%{$search}%")
-                            ->orWhere('code', 'ilike', "%{$search}%");
+                    ->where(function ($query) use ($search, $nameExpr, $phoneExpr, $codeExpr) {
+                        $query->whereRaw("{$nameExpr} ilike ?", ["%{$search}%"])
+                            ->orWhereRaw("{$phoneExpr} ilike ?", ["%{$search}%"])
+                            ->orWhereRaw("{$codeExpr} ilike ?", ["%{$search}%"]);
                     })
                     ->orderBy('full_name')
                     ->limit(15)

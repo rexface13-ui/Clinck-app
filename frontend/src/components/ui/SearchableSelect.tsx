@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faChevronDown } from '@fortawesome/free-solid-svg-icons'
+import { faChevronDown, faPlus } from '@fortawesome/free-solid-svg-icons'
+import { normalizeArabic } from '../../lib/arabic'
 
 export interface SearchableOption {
   value: string
@@ -14,9 +15,20 @@ interface Props {
   onChange: (value: string) => void
   placeholder?: string
   className?: string
+  /** Shown as "+ إضافة "query" ..." when the search has no matches — lets the caller open a create-new flow instead of leaving a dead end. */
+  onCreateNew?: (query: string) => void
+  createNewLabel?: string
 }
 
-export default function SearchableSelect({ options, value, onChange, placeholder = 'اختر...', className = '' }: Props) {
+export default function SearchableSelect({
+  options,
+  value,
+  onChange,
+  placeholder = 'اختر...',
+  className = '',
+  onCreateNew,
+  createNewLabel = 'إضافة',
+}: Props) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const boxRef = useRef<HTMLDivElement>(null)
@@ -36,9 +48,9 @@ export default function SearchableSelect({ options, value, onChange, placeholder
   }, [])
 
   const filtered = options.filter((o) => {
-    const q = query.trim()
+    const q = normalizeArabic(query.trim())
     if (!q) return true
-    return o.label.includes(q) || (o.sublabel ?? '').includes(q)
+    return normalizeArabic(o.label).includes(q) || normalizeArabic(o.sublabel ?? '').includes(q)
   })
 
   function pick(v: string) {
@@ -72,7 +84,23 @@ export default function SearchableSelect({ options, value, onChange, placeholder
           />
           <ul className="max-h-56 overflow-y-auto py-1">
             {filtered.length === 0 ? (
-              <li className="px-2 py-2 text-center text-xs text-muted">ما في نتائج.</li>
+              <li className="px-2 py-3 text-center">
+                <p className="mb-2 text-xs text-muted">ما في نتائج.</p>
+                {onCreateNew && query.trim() && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onCreateNew(query.trim())
+                      setOpen(false)
+                      setQuery('')
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover"
+                  >
+                    <FontAwesomeIcon icon={faPlus} />
+                    {createNewLabel} "{query.trim()}"
+                  </button>
+                )}
+              </li>
             ) : (
               filtered.map((o) => (
                 <li key={o.value}>

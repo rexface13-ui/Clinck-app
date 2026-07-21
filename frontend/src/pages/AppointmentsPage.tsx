@@ -255,7 +255,18 @@ export default function AppointmentsPage() {
           {loadingSlots ? (
             <p className="p-6 text-center text-sm text-muted">جارِ التحميل...</p>
           ) : openSlots.length === 0 ? (
-            <p className="p-6 text-center text-sm text-muted">لا يوجد دوام أو أوقات متاحة بهذا اليوم.</p>
+            <div className="p-6 text-center">
+              <p className="mb-3 text-sm text-muted">لا يوجد دوام أو أوقات متاحة بهذا اليوم.</p>
+              <button
+                onClick={() => {
+                  setManualBooking(true)
+                  setSelectedSlot(null)
+                }}
+                className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover"
+              >
+                احجز موعداً يدوياً بدون طبيب
+              </button>
+            </div>
           ) : (
             <div className="flex flex-wrap gap-2 px-2 py-2">
               {openSlots.map((s) => (
@@ -290,6 +301,11 @@ export default function AppointmentsPage() {
             </button>
           </div>
 
+          <div className="mb-3">
+            <label className="mb-1 block text-sm text-muted">تاريخ الموعد</label>
+            <DatePicker value={date} onChange={(iso) => iso && setDate(iso)} allowClear={false} />
+          </div>
+
           {manualBooking ? (
             <>
               <p className="mb-3 text-xs text-muted">
@@ -322,7 +338,11 @@ export default function AppointmentsPage() {
               </Button>
             </>
           ) : !selectedSlot ? (
-            <p className="text-sm text-muted">اختر وقتاً متاحاً من القائمة.</p>
+            <p className="text-sm text-muted">
+              {openSlots.length === 0
+                ? 'ما في أوقات متاحة اليوم — اضغط "حجز بدون تحديد طبيب" فوق، أو احجز يدوياً من القائمة يسار.'
+                : 'اختر وقتاً متاحاً من القائمة.'}
+            </p>
           ) : (
             <>
               <p className="mb-1 text-sm text-ink">
