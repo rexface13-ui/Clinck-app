@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faPlus } from '@fortawesome/free-solid-svg-icons'
+import { faPlus, faPen, faTrash } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import { Card, PageHeader, Button, Input, Select, Table, Thead, Th, Td, Tr, EmptyRow, TableSkeleton } from '../components/ui'
@@ -11,6 +11,7 @@ export default function ServicesPage() {
   const [services, setServices] = useState<Service[] | null>(null)
   const [categories, setCategories] = useState<ServiceCategory[]>([])
   const [showForm, setShowForm] = useState(false)
+  const [editingId, setEditingId] = useState<number | null>(null)
   const [newCategoryName, setNewCategoryName] = useState('')
   const [form, setForm] = useState({
     service_category_id: '',
@@ -38,19 +39,53 @@ export default function ServicesPage() {
   async function handleCreate(e: FormEvent) {
     e.preventDefault()
     setError(null)
+    const payload = {
+      service_category_id: Number(form.service_category_id),
+      name: form.name,
+      default_price: Number(form.default_price),
+      default_sessions: Number(form.default_sessions) || 1,
+      default_interval_days: form.default_interval_days ? Number(form.default_interval_days) : null,
+    }
     try {
-      await api.post('/services', {
-        service_category_id: Number(form.service_category_id),
-        name: form.name,
-        default_price: Number(form.default_price),
-        default_sessions: Number(form.default_sessions) || 1,
-        default_interval_days: form.default_interval_days ? Number(form.default_interval_days) : null,
-      })
-      setShowForm(false)
-      setForm({ service_category_id: '', name: '', default_price: '', default_sessions: '1', default_interval_days: '' })
+      if (editingId) {
+        await api.put(`/services/${editingId}`, payload)
+      } else {
+        await api.post('/services', payload)
+      }
+      closeForm()
       load()
     } catch {
       setError('تحقق من الحقول.')
+    }
+  }
+
+  function closeForm() {
+    setShowForm(false)
+    setEditingId(null)
+    setForm({ service_category_id: '', name: '', default_price: '', default_sessions: '1', default_interval_days: '' })
+  }
+
+  function startEdit(s: Service) {
+    setEditingId(s.id)
+    setForm({
+      service_category_id: String(s.service_category_id),
+      name: s.name,
+      default_price: s.default_price,
+      default_sessions: String(s.default_sessions),
+      default_interval_days: s.default_interval_days ? String(s.default_interval_days) : '',
+    })
+    setError(null)
+    setShowForm(true)
+  }
+
+  async function deleteService(id: number) {
+    if (!window.confirm('حذف هذه الخدمة نهائياً؟')) return
+    try {
+      await api.delete(`/services/${id}`)
+      load()
+    } catch (err: unknown) {
+      const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      window.alert(message ?? 'تعذّر حذف الخدمة.')
     }
   }
 
@@ -63,7 +98,7 @@ export default function ServicesPage() {
         subtitle="تصنيفات وأسعار الخدمات الافتراضية"
         action={
           can('services.manage') && (
-            <Button onClick={() => setShowForm((v) => !v)}>
+            <Button onClick={() => (showForm ? closeForm() : setShowForm(true))}>
               <FontAwesomeIcon icon={faPlus} />
               خدمة جديدة
             </Button>
@@ -122,10 +157,10 @@ export default function ServicesPage() {
             {error && <p className="col-span-2 text-sm text-danger">{error}</p>}
 
             <div className="col-span-2 flex justify-end gap-2">
-              <Button type="button" variant="ghost" onClick={() => setShowForm(false)}>
+              <Button type="button" variant="ghost" onClick={closeForm}>
                 إلغاء
               </Button>
-              <Button type="submit">حفظ</Button>
+              <Button type="submit">{editingId ? 'حفظ التعديل' : 'حفظ'}</Button>
             </div>
           </form>
         </Card>
@@ -141,10 +176,11 @@ export default function ServicesPage() {
               <Th>الخدمة</Th>
               <Th>السعر</Th>
               <Th>الجلسات</Th>
+              <Th></Th>
             </Thead>
             <tbody>
               {services.length === 0 ? (
-                <EmptyRow colSpan={4}>لا توجد خدمات بعد.</EmptyRow>
+                <EmptyRow colSpan={5}>لا توجد خدمات بعد.</EmptyRow>
               ) : (
                 services.map((s) => (
                   <Tr key={s.id}>
@@ -152,6 +188,18 @@ export default function ServicesPage() {
                     <Td>{s.name}</Td>
                     <Td className="text-muted">{s.default_price} {s.default_currency}</Td>
                     <Td className="text-muted">{s.default_sessions}</Td>
+                    <Td>
+                      {can('services.manage') && (
+                        <div className="flex items-center gap-3">
+                          <button onClick={() => startEdit(s)} className="text-xs text-accent hover:underline">
+                            <FontAwesomeIcon icon={faPen} />
+                          </button>
+                          <button onClick={() => deleteService(s.id)} className="text-xs text-danger hover:underline">
+                            <FontAwesomeIcon icon={faTrash} />
+                          </button>
+                        </div>
+                      )}
+                    </Td>
                   </Tr>
                 ))
               )}

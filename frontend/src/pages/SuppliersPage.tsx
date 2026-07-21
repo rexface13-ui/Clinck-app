@@ -1,10 +1,18 @@
 import { useEffect, useState } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faPlus, faTruck } from '@fortawesome/free-solid-svg-icons'
+import { faPlus, faTruck, faPen } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import { Card, PageHeader, Button, Table, Thead, Th, Td, Tr, EmptyRow, SearchableSelect } from '../components/ui'
 import type { Cashbox, Supplier, SupplierLedger } from '../types'
+
+const TYPE_LABELS: Record<SupplierLedger['transactions'][number]['type'], string> = {
+  purchase: 'مشتريات',
+  payment: 'دفعة',
+  check_endorsed: 'شيك مُظهّر',
+  check_bounced: 'شيك راجع',
+  adjustment: 'تسوية',
+}
 
 export default function SuppliersPage() {
   const { can } = useAuth()
@@ -16,6 +24,8 @@ export default function SuppliersPage() {
   const [form, setForm] = useState({ name: '', phone: '' })
   const [payForm, setPayForm] = useState({ cashbox_id: '', amount: '', currency: 'ILS' })
   const [busy, setBusy] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [editForm, setEditForm] = useState({ name: '', phone: '' })
 
   const canManage = can('suppliers.manage')
 
@@ -28,6 +38,7 @@ export default function SuppliersPage() {
 
   function loadLedger(supplier: Supplier) {
     setSelected(supplier)
+    setEditing(false)
     api.get(`/suppliers/${supplier.id}/ledger`).then((res) => setLedger(res.data))
   }
 
@@ -38,6 +49,25 @@ export default function SuppliersPage() {
       await api.post('/suppliers', { name: form.name, phone: form.phone || null })
       setShowForm(false)
       setForm({ name: '', phone: '' })
+      loadSuppliers()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function startEdit() {
+    if (!selected) return
+    setEditForm({ name: selected.name, phone: selected.phone ?? '' })
+    setEditing(true)
+  }
+
+  async function saveEdit() {
+    if (!selected || !editForm.name) return
+    setBusy(true)
+    try {
+      const res = await api.put(`/suppliers/${selected.id}`, { name: editForm.name, phone: editForm.phone || null })
+      setSelected(res.data)
+      setEditing(false)
       loadSuppliers()
     } finally {
       setBusy(false)
@@ -111,10 +141,44 @@ export default function SuppliersPage() {
           ) : (
             <div className="space-y-4">
               <Card className="p-4">
-                <p className="text-sm text-muted">الرصيد المستحق للمورد</p>
-                <p className={`text-2xl font-semibold ${Number(ledger?.outstanding_ils ?? 0) > 0 ? 'text-danger' : 'text-ink'}`}>
-                  {ledger?.outstanding_ils ?? 0} ₪
-                </p>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-muted">{selected.name}</p>
+                    <p className={`text-2xl font-semibold ${Number(ledger?.outstanding_ils ?? 0) > 0 ? 'text-danger' : 'text-ink'}`}>
+                      {ledger?.outstanding_ils ?? 0} ₪
+                    </p>
+                  </div>
+                  {canManage && !editing && (
+                    <button onClick={startEdit} className="flex items-center gap-1 text-xs text-accent hover:underline">
+                      <FontAwesomeIcon icon={faPen} />
+                      تعديل
+                    </button>
+                  )}
+                </div>
+                {editing && (
+                  <div className="mt-3 space-y-2 border-t border-border/70 pt-3">
+                    <input
+                      placeholder="اسم المورد"
+                      value={editForm.name}
+                      onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                      className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
+                    />
+                    <input
+                      placeholder="الهاتف (اختياري)"
+                      value={editForm.phone}
+                      onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
+                      className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
+                    />
+                    <div className="flex gap-2">
+                      <Button onClick={saveEdit} loading={busy} className="flex-1 justify-center px-3 py-1.5 text-xs">
+                        حفظ
+                      </Button>
+                      <button onClick={() => setEditing(false)} className="rounded-xl px-3 py-1.5 text-xs text-muted hover:bg-background">
+                        إلغاء
+                      </button>
+                    </div>
+                  </div>
+                )}
               </Card>
 
               {canManage && (
@@ -147,7 +211,7 @@ export default function SuppliersPage() {
                     ) : (
                       ledger!.transactions.map((t) => (
                         <Tr key={t.id}>
-                          <Td>{t.type}</Td>
+                          <Td>{TYPE_LABELS[t.type] ?? t.type}</Td>
                           <Td className="text-muted">{t.amount_ils} ₪</Td>
                           <Td className="text-muted">{t.balance_after_ils} ₪</Td>
                           <Td className="text-muted">{t.occurred_at}</Td>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faPlus, faBoxesStacked } from '@fortawesome/free-solid-svg-icons'
+import { faPlus, faBoxesStacked, faPen } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import { Card, PageHeader, Button, Modal, Table, Thead, Th, Td, Tr, EmptyRow, TableSkeleton } from '../components/ui'
@@ -20,6 +20,7 @@ export default function ItemsPage() {
   const [categories, setCategories] = useState<ItemCategory[]>([])
   const [items, setItems] = useState<Item[] | null>(null)
   const [showItemForm, setShowItemForm] = useState(() => searchParams.get('new') === '1')
+  const [editingId, setEditingId] = useState<number | null>(null)
   const [showCategoryForm, setShowCategoryForm] = useState(false)
   const [categoryName, setCategoryName] = useState('')
   const [form, setForm] = useState({ item_category_id: '', name: '', type: 'simple_stock' as Item['type'], unit: 'piece' })
@@ -57,19 +58,40 @@ export default function ItemsPage() {
   async function submitItem() {
     if (!form.name || !form.type) return
     setBusy(true)
+    const payload = {
+      item_category_id: form.item_category_id ? Number(form.item_category_id) : null,
+      name: form.name,
+      type: form.type,
+      unit: form.unit || 'piece',
+    }
     try {
-      await api.post('/items', {
-        item_category_id: form.item_category_id ? Number(form.item_category_id) : null,
-        name: form.name,
-        type: form.type,
-        unit: form.unit || 'piece',
-      })
-      setForm({ item_category_id: '', name: '', type: 'simple_stock', unit: 'piece' })
-      setShowItemForm(false)
+      if (editingId) {
+        await api.put(`/items/${editingId}`, payload)
+      } else {
+        await api.post('/items', payload)
+      }
+      closeItemForm()
       loadAll()
     } finally {
       setBusy(false)
     }
+  }
+
+  function closeItemForm() {
+    setForm({ item_category_id: '', name: '', type: 'simple_stock', unit: 'piece' })
+    setShowItemForm(false)
+    setEditingId(null)
+  }
+
+  function startEdit(i: Item) {
+    setEditingId(i.id)
+    setForm({
+      item_category_id: i.item_category_id ? String(i.item_category_id) : '',
+      name: i.name,
+      type: i.type,
+      unit: i.unit,
+    })
+    setShowItemForm(true)
   }
 
   return (
@@ -80,7 +102,7 @@ export default function ItemsPage() {
         action={
           canManage && (
             <div className="flex gap-2">
-              <Button onClick={() => setShowItemForm((v) => !v)}>
+              <Button onClick={() => (showItemForm ? closeItemForm() : setShowItemForm(true))}>
                 <FontAwesomeIcon icon={faPlus} />
                 صنف جديد
               </Button>
@@ -103,7 +125,7 @@ export default function ItemsPage() {
       )}
 
       {showItemForm && (
-        <Modal title="صنف جديد" onClose={() => setShowItemForm(false)}>
+        <Modal title={editingId ? 'تعديل الصنف' : 'صنف جديد'} onClose={closeItemForm}>
           <div className="space-y-3">
             <select value={form.item_category_id} onChange={(e) => setForm({ ...form, item_category_id: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
               <option value="">بدون تصنيف</option>
@@ -119,7 +141,7 @@ export default function ItemsPage() {
             </select>
             <input placeholder="الوحدة" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
             <Button onClick={submitItem} loading={busy} className="w-full justify-center">
-              حفظ
+              {editingId ? 'حفظ التعديل' : 'حفظ'}
             </Button>
           </div>
         </Modal>
@@ -135,10 +157,11 @@ export default function ItemsPage() {
               <Th>التصنيف</Th>
               <Th>النوع</Th>
               <Th>الوحدة</Th>
+              <Th></Th>
             </Thead>
             <tbody>
               {items.length === 0 ? (
-                <EmptyRow colSpan={4}>لا توجد أصناف.</EmptyRow>
+                <EmptyRow colSpan={5}>لا توجد أصناف.</EmptyRow>
               ) : (
                 items.map((i) => (
                   <Tr key={i.id}>
@@ -149,6 +172,13 @@ export default function ItemsPage() {
                     <Td className="text-muted">{i.category?.name ?? '—'}</Td>
                     <Td className="text-muted">{TYPE_LABELS[i.type]}</Td>
                     <Td className="text-muted">{i.unit}</Td>
+                    <Td>
+                      {canManage && (
+                        <button onClick={() => startEdit(i)} className="text-xs text-accent hover:underline">
+                          <FontAwesomeIcon icon={faPen} />
+                        </button>
+                      )}
+                    </Td>
                   </Tr>
                 ))
               )}

@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faPlus } from '@fortawesome/free-solid-svg-icons'
+import { faPlus, faPen, faTrash } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import { Card, PageHeader, Button, Input, Table, Thead, Th, Td, Tr, EmptyRow, TableSkeleton } from '../components/ui'
@@ -21,6 +21,7 @@ export default function UsersPage() {
   const [users, setUsers] = useState<UserRow[] | null>(null)
   const [roles, setRoles] = useState<string[]>([])
   const [showForm, setShowForm] = useState(false)
+  const [editingId, setEditingId] = useState<number | null>(null)
   const [form, setForm] = useState({
     name: '',
     email: '',
@@ -45,12 +46,41 @@ export default function UsersPage() {
     e.preventDefault()
     setError(null)
     try {
-      await api.post('/users', form)
-      setShowForm(false)
-      setForm({ name: '', email: '', password: '', roles: [], branch_ids: [] })
+      if (editingId) {
+        const payload: Partial<typeof form> = { ...form }
+        if (!payload.password) delete payload.password
+        await api.put(`/users/${editingId}`, payload)
+      } else {
+        await api.post('/users', form)
+      }
+      closeForm()
       load()
     } catch {
       setError('تحقق من الحقول (البريد فريد، كلمة مرور 8 أحرف على الأقل).')
+    }
+  }
+
+  function closeForm() {
+    setShowForm(false)
+    setEditingId(null)
+    setForm({ name: '', email: '', password: '', roles: [], branch_ids: [] })
+  }
+
+  function startEdit(u: UserRow) {
+    setEditingId(u.id)
+    setForm({ name: u.name, email: u.email, password: '', roles: u.roles, branch_ids: u.branches.map((b) => b.id) })
+    setError(null)
+    setShowForm(true)
+  }
+
+  async function deleteUser(id: number) {
+    if (!window.confirm('حذف هذا المستخدم نهائياً؟')) return
+    try {
+      await api.delete(`/users/${id}`)
+      load()
+    } catch (err: unknown) {
+      const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      window.alert(message ?? 'تعذّر حذف المستخدم.')
     }
   }
 
@@ -61,7 +91,7 @@ export default function UsersPage() {
         subtitle="إدارة حسابات فريق العيادة وصلاحياتهم"
         action={
           can('users.manage') && (
-            <Button onClick={() => setShowForm((v) => !v)}>
+            <Button onClick={() => (showForm ? closeForm() : setShowForm(true))}>
               <FontAwesomeIcon icon={faPlus} />
               مستخدم جديد
             </Button>
@@ -82,8 +112,8 @@ export default function UsersPage() {
             />
             <Input
               type="password"
-              label="كلمة المرور"
-              required
+              label={editingId ? 'كلمة المرور (اتركها فارغة لعدم التغيير)' : 'كلمة المرور'}
+              required={!editingId}
               value={form.password}
               onChange={(e) => setForm({ ...form, password: e.target.value })}
             />
@@ -125,10 +155,10 @@ export default function UsersPage() {
             {error && <p className="col-span-2 text-sm text-danger">{error}</p>}
 
             <div className="col-span-2 flex justify-end gap-2">
-              <Button type="button" variant="ghost" onClick={() => setShowForm(false)}>
+              <Button type="button" variant="ghost" onClick={closeForm}>
                 إلغاء
               </Button>
-              <Button type="submit">حفظ</Button>
+              <Button type="submit">{editingId ? 'حفظ التعديل' : 'حفظ'}</Button>
             </div>
           </form>
         </Card>
@@ -144,10 +174,11 @@ export default function UsersPage() {
               <Th>البريد</Th>
               <Th>الأدوار</Th>
               <Th>الفروع</Th>
+              <Th></Th>
             </Thead>
             <tbody>
               {users.length === 0 ? (
-                <EmptyRow colSpan={4}>لا يوجد مستخدمون بعد.</EmptyRow>
+                <EmptyRow colSpan={5}>لا يوجد مستخدمون بعد.</EmptyRow>
               ) : (
                 users.map((u) => (
                   <Tr key={u.id}>
@@ -155,6 +186,18 @@ export default function UsersPage() {
                     <Td className="text-muted">{u.email}</Td>
                     <Td className="text-muted">{u.roles.join(', ')}</Td>
                     <Td className="text-muted">{u.branches.map((b) => b.name).join(', ')}</Td>
+                    <Td>
+                      {can('users.manage') && (
+                        <div className="flex items-center gap-3">
+                          <button onClick={() => startEdit(u)} className="text-xs text-accent hover:underline">
+                            <FontAwesomeIcon icon={faPen} />
+                          </button>
+                          <button onClick={() => deleteUser(u.id)} className="text-xs text-danger hover:underline">
+                            <FontAwesomeIcon icon={faTrash} />
+                          </button>
+                        </div>
+                      )}
+                    </Td>
                   </Tr>
                 ))
               )}

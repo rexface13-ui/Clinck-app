@@ -267,6 +267,7 @@ export default function PatientProfilePage() {
             toothStates={tooth_states}
             toothFindings={tooth_findings}
             services={services}
+            doctors={doctors}
             onChanged={load}
             pickMode={pickingForPlanId !== null}
             onPickTooth={(toothNumbers) => {

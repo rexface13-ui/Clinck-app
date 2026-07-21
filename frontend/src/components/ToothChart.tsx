@@ -19,7 +19,7 @@ import {
   toothSize,
   type ArchConfig,
 } from '../lib/dental'
-import type { Service, ToothFinding, ToothState } from '../types'
+import type { Doctor, Service, ToothFinding, ToothState } from '../types'
 
 interface Props {
   patientId: number
@@ -27,6 +27,7 @@ interface Props {
   toothStates: ToothState[]
   toothFindings: ToothFinding[]
   services: Service[]
+  doctors: Doctor[]
   onChanged: () => void
   /** When set, teeth are picked (possibly several at once) instead of opening the finding editor — used to fill a treatment-plan item's tooth number(s) from the chart. */
   pickMode?: boolean
@@ -78,7 +79,7 @@ function layoutArch(numbers: number[], primaryNumbers: number[], isChild: boolea
   })
 }
 
-export default function ToothChart({ patientId, isChild, toothStates, toothFindings, services, onChanged, pickMode = false, onPickTooth, busyToothNumbers }: Props) {
+export default function ToothChart({ patientId, isChild, toothStates, toothFindings, services, doctors, onChanged, pickMode = false, onPickTooth, busyToothNumbers }: Props) {
   const { can } = useAuth()
   const [selectedTeeth, setSelectedTeeth] = useState<number[]>([])
   const [multiSelect, setMultiSelect] = useState(false)
@@ -87,6 +88,7 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
   const [status, setStatus] = useState<'planned' | 'in_progress' | 'done'>('planned')
   const [markMissing, setMarkMissing] = useState(false)
   const [serviceId, setServiceId] = useState<string>('')
+  const [doctorId, setDoctorId] = useState<string>('')
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -131,6 +133,7 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
     setStatus('planned')
     setMarkMissing(false)
     setServiceId('')
+    setDoctorId('')
     setNote('')
     setError(null)
   }
@@ -184,6 +187,7 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
           status,
           marks_missing: markMissing,
           service_id: serviceId || null,
+          doctor_id: doctorId || null,
           note: note || null,
         })
       }
@@ -402,6 +406,20 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
                 ))}
               </select>
 
+              <label className="mb-1 block text-xs text-ink/60">الطبيب المعالج (اختياري — لازم لاحتساب العمولة)</label>
+              <select
+                value={doctorId}
+                onChange={(e) => setDoctorId(e.target.value)}
+                className="mb-3 w-full rounded-lg border border-ink/10 px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
+              >
+                <option value="">بدون طبيب محدد</option>
+                {doctors.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.full_name}
+                  </option>
+                ))}
+              </select>
+
               <label className="mb-1 block text-xs text-ink/60">ملاحظة</label>
               <textarea
                 value={note}
@@ -463,8 +481,8 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
                   {history.map((f) => (
                     <li key={f.id} className="text-xs text-ink/70">
                       <span className="font-medium text-ink">{f.finding_type}</span>
-                      {f.surfaces && <span className="text-ink/50"> ({f.surfaces})</span>} — {f.status} —{' '}
-                      {f.recorded_at}
+                      {f.surfaces && <span className="text-ink/50"> ({f.surfaces})</span>} — {f.status}
+                      {f.doctor_name && <> — {f.doctor_name}</>} — {f.recorded_at}
                     </li>
                   ))}
                 </ul>

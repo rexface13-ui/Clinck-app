@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faPlus, faTrash } from '@fortawesome/free-solid-svg-icons'
+import { faPlus, faTrash, faPen } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import { Card, PageHeader, Badge, Button, Input, Select, CardSkeleton } from '../components/ui'
@@ -28,6 +28,14 @@ export default function DoctorsPage() {
   })
   const [availForm, setAvailForm] = useState<Record<number, { branch_id: number; weekday: number; start_time: string; end_time: string }>>({})
   const [error, setError] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [editForm, setEditForm] = useState({
+    full_name: '',
+    contract_type: 'commission' as Doctor['contract_type'],
+    default_commission_percent: '',
+    monthly_salary: '',
+  })
+  const [editError, setEditError] = useState<string | null>(null)
 
   function load() {
     api.get('/doctors').then((res) => setDoctors(res.data.data))
@@ -53,9 +61,55 @@ export default function DoctorsPage() {
     }
   }
 
+  function startEdit(d: Doctor) {
+    setEditingId(d.id)
+    setEditForm({
+      full_name: d.full_name,
+      contract_type: d.contract_type,
+      default_commission_percent: d.default_commission_percent ?? '',
+      monthly_salary: d.monthly_salary ?? '',
+    })
+    setEditError(null)
+  }
+
+  async function saveEdit(doctorId: number) {
+    setEditError(null)
+    try {
+      await api.put(`/doctors/${doctorId}`, {
+        full_name: editForm.full_name,
+        contract_type: editForm.contract_type,
+        default_commission_percent: editForm.default_commission_percent || null,
+        monthly_salary: editForm.monthly_salary || null,
+      })
+      setEditingId(null)
+      load()
+    } catch {
+      setEditError('تحقق من الحقول المطلوبة لهذا النوع من التعاقد.')
+    }
+  }
+
+  async function deleteDoctor(doctorId: number) {
+    if (!window.confirm('حذف هذا الطبيب نهائياً؟')) return
+    try {
+      await api.delete(`/doctors/${doctorId}`)
+      load()
+    } catch (err: unknown) {
+      const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      window.alert(message ?? 'تعذّر حذف الطبيب.')
+    }
+  }
+
   async function addAvailability(doctorId: number) {
-    const f = availForm[doctorId]
-    if (!f) return
+    // The form's visible defaults (first branch, Sunday, 09:00-17:00) only
+    // land in `availForm` once the user touches a field — if they click
+    // "إضافة وقت" without changing anything, fall back to the same
+    // defaults the inputs are already displaying instead of doing nothing.
+    const f = availForm[doctorId] ?? {
+      branch_id: branches[0]?.id ?? 1,
+      weekday: 0,
+      start_time: '09:00',
+      end_time: '17:00',
+    }
     await api.post(`/doctors/${doctorId}/availability`, f)
     load()
   }
@@ -157,7 +211,63 @@ export default function DoctorsPage() {
                     {d.monthly_salary && <span className="text-sm text-muted">راتب {d.monthly_salary} ₪</span>}
                   </div>
                 </div>
+                {can('doctors.manage') && (
+                  <div className="flex items-center gap-3">
+                    <button onClick={() => startEdit(d)} className="flex items-center gap-1 text-xs text-accent hover:underline">
+                      <FontAwesomeIcon icon={faPen} />
+                      تعديل
+                    </button>
+                    <button onClick={() => deleteDoctor(d.id)} className="flex items-center gap-1 text-xs text-danger hover:underline">
+                      <FontAwesomeIcon icon={faTrash} />
+                      حذف
+                    </button>
+                  </div>
+                )}
               </div>
+
+              {editingId === d.id && (
+                <div className="mb-4 grid grid-cols-2 gap-4 rounded-xl bg-background p-4">
+                  <Input
+                    label="الاسم الكامل"
+                    value={editForm.full_name}
+                    onChange={(e) => setEditForm({ ...editForm, full_name: e.target.value })}
+                  />
+                  <Select
+                    label="نوع التعاقد"
+                    value={editForm.contract_type}
+                    onChange={(e) => setEditForm({ ...editForm, contract_type: e.target.value as Doctor['contract_type'] })}
+                  >
+                    {Object.entries(CONTRACT_LABELS).map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </Select>
+                  {(editForm.contract_type === 'salary' || editForm.contract_type === 'salary_commission') && (
+                    <Input
+                      type="number"
+                      label="الراتب الشهري (₪)"
+                      value={editForm.monthly_salary}
+                      onChange={(e) => setEditForm({ ...editForm, monthly_salary: e.target.value })}
+                    />
+                  )}
+                  {editForm.contract_type !== 'salary' && (
+                    <Input
+                      type="number"
+                      label="نسبة العمولة الافتراضية (%)"
+                      value={editForm.default_commission_percent}
+                      onChange={(e) => setEditForm({ ...editForm, default_commission_percent: e.target.value })}
+                    />
+                  )}
+                  {editError && <p className="col-span-2 text-sm text-danger">{editError}</p>}
+                  <div className="col-span-2 flex justify-end gap-2">
+                    <Button type="button" variant="ghost" onClick={() => setEditingId(null)}>
+                      إلغاء
+                    </Button>
+                    <Button onClick={() => saveEdit(d.id)}>حفظ</Button>
+                  </div>
+                </div>
+              )}
 
               <div className="border-t border-border pt-3">
                 <h4 className="mb-2 text-xs font-medium text-muted">أوقات الدوام</h4>

@@ -140,7 +140,9 @@ export default function PurchaseInvoicesPage() {
       const res = await api.get('/purchase-invoices/last-price', {
         params: { item_id: lineForm.item_id, supplier_id: selected.supplier_id },
       })
-      if (res.data) {
+      // No purchase history for this item/supplier yet returns `{}` — don't
+      // let that wipe out the currency field's default ('ILS') with undefined.
+      if (res.data?.last_price != null) {
         setLineForm((f) => ({ ...f, unit_price: res.data.last_price, currency: res.data.currency }))
       }
     } catch {
