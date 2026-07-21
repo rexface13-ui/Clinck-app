@@ -18,6 +18,7 @@ import PatientLedgerPanel from '../components/PatientLedgerPanel'
 import DatePicker from '../components/DatePicker'
 import CompleteVisitModal from '../components/CompleteVisitModal'
 import { Card, Badge, Button } from '../components/ui'
+import { useAuth } from '../contexts/AuthContext'
 import type { PatientProfile, Service, Ledger, Doctor, TreatmentPlan } from '../types'
 
 const STATUS_LABELS: Record<string, string> = {
@@ -36,6 +37,8 @@ function isToday(iso: string): boolean {
 
 export default function PatientProfilePage() {
   const { id } = useParams()
+  const { can } = useAuth()
+  const canViewBilling = can('billing.view')
   const [profile, setProfile] = useState<PatientProfile | null>(null)
   const [services, setServices] = useState<Service[]>([])
   const [ledger, setLedger] = useState<Ledger | null>(null)
@@ -55,7 +58,9 @@ export default function PatientProfilePage() {
 
   function load() {
     api.get(`/patients/${id}/profile`).then((res) => setProfile(res.data))
-    api.get(`/patients/${id}/ledger`).then((res) => setLedger(res.data))
+    if (canViewBilling) {
+      api.get(`/patients/${id}/ledger`).then((res) => setLedger(res.data))
+    }
     setPlansRefreshSignal((n) => n + 1)
   }
 
@@ -280,9 +285,11 @@ export default function PatientProfilePage() {
         </div>
       </div>
 
-      <div className="mb-6">
-        <PatientLedgerPanel patientId={patient.id} />
-      </div>
+      {canViewBilling && (
+        <div className="mb-6">
+          <PatientLedgerPanel patientId={patient.id} />
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-6">
         <Card className="p-6">
