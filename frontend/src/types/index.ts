@@ -103,12 +103,23 @@ export interface Appointment {
   created_via: 'web' | 'bot'
 }
 
+export interface Attachment {
+  id: number
+  original_name: string
+  mime_type: string
+  size_bytes: number
+  uploaded_by: string | null
+  created_at: string
+  download_url: string
+}
+
 export interface PatientProfile {
   patient: Patient
   tooth_states: ToothState[]
   tooth_findings: ToothFinding[]
   appointments: Appointment[]
   notes: { id: number; body: string; author: string | null; created_at: string }[]
+  attachments: Attachment[]
 }
 
 export interface Slot {

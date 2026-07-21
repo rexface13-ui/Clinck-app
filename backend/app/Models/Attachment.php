@@ -23,6 +23,16 @@ class Attachment extends Model
         return ['created_at' => 'datetime'];
     }
 
+    protected static function booted(): void
+    {
+        // $timestamps is disabled (no updated_at column) but created_at still
+        // exists and is displayed — nothing else sets it, so without this it
+        // silently inserts as null on every upload.
+        static::creating(function (Attachment $attachment): void {
+            $attachment->created_at ??= now();
+        });
+    }
+
     public function attachable(): MorphTo
     {
         return $this->morphTo();

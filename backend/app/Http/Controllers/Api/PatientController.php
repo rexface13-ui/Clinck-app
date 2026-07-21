@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Patient\StorePatientRequest;
 use App\Http\Requests\Patient\UpdatePatientRequest;
 use App\Http\Resources\AppointmentResource;
+use App\Http\Resources\AttachmentResource;
 use App\Http\Resources\NoteResource;
 use App\Http\Resources\PatientResource;
 use App\Http\Resources\ToothFindingResource;
@@ -114,6 +115,7 @@ class PatientController extends Controller
             'toothFindings' => fn ($q) => $q->orderByDesc('recorded_at'),
             'appointments' => fn ($q) => $q->orderByDesc('starts_at')->with('doctor:id,full_name'),
             'notes' => fn ($q) => $q->orderByDesc('created_at')->with('user:id,name'),
+            'attachments' => fn ($q) => $q->orderByDesc('id')->with('uploader:id,name'),
         ]);
 
         return [
@@ -122,6 +124,7 @@ class PatientController extends Controller
             'tooth_findings' => ToothFindingResource::collection($patient->toothFindings),
             'appointments' => AppointmentResource::collection($patient->appointments),
             'notes' => NoteResource::collection($patient->notes),
+            'attachments' => AttachmentResource::collection($patient->attachments),
         ];
     }
 }

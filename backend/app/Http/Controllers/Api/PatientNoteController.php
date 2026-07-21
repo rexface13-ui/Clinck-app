@@ -25,7 +25,10 @@ class PatientNoteController extends Controller
     public function destroy(Patient $patient, Note $note)
     {
         $this->authorize('update', $patient);
-        abort_unless($note->notable_type === Patient::class && $note->notable_id === $patient->id, 404);
+
+        // notable_type is stored as the morph-map alias ('patient'), not the
+        // FQCN — see the identical fix in PatientAttachmentController.
+        abort_unless($note->notable_type === $patient->getMorphClass() && $note->notable_id === $patient->id, 404);
 
         $note->delete();
 

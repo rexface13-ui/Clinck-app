@@ -34,7 +34,11 @@ class PatientAttachmentController extends Controller
     public function destroy(Patient $patient, Attachment $attachment)
     {
         $this->authorize('update', $patient);
-        abort_unless($attachment->attachable_type === Patient::class && $attachment->attachable_id === $patient->id, 404);
+
+        // attachable_type is stored as the morph-map alias ('patient'), not
+        // the FQCN — compare against getMorphClass() rather than Patient::class,
+        // or this always 404s even for a genuinely matching attachment.
+        abort_unless($attachment->attachable_type === $patient->getMorphClass() && $attachment->attachable_id === $patient->id, 404);
 
         Storage::disk($attachment->disk)->delete($attachment->path);
         $attachment->delete();

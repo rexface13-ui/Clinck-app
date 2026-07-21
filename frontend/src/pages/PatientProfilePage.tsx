@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import {
@@ -10,6 +10,9 @@ import {
   faUserXmark,
   faPen,
   faTrash,
+  faPaperclip,
+  faDownload,
+  faUpload,
 } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import ToothChart from '../components/ToothChart'
@@ -43,6 +46,9 @@ export default function PatientProfilePage() {
   const [services, setServices] = useState<Service[]>([])
   const [ledger, setLedger] = useState<Ledger | null>(null)
   const [noteBody, setNoteBody] = useState('')
+  const [uploadingAttachment, setUploadingAttachment] = useState(false)
+  const [attachmentError, setAttachmentError] = useState<string | null>(null)
+  const attachmentInputRef = useRef<HTMLInputElement>(null)
   const [updatingVisit, setUpdatingVisit] = useState(false)
   const [pickingForPlanId, setPickingForPlanId] = useState<number | null>(null)
   const [pickedTooth, setPickedTooth] = useState<{ planId: number; toothNumbers: number[] } | null>(null)
@@ -158,9 +164,37 @@ export default function PatientProfilePage() {
     load()
   }
 
+  async function uploadAttachment(file: File) {
+    setAttachmentError(null)
+    setUploadingAttachment(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      await api.post(`/patients/${id}/attachments`, formData)
+      load()
+    } catch {
+      setAttachmentError('تعذّر رفع الملف — تحقق من نوع الملف وحجمه (الحد الأقصى 10 ميغابايت).')
+    } finally {
+      setUploadingAttachment(false)
+      if (attachmentInputRef.current) attachmentInputRef.current.value = ''
+    }
+  }
+
+  async function deleteAttachment(attachmentId: number) {
+    if (!window.confirm('حذف هذا المرفق نهائياً؟')) return
+    await api.delete(`/patients/${id}/attachments/${attachmentId}`)
+    load()
+  }
+
+  function formatFileSize(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  }
+
   if (!profile) return <p className="text-sm text-muted">جارِ التحميل...</p>
 
-  const { patient, tooth_states, tooth_findings, appointments, notes } = profile
+  const { patient, tooth_states, tooth_findings, appointments, notes, attachments } = profile
   const todayAppointment = appointments.find((a) => isToday(a.starts_at) && (a.status === 'scheduled' || a.status === 'confirmed'))
   const hasDebt = !!ledger && ledger.outstanding_ils > 0
 
@@ -395,6 +429,59 @@ export default function PatientProfilePage() {
                   <p className="text-xs text-muted">
                     {n.author} · {n.created_at}
                   </p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+
+        <Card className="col-span-2 p-6">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-sm font-medium text-ink/70">
+              <FontAwesomeIcon icon={faPaperclip} className="ml-2 text-muted" />
+              المرفقات
+            </h2>
+            <Button
+              onClick={() => attachmentInputRef.current?.click()}
+              loading={uploadingAttachment}
+              className="px-3 py-1.5"
+            >
+              <FontAwesomeIcon icon={faUpload} />
+              رفع من الكمبيوتر
+            </Button>
+            <input
+              ref={attachmentInputRef}
+              type="file"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0]
+                if (file) uploadAttachment(file)
+              }}
+            />
+          </div>
+          {attachmentError && <p className="mb-3 text-sm text-danger">{attachmentError}</p>}
+          {attachments.length === 0 ? (
+            <p className="text-sm text-muted">لا توجد مرفقات (أشعة، صور، تقارير...).</p>
+          ) : (
+            <ul className="space-y-2">
+              {attachments.map((a) => (
+                <li key={a.id} className="flex items-center justify-between border-b border-border/70 pb-2 text-sm last:border-0">
+                  <div>
+                    <a href={a.download_url} target="_blank" rel="noreferrer" className="text-accent hover:underline">
+                      {a.original_name}
+                    </a>
+                    <p className="text-xs text-muted">
+                      {formatFileSize(a.size_bytes)} · {a.uploaded_by ?? '—'} · {a.created_at}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <a href={a.download_url} target="_blank" rel="noreferrer" className="text-muted hover:text-accent">
+                      <FontAwesomeIcon icon={faDownload} />
+                    </a>
+                    <button onClick={() => deleteAttachment(a.id)} className="text-danger hover:underline">
+                      <FontAwesomeIcon icon={faTrash} />
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>
