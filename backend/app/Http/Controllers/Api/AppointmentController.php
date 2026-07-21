@@ -75,10 +75,14 @@ class AppointmentController extends Controller
 
         DB::transaction(function () use ($appointment, $planService) {
             // Deleting an appointment that a treatment-plan session had booked
-            // must not leave that session silently stuck at "scheduled" with a
-            // now-null appointment_id — put it back to pending so it shows up
-            // as needing scheduling again.
-            PlanItemSession::where('appointment_id', $appointment->id)->update(['status' => 'pending']);
+            // must undo everything tied to that session: cancelSession()
+            // reverses its own charge (if it had already been billed as
+            // "done"), rolls back its tooth finding/commission, and clears
+            // the booking — without touching the item's other sessions.
+            $sessions = PlanItemSession::where('appointment_id', $appointment->id)->get();
+            foreach ($sessions as $session) {
+                $planService->cancelSession($session);
+            }
 
             // A "زيارة الآن" visit creates the appointment and its treatment
             // plan together as one unit (see CompleteVisitModal). Deleting

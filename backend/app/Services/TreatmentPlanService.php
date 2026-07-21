@@ -3,58 +3,40 @@
 namespace App\Services;
 
 use App\Models\Appointment;
+use App\Models\Cashbox;
+use App\Models\DoctorTransaction;
 use App\Models\Invoice;
 use App\Models\InvoiceLine;
 use App\Models\PatientTransaction;
+use App\Models\PlanItem;
 use App\Models\PlanItemSession;
+use App\Models\ToothFinding;
 use App\Models\TreatmentPlan;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 class TreatmentPlanService
 {
+    public function __construct(protected PaymentService $paymentService)
+    {
+    }
+
     /**
-     * Approving a plan is final: it stamps approved_at and generates the
-     * invoice from the plan's items in one transaction. Both steps happen
-     * together or not at all.
+     * Approving a plan only locks it in and schedules its sessions — it
+     * does NOT charge anything. Nothing is owed until a session actually
+     * happens; each session is billed individually via completeSession()
+     * when the patient shows up and it's actually carried out (mirrors the
+     * same-day "اجاني هلق" visit flow, just spread across future visits).
      */
-    public function approve(TreatmentPlan $plan): Invoice
+    public function approve(TreatmentPlan $plan): TreatmentPlan
     {
         abort_if($plan->status !== 'draft', 422, 'الخطة معتمدة أو ملغاة مسبقاً.');
 
         $plan->loadMissing('items');
         abort_if($plan->items->isEmpty(), 422, 'لا يمكن اعتماد خطة بدون بنود.');
 
-        return DB::transaction(function () use ($plan) {
-            $invoice = Invoice::create([
-                'clinic_id' => $plan->clinic_id,
-                'patient_id' => $plan->patient_id,
-                'treatment_plan_id' => $plan->id,
-                'invoice_number' => $this->nextInvoiceNumber($plan->clinic_id),
-                'status' => 'unpaid',
-                'total_amount_ils' => 0,
-                'issued_at' => now(),
-            ]);
-
-            $total = 0;
-
+        DB::transaction(function () use ($plan) {
             foreach ($plan->items as $item) {
-                $exchangeRate = 1; // no live FX source yet; ILS-only in practice
-                $lineAmount = $item->unit_price * $item->sessions_count;
-                $amountIls = $lineAmount * $exchangeRate;
-                $total += $amountIls;
-
-                InvoiceLine::create([
-                    'clinic_id' => $plan->clinic_id,
-                    'invoice_id' => $invoice->id,
-                    'plan_item_id' => $item->id,
-                    'description' => $item->service->name.($item->tooth_number ? " (سن {$item->tooth_number})" : ''),
-                    'amount' => $lineAmount,
-                    'currency' => $item->currency,
-                    'exchange_rate' => $exchangeRate,
-                    'amount_ils' => $amountIls,
-                ]);
-
                 for ($i = 1; $i <= $item->sessions_count; $i++) {
                     PlanItemSession::create([
                         'clinic_id' => $plan->clinic_id,
@@ -65,7 +47,63 @@ class TreatmentPlanService
                 }
             }
 
-            $invoice->update(['total_amount_ils' => $total]);
+            $plan->update(['status' => 'approved', 'approved_at' => now()]);
+        });
+
+        return $plan->fresh(['items.sessions']);
+    }
+
+    /**
+     * Marks one session as actually done and bills exactly that session's
+     * price — nothing more. Adds (or reuses) the plan's open invoice, logs
+     * the charge on the patient's ledger, optionally records the tooth
+     * finding + doctor commission (only once the item's last session is
+     * done, since multi-session same-tooth items share one finding row),
+     * and optionally collects payment immediately.
+     */
+    public function completeSession(
+        PlanItemSession $session,
+        float $price,
+        ?int $payCashboxId = null,
+        ?string $payMethod = null,
+    ): PlanItemSession {
+        $item = $session->planItem()->with('treatmentPlan', 'service')->first();
+        $plan = $item->treatmentPlan;
+
+        abort_if($plan->status !== 'approved', 422, 'الخطة لازم تكون معتمدة أولاً.');
+        abort_if($session->status === 'done', 422, 'هالجلسة محسوبة مسبقاً.');
+        abort_if($session->status === 'cancelled', 422, 'هالجلسة ملغاة.');
+
+        return DB::transaction(function () use ($session, $item, $plan, $price, $payCashboxId, $payMethod) {
+            $invoice = $plan->invoices()->where('status', '!=', 'void')->latest('id')->first();
+
+            if (! $invoice) {
+                $invoice = Invoice::create([
+                    'clinic_id' => $plan->clinic_id,
+                    'patient_id' => $plan->patient_id,
+                    'treatment_plan_id' => $plan->id,
+                    'invoice_number' => $this->nextInvoiceNumber($plan->clinic_id),
+                    'status' => 'unpaid',
+                    'total_amount_ils' => 0,
+                    'issued_at' => now(),
+                ]);
+            }
+
+            $sessionLabel = $item->sessions_count > 1 ? " — جلسة {$session->session_number}/{$item->sessions_count}" : '';
+
+            InvoiceLine::create([
+                'clinic_id' => $plan->clinic_id,
+                'invoice_id' => $invoice->id,
+                'plan_item_id' => $item->id,
+                'plan_item_session_id' => $session->id,
+                'description' => $item->service->name.($item->tooth_number ? " (سن {$item->tooth_number})" : '').$sessionLabel,
+                'amount' => $price,
+                'currency' => $item->currency,
+                'exchange_rate' => 1,
+                'amount_ils' => $price,
+            ]);
+
+            $invoice->update(['total_amount_ils' => $invoice->total_amount_ils + $price]);
 
             PatientTransaction::create([
                 'clinic_id' => $plan->clinic_id,
@@ -73,70 +111,232 @@ class TreatmentPlanService
                 'type' => 'charge',
                 'reference_type' => 'invoice',
                 'reference_id' => $invoice->id,
-                'amount' => $total,
+                'amount' => $price,
                 'currency' => 'ILS',
                 'exchange_rate' => 1,
-                'amount_ils' => $total,
+                'amount_ils' => $price,
                 'occurred_at' => now(),
             ]);
 
-            $plan->update(['status' => 'approved', 'approved_at' => now()]);
+            $session->update(['status' => 'done']);
 
-            return $invoice->fresh('lines');
+            if ($item->tooth_number) {
+                $doneCount = $item->sessions()->where('status', 'done')->count();
+                $isLastSession = $doneCount >= $item->sessions_count;
+
+                $finding = ToothFinding::updateOrCreate(
+                    [
+                        'patient_id' => $plan->patient_id,
+                        'tooth_number' => $item->tooth_number,
+                        'service_id' => $item->service_id,
+                    ],
+                    [
+                        'clinic_id' => $item->clinic_id,
+                        'finding_type' => $item->service->name,
+                        'status' => $isLastSession ? 'done' : 'in_progress',
+                        'doctor_id' => $plan->doctor_id,
+                        'plan_item_session_id' => $session->id,
+                        'recorded_at' => now(),
+                    ],
+                );
+
+                if ($isLastSession) {
+                    app(CommissionService::class)->computeForFinding($finding);
+                }
+            }
+
+            if ($payCashboxId) {
+                $cashbox = Cashbox::findOrFail($payCashboxId);
+                $this->paymentService->collect(
+                    patient: $plan->patient,
+                    cashbox: $cashbox,
+                    amount: $price,
+                    currency: $cashbox->currency,
+                    exchangeRate: 1,
+                    method: $payMethod ?? 'cash',
+                    invoice: $invoice,
+                );
+            } else {
+                $this->paymentService->refreshInvoiceStatus($invoice->fresh());
+            }
+
+            return $session->fresh();
         });
     }
 
     /**
-     * Cancelling an approved plan reverses its financial and scheduling
-     * footprint: the invoice is voided, a refund transaction cancels out
-     * the original charge (any payments already collected stay on the
-     * ledger as a credit — same convention as a real refund), pending/
-     * scheduled sessions are cancelled, and any booked appointments for
-     * those sessions are cancelled too (not deleted, so the slot's history
-     * stays visible).
+     * Cancelling an approved plan cancels every session that hasn't
+     * happened yet (done sessions stay — they were real, billed visits)
+     * and reverses whatever charges those cancelled sessions had already
+     * posted (a session can be "done" and billed without being paid).
      */
     public function cancel(TreatmentPlan $plan): TreatmentPlan
     {
         abort_if($plan->status !== 'approved', 422, 'إلغاء الخطة ممكن فقط للخطط المعتمدة.');
 
         DB::transaction(function () use ($plan) {
-            $plan->loadMissing(['items.sessions', 'invoices']);
-
-            $invoice = $plan->invoices()->latest('id')->first();
-
-            if ($invoice) {
-                $invoice->update(['status' => 'void']);
-
-                PatientTransaction::create([
-                    'clinic_id' => $plan->clinic_id,
-                    'patient_id' => $plan->patient_id,
-                    'type' => 'refund',
-                    'reference_type' => 'treatment_plan_cancel',
-                    'reference_id' => $plan->id,
-                    'amount' => $invoice->total_amount_ils,
-                    'currency' => 'ILS',
-                    'exchange_rate' => 1,
-                    'amount_ils' => $invoice->total_amount_ils,
-                    'occurred_at' => now(),
-                ]);
-            }
+            $plan->loadMissing('items.sessions');
 
             foreach ($plan->items as $item) {
                 foreach ($item->sessions as $session) {
-                    if (in_array($session->status, ['done', 'cancelled'], true)) {
+                    if ($session->status === 'cancelled') {
                         continue;
                     }
-
-                    if ($session->appointment_id) {
-                        Appointment::whereKey($session->appointment_id)->update(['status' => 'cancelled']);
+                    if ($session->status === 'done') {
+                        continue; // already happened and billed — not undone by cancelling the rest of the plan
                     }
 
-                    $session->update(['status' => 'cancelled']);
+                    $this->cancelSession($session);
                 }
             }
 
             $plan->update(['status' => 'cancelled']);
         });
+
+        return $plan->fresh(['items.sessions']);
+    }
+
+    /**
+     * Edits an already-completed (billed) session after the fact — a note
+     * and/or a corrected price. The note is just stored. A price change
+     * posts the delta as a signed 'adjustment' ledger entry (not a rewrite
+     * of the original charge) so the patient's transaction history stays
+     * an honest audit trail, and updates the invoice line/total in place.
+     */
+    public function updateSession(PlanItemSession $session, ?float $price, ?string $note): PlanItemSession
+    {
+        abort_if($session->status !== 'done', 422, 'التعديل ممكن بس للجلسات المحسوبة.');
+
+        DB::transaction(function () use ($session, $price, $note) {
+            if ($note !== null) {
+                $session->update(['note' => $note]);
+            }
+
+            if ($price !== null) {
+                $item = $session->planItem;
+                $plan = $item->treatmentPlan;
+                $line = InvoiceLine::where('plan_item_session_id', $session->id)->first();
+
+                if ($line && round((float) $line->amount_ils, 2) !== round($price, 2)) {
+                    $delta = round($price - (float) $line->amount_ils, 2);
+                    $invoice = $line->invoice;
+
+                    $line->update(['amount' => $price, 'amount_ils' => $price]);
+                    $invoice->update(['total_amount_ils' => max(0, $invoice->total_amount_ils + $delta)]);
+
+                    PatientTransaction::create([
+                        'clinic_id' => $item->clinic_id,
+                        'patient_id' => $plan->patient_id,
+                        'type' => 'adjustment',
+                        'reference_type' => 'plan_item_session_adjust',
+                        'reference_id' => $session->id,
+                        'amount' => $delta,
+                        'currency' => 'ILS',
+                        'exchange_rate' => 1,
+                        'amount_ils' => $delta,
+                        'occurred_at' => now(),
+                    ]);
+
+                    $this->paymentService->refreshInvoiceStatus($invoice->fresh());
+                }
+            }
+        });
+
+        return $session->fresh();
+    }
+
+    /**
+     * Cancels one session: unschedules its appointment, reverses its own
+     * invoice line/charge if it was already billed (refunds that slice
+     * only — other sessions of the same item are untouched), and rolls
+     * back the tooth finding/commission if this was the session that had
+     * completed it. Used both by the dedicated "cancel" action per session
+     * and when a calendar appointment tied to a session gets deleted.
+     */
+    public function cancelSession(PlanItemSession $session): PlanItemSession
+    {
+        $item = $session->planItem()->with('treatmentPlan', 'service')->first();
+        $plan = $item->treatmentPlan;
+
+        DB::transaction(function () use ($session, $item, $plan) {
+            if ($session->appointment_id) {
+                Appointment::whereKey($session->appointment_id)->update(['status' => 'cancelled']);
+            }
+
+            $wasDone = $session->status === 'done';
+            $session->update(['status' => 'cancelled', 'appointment_id' => null]);
+
+            $line = InvoiceLine::where('plan_item_session_id', $session->id)->first();
+
+            if ($line) {
+                $invoice = $line->invoice;
+                $refundIls = $line->amount_ils;
+
+                $line->delete();
+                $invoice->update(['total_amount_ils' => max(0, $invoice->total_amount_ils - $refundIls)]);
+
+                PatientTransaction::create([
+                    'clinic_id' => $item->clinic_id,
+                    'patient_id' => $plan->patient_id,
+                    'type' => 'refund',
+                    'reference_type' => 'plan_item_session_cancel',
+                    'reference_id' => $session->id,
+                    'amount' => $refundIls,
+                    'currency' => 'ILS',
+                    'exchange_rate' => 1,
+                    'amount_ils' => $refundIls,
+                    'occurred_at' => now(),
+                ]);
+
+                if ($invoice->lines()->count() === 0) {
+                    $invoice->update(['status' => 'void']);
+                } else {
+                    $this->paymentService->refreshInvoiceStatus($invoice->fresh());
+                }
+            }
+
+            if ($wasDone && $item->tooth_number) {
+                $finding = ToothFinding::where('patient_id', $plan->patient_id)
+                    ->where('tooth_number', $item->tooth_number)
+                    ->where('service_id', $item->service_id)
+                    ->first();
+
+                if ($finding) {
+                    $remainingDone = $item->sessions()->where('status', 'done')->count();
+
+                    if ($remainingDone === 0) {
+                        DoctorTransaction::where('tooth_finding_id', $finding->id)->whereNull('settled_at')->delete();
+                        $finding->delete();
+                    } elseif ($finding->status === 'done') {
+                        DoctorTransaction::where('tooth_finding_id', $finding->id)->whereNull('settled_at')->delete();
+                        $finding->update(['status' => 'in_progress']);
+                    }
+                }
+            }
+        });
+
+        return $session->fresh();
+    }
+
+    /**
+     * Cancels every not-yet-cancelled session of an item in one call — the
+     * "cancel this whole item" convenience used by the plan panel and by
+     * deleting a calendar appointment (which cancels the item that
+     * specific appointment's session belonged to, since a multi-session
+     * item still shows as one row in the UI).
+     */
+    public function cancelItem(PlanItem $item): TreatmentPlan
+    {
+        $plan = $item->treatmentPlan;
+        abort_if($plan->status !== 'approved', 422, 'إلغاء البند بهذا الشكل ممكن فقط ضمن خطة معتمدة.');
+
+        $item->loadMissing('sessions');
+
+        foreach ($item->sessions as $session) {
+            if ($session->status !== 'cancelled') {
+                $this->cancelSession($session);
+            }
+        }
 
         return $plan->fresh(['items.sessions']);
     }

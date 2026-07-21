@@ -10,7 +10,7 @@ class PlanItemSession extends Model
 {
     use BelongsToClinic;
 
-    protected $fillable = ['clinic_id', 'plan_item_id', 'session_number', 'status', 'appointment_id'];
+    protected $fillable = ['clinic_id', 'plan_item_id', 'session_number', 'status', 'appointment_id', 'note'];
 
     public function planItem(): BelongsTo
     {

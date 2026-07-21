@@ -1,14 +1,21 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faPlus, faCheck, faCalendarPlus } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import { SearchableSelect } from './ui'
-import type { Doctor, Service, TreatmentPlan } from '../types'
+import type { Cashbox, Doctor, Service, TreatmentPlan } from '../types'
 
 const STATUS_LABELS: Record<TreatmentPlan['status'], string> = {
   draft: 'مسودة',
   approved: 'معتمدة',
+  cancelled: 'ملغاة',
+}
+
+const SESSION_STATUS_LABELS: Record<string, string> = {
+  pending: 'لسا ما جدولت',
+  scheduled: 'مجدولة',
+  done: 'محسوبة',
   cancelled: 'ملغاة',
 }
 
@@ -25,6 +32,22 @@ interface ItemFormState {
 /** Final per-session price after applying the line's discount — this is what actually gets billed/stored as unit_price. */
 function discountedPrice(f: ItemFormState): number {
   const base = Number(f.unit_price) || 0
+  const raw = Number(f.discount_value) || 0
+  const discount = f.discount_type === 'percent' ? (base * raw) / 100 : raw
+  return Math.max(0, base - Math.min(base, discount))
+}
+
+interface SessionFormState {
+  price: string
+  discount_type: 'percent' | 'fixed'
+  discount_value: string
+  pay_now: boolean
+  cashbox_id: string
+  method: 'cash' | 'card' | 'transfer'
+}
+
+function sessionDiscountedPrice(f: SessionFormState): number {
+  const base = Number(f.price) || 0
   const raw = Number(f.discount_value) || 0
   const discount = f.discount_type === 'percent' ? (base * raw) / 100 : raw
   return Math.max(0, base - Math.min(base, discount))
@@ -49,9 +72,12 @@ export default function TreatmentPlanPanel({ patientId, pickedTooth, onToothCons
   const [plans, setPlans] = useState<TreatmentPlan[]>([])
   const [doctors, setDoctors] = useState<Doctor[]>([])
   const [services, setServices] = useState<Service[]>([])
+  const [cashboxes, setCashboxes] = useState<Cashbox[]>([])
   const [showNewPlan, setShowNewPlan] = useState(false)
   const [newDoctorId, setNewDoctorId] = useState('')
   const [itemForm, setItemForm] = useState<Record<number, ItemFormState>>({})
+  const [sessionForm, setSessionForm] = useState<Record<number, SessionFormState>>({})
+  const [openSessionId, setOpenSessionId] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
@@ -75,6 +101,7 @@ export default function TreatmentPlanPanel({ patientId, pickedTooth, onToothCons
     load()
     api.get('/doctors').then((res) => setDoctors(res.data.data))
     api.get('/services').then((res) => setServices(res.data.data))
+    api.get('/cashboxes').then((res) => setCashboxes(res.data))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [patientId, refreshSignal])
 
@@ -139,6 +166,61 @@ export default function TreatmentPlanPanel({ patientId, pickedTooth, onToothCons
     }
   }
 
+  function sessionFormFor(sessionId: number, defaultPrice: string): SessionFormState {
+    const ils = cashboxes.find((c) => c.currency === 'ILS')
+    return (
+      sessionForm[sessionId] ?? {
+        price: defaultPrice,
+        discount_type: 'percent',
+        discount_value: '',
+        pay_now: true,
+        cashbox_id: ils ? String(ils.id) : '',
+        method: 'cash',
+      }
+    )
+  }
+
+  async function completeSession(planId: number, itemId: number, sessionId: number, defaultPrice: string) {
+    const f = sessionFormFor(sessionId, defaultPrice)
+    const price = sessionDiscountedPrice(f)
+    if (f.pay_now && !f.cashbox_id) return
+    setBusy(true)
+    try {
+      await api.post(`/treatment-plans/${planId}/items/${itemId}/sessions/${sessionId}/complete`, {
+        price,
+        pay_now: f.pay_now,
+        cashbox_id: f.pay_now ? Number(f.cashbox_id) : undefined,
+        method: f.pay_now ? f.method : undefined,
+      })
+      setOpenSessionId(null)
+      load()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function cancelSessionAction(planId: number, itemId: number, sessionId: number) {
+    if (!window.confirm('إلغاء هالجلسة؟ لو كانت محسوبة رح يترد مبلغها كرصيد للمريض، وأي سن مسجل عليها يرجع لونه.')) return
+    setBusy(true)
+    try {
+      await api.post(`/treatment-plans/${planId}/items/${itemId}/sessions/${sessionId}/cancel`)
+      load()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function cancelItem(planId: number, itemId: number) {
+    if (!window.confirm('إلغاء هالبند؟ رح تتلغى جلساته ومواعيدها، وأي سن اتحدد إله (يرجع لونه بالرسمة)، وجزؤه من الفاتورة يترد كرصيد للمريض.')) return
+    setBusy(true)
+    try {
+      await api.post(`/treatment-plans/${planId}/items/${itemId}/cancel`)
+      load()
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function deletePlan(planId: number) {
     if (!window.confirm('حذف خطة العلاج بالكامل؟')) return
     setBusy(true)
@@ -151,7 +233,7 @@ export default function TreatmentPlanPanel({ patientId, pickedTooth, onToothCons
   }
 
   async function approvePlan(planId: number) {
-    if (!window.confirm('اعتماد الخطة يولّد فاتورة فوراً — لا يمكن التراجع. متابعة؟')) return
+    if (!window.confirm('اعتماد الخطة بجدول جلساتها بس — ما رح يترتب أي مبلغ عالمريض إلا لما تحاسب كل جلسة تصير فعلياً. متابعة؟')) return
     setBusy(true)
     try {
       await api.post(`/treatment-plans/${planId}/approve`)
@@ -254,7 +336,7 @@ export default function TreatmentPlanPanel({ patientId, pickedTooth, onToothCons
                       className="flex items-center gap-1 rounded-lg bg-accent px-3 py-1 text-xs text-white hover:bg-accent-hover disabled:opacity-60"
                     >
                       <FontAwesomeIcon icon={faCheck} />
-                      اعتماد وإصدار فاتورة
+                      اعتماد وجدولة الجلسات
                     </button>
                   </div>
                 )}
@@ -301,31 +383,178 @@ export default function TreatmentPlanPanel({ patientId, pickedTooth, onToothCons
                 </thead>
                 <tbody>
                   {plan.items.map((item) => (
-                    <tr key={item.id} className="border-t border-ink/5">
-                      <td className="p-1">{item.service_name}</td>
-                      <td className="p-1">{item.tooth_number ?? '—'}</td>
-                      <td className="p-1">{item.unit_price} {item.currency}</td>
-                      <td className="p-1">
-                        {item.sessions_count}
-                        {item.sessions && (
-                          <span className="text-ink/40">
-                            {' '}({item.sessions.filter((s) => s.status === 'scheduled' || s.status === 'done').length} مجدولة)
-                          </span>
-                        )}
-                      </td>
-                      <td className="p-1 text-ink/60">
-                        {item.interval_days
-                          ? `كل ${item.interval_days} يوم`
-                          : `افتراضي الخدمة (${services.find((s) => s.id === item.service_id)?.default_interval_days ?? 7} يوم)`}
-                      </td>
-                      <td className="p-1">
-                        {plan.status === 'draft' && canManage && (
-                          <button onClick={() => removeItem(plan.id, item.id)} className="text-danger/70 hover:text-danger">
-                            حذف
-                          </button>
-                        )}
-                      </td>
-                    </tr>
+                    <Fragment key={item.id}>
+                      <tr className="border-t border-ink/5">
+                        <td className="p-1">{item.service_name}</td>
+                        <td className="p-1">{item.tooth_number ?? '—'}</td>
+                        <td className="p-1">{item.unit_price} {item.currency}</td>
+                        <td className="p-1">
+                          {item.sessions_count}
+                          {item.sessions && (
+                            <span className="text-ink/40">
+                              {' '}({item.sessions.filter((s) => s.status === 'done').length} محسوبة)
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-1 text-ink/60">
+                          {item.interval_days
+                            ? `كل ${item.interval_days} يوم`
+                            : `افتراضي الخدمة (${services.find((s) => s.id === item.service_id)?.default_interval_days ?? 7} يوم)`}
+                        </td>
+                        <td className="p-1">
+                          {plan.status === 'draft' && canManage && (
+                            <button onClick={() => removeItem(plan.id, item.id)} className="text-danger/70 hover:text-danger">
+                              حذف
+                            </button>
+                          )}
+                          {plan.status === 'approved' && canManage && (
+                            <button onClick={() => cancelItem(plan.id, item.id)} disabled={busy} className="text-danger/70 hover:text-danger disabled:opacity-60">
+                              إلغاء الكل
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+
+                      {plan.status === 'approved' && item.sessions?.map((session) => (
+                        <tr key={session.id} className="border-t border-ink/5 bg-background/50">
+                          <td colSpan={6} className="p-1 ps-4">
+                            <div className="flex items-center justify-between text-[11px]">
+                              <span className="text-ink/60">
+                                جلسة {session.session_number}/{item.sessions_count} —{' '}
+                                <span
+                                  className={
+                                    session.status === 'done'
+                                      ? 'text-accent'
+                                      : session.status === 'cancelled'
+                                        ? 'text-danger/70'
+                                        : 'text-ink/50'
+                                  }
+                                >
+                                  {SESSION_STATUS_LABELS[session.status]}
+                                </span>
+                              </span>
+                              {canManage && (session.status === 'pending' || session.status === 'scheduled') && (
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    onClick={() => setOpenSessionId(openSessionId === session.id ? null : session.id)}
+                                    className="rounded-lg bg-accent px-2 py-1 text-white hover:bg-accent-hover"
+                                  >
+                                    تمّت + حاسب
+                                  </button>
+                                  <button
+                                    onClick={() => cancelSessionAction(plan.id, item.id, session.id)}
+                                    disabled={busy}
+                                    className="text-danger/70 hover:text-danger disabled:opacity-60"
+                                  >
+                                    إلغاء
+                                  </button>
+                                </div>
+                              )}
+                              {canManage && session.status === 'done' && (
+                                <button
+                                  onClick={() => cancelSessionAction(plan.id, item.id, session.id)}
+                                  disabled={busy}
+                                  className="text-danger/70 hover:text-danger disabled:opacity-60"
+                                >
+                                  إلغاء (استرجاع)
+                                </button>
+                              )}
+                            </div>
+
+                            {openSessionId === session.id && (
+                              <div className="mt-2 flex flex-wrap items-end gap-2 rounded-lg border border-ink/10 bg-white p-2">
+                                <div>
+                                  <label className="mb-1 block text-[10px] text-ink/50">السعر</label>
+                                  <input
+                                    type="number"
+                                    value={sessionFormFor(session.id, item.unit_price).price}
+                                    onChange={(e) =>
+                                      setSessionForm({
+                                        ...sessionForm,
+                                        [session.id]: { ...sessionFormFor(session.id, item.unit_price), price: e.target.value },
+                                      })
+                                    }
+                                    className="w-20 rounded-lg border border-ink/10 px-2 py-1 text-xs"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="mb-1 block text-[10px] text-ink/50">خصم</label>
+                                  <div className="flex gap-1">
+                                    <select
+                                      value={sessionFormFor(session.id, item.unit_price).discount_type}
+                                      onChange={(e) =>
+                                        setSessionForm({
+                                          ...sessionForm,
+                                          [session.id]: { ...sessionFormFor(session.id, item.unit_price), discount_type: e.target.value as 'percent' | 'fixed' },
+                                        })
+                                      }
+                                      className="rounded-lg border border-ink/10 px-1 py-1 text-xs text-ink/60"
+                                    >
+                                      <option value="percent">%</option>
+                                      <option value="fixed">₪</option>
+                                    </select>
+                                    <input
+                                      type="number"
+                                      placeholder="0"
+                                      value={sessionFormFor(session.id, item.unit_price).discount_value}
+                                      onChange={(e) =>
+                                        setSessionForm({
+                                          ...sessionForm,
+                                          [session.id]: { ...sessionFormFor(session.id, item.unit_price), discount_value: e.target.value },
+                                        })
+                                      }
+                                      className="w-14 rounded-lg border border-ink/10 px-1 py-1 text-xs"
+                                    />
+                                  </div>
+                                </div>
+                                <label className="flex items-center gap-1 text-[10px] text-ink/60">
+                                  <input
+                                    type="checkbox"
+                                    checked={sessionFormFor(session.id, item.unit_price).pay_now}
+                                    onChange={(e) =>
+                                      setSessionForm({
+                                        ...sessionForm,
+                                        [session.id]: { ...sessionFormFor(session.id, item.unit_price), pay_now: e.target.checked },
+                                      })
+                                    }
+                                  />
+                                  دفع الآن
+                                </label>
+                                {sessionFormFor(session.id, item.unit_price).pay_now && (
+                                  <div>
+                                    <label className="mb-1 block text-[10px] text-ink/50">الصندوق</label>
+                                    <select
+                                      value={sessionFormFor(session.id, item.unit_price).cashbox_id}
+                                      onChange={(e) =>
+                                        setSessionForm({
+                                          ...sessionForm,
+                                          [session.id]: { ...sessionFormFor(session.id, item.unit_price), cashbox_id: e.target.value },
+                                        })
+                                      }
+                                      className="rounded-lg border border-ink/10 px-2 py-1 text-xs"
+                                    >
+                                      {cashboxes.map((c) => (
+                                        <option key={c.id} value={c.id}>{c.name}</option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                )}
+                                <p className="text-[10px] text-accent">
+                                  السعر بعد الخصم: {sessionDiscountedPrice(sessionFormFor(session.id, item.unit_price)).toFixed(2)} ₪
+                                </p>
+                                <button
+                                  onClick={() => completeSession(plan.id, item.id, session.id, item.unit_price)}
+                                  disabled={busy}
+                                  className="rounded-lg bg-accent px-3 py-1 text-xs text-white hover:bg-accent-hover disabled:opacity-60"
+                                >
+                                  تأكيد
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </Fragment>
                   ))}
 
                   {plan.status === 'draft' && canManage && (

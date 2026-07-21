@@ -79,7 +79,7 @@ class PaymentService
         });
     }
 
-    protected function refreshInvoiceStatus(Invoice $invoice): void
+    public function refreshInvoiceStatus(Invoice $invoice): void
     {
         $paidIls = Payment::where('invoice_id', $invoice->id)->sum('amount_ils');
 

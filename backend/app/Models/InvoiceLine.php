@@ -11,7 +11,7 @@ class InvoiceLine extends Model
     use BelongsToClinic;
 
     protected $fillable = [
-        'clinic_id', 'invoice_id', 'plan_item_id', 'description',
+        'clinic_id', 'invoice_id', 'plan_item_id', 'plan_item_session_id', 'description',
         'amount', 'currency', 'exchange_rate', 'amount_ils',
     ];
 
@@ -32,5 +32,10 @@ class InvoiceLine extends Model
     public function planItem(): BelongsTo
     {
         return $this->belongsTo(PlanItem::class);
+    }
+
+    public function planItemSession(): BelongsTo
+    {
+        return $this->belongsTo(PlanItemSession::class);
     }
 }

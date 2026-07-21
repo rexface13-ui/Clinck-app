@@ -7,6 +7,7 @@ use App\Http\Requests\Note\StoreNoteRequest;
 use App\Http\Resources\NoteResource;
 use App\Models\Note;
 use App\Models\Patient;
+use Illuminate\Http\Request;
 
 class PatientNoteController extends Controller
 {
@@ -18,6 +19,16 @@ class PatientNoteController extends Controller
             'user_id' => $request->user()->id,
             'body' => $request->validated('body'),
         ]);
+
+        return new NoteResource($note->load('user'));
+    }
+
+    public function update(Request $request, Patient $patient, Note $note)
+    {
+        $this->authorize('update', $patient);
+        abort_unless($note->notable_type === $patient->getMorphClass() && $note->notable_id === $patient->id, 404);
+
+        $note->update(['body' => $request->validate(['body' => ['required', 'string']])['body']]);
 
         return new NoteResource($note->load('user'));
     }

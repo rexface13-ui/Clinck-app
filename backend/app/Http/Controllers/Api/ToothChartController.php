@@ -7,11 +7,13 @@ use App\Http\Requests\Dental\StoreToothFindingRequest;
 use App\Http\Resources\ToothFindingResource;
 use App\Http\Resources\ToothStateResource;
 use App\Models\Patient;
+use App\Models\PlanItem;
 use App\Models\ToothFinding;
 use App\Services\CommissionService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 class ToothChartController extends Controller
 {
@@ -94,6 +96,52 @@ class ToothChartController extends Controller
         });
 
         return new ToothFindingResource($finding->load(['service', 'doctor']));
+    }
+
+    public function updateFinding(Request $request, Patient $patient, ToothFinding $finding, CommissionService $commissions)
+    {
+        $this->authorize('update', $patient);
+        abort_unless($request->user()->can('dental_chart.manage'), 403);
+        abort_unless($finding->patient_id === $patient->id, 404);
+
+        $data = $request->validate([
+            'status' => ['sometimes', 'in:planned,in_progress,done'],
+            'note' => ['sometimes', 'nullable', 'string'],
+            'doctor_id' => ['sometimes', 'nullable', 'exists:doctors,id'],
+            'marks_missing' => ['sometimes', 'boolean'],
+            'performed_externally' => ['sometimes', 'boolean'],
+            'plan_item_session_id' => [
+                'sometimes', 'nullable',
+                Rule::exists('plan_item_sessions', 'id')->where(
+                    fn ($q) => $q->whereIn('plan_item_id', PlanItem::whereHas(
+                        'treatmentPlan', fn ($q2) => $q2->where('patient_id', $patient->id)
+                    )->pluck('id'))
+                ),
+            ],
+        ]);
+
+        DB::transaction(function () use ($data, $finding, $patient, $commissions) {
+            $wasMissing = $finding->marks_missing;
+            $finding->update($data);
+
+            if (array_key_exists('marks_missing', $data) && $data['marks_missing'] !== $wasMissing) {
+                $stillMissing = $patient->toothFindings()
+                    ->where('tooth_number', $finding->tooth_number)
+                    ->where('marks_missing', true)
+                    ->exists();
+
+                $patient->toothStates()->updateOrCreate(
+                    ['tooth_number' => $finding->tooth_number],
+                    ['status' => $stillMissing ? 'missing' : 'present'],
+                );
+            }
+
+            if (($data['status'] ?? null) === 'done') {
+                $commissions->computeForFinding($finding->fresh());
+            }
+        });
+
+        return new ToothFindingResource($finding->fresh(['service', 'doctor']));
     }
 
     public function destroyFinding(Request $request, Patient $patient, ToothFinding $finding)

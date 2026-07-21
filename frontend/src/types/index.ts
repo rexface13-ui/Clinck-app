@@ -81,6 +81,8 @@ export interface ToothFinding {
   finding_type: string
   status: 'planned' | 'in_progress' | 'done'
   marks_missing: boolean
+  performed_externally: boolean
+  plan_item_session_id: number | null
   service_id: number | null
   service_name: string | null
   doctor_id: number | null
@@ -158,6 +160,7 @@ export interface TreatmentPlan {
   approved_at: string | null
   notes: string | null
   items: PlanItem[]
+  latest_invoice_id: number | null
   created_at: string
 }
 
@@ -208,6 +211,20 @@ export interface LedgerRow {
 export interface Ledger {
   outstanding_ils: number
   transactions: LedgerRow[]
+}
+
+export interface Visit {
+  session_id: number
+  item_id: number
+  plan_id: number
+  date: string
+  service_name: string | null
+  tooth_number: number | null
+  price: string
+  note: string | null
+  doctor_name: string | null
+  invoice_id: number
+  invoice_status: 'unpaid' | 'partial' | 'paid' | 'void'
 }
 
 export interface Cashbox {

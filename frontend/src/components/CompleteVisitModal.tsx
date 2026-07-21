@@ -19,6 +19,8 @@ interface Line {
   service_id: number
   name: string
   price: string
+  /** Optional, comma-separated (e.g. "16" or "16,17") — one per tooth this line applies to. */
+  tooth_numbers: string
 }
 
 export default function CompleteVisitModal({ appointmentId, patientId, patientName, doctorId, onClose, onDone }: Props) {
@@ -54,7 +56,7 @@ export default function CompleteVisitModal({ appointmentId, patientId, patientNa
   function addService(serviceId: string) {
     const svc = services.find((s) => s.id === Number(serviceId))
     if (!svc) return
-    setLines([...lines, { service_id: svc.id, name: svc.name, price: svc.default_price }])
+    setLines([...lines, { service_id: svc.id, name: svc.name, price: svc.default_price, tooth_numbers: '' }])
     setAddServiceId('')
   }
 
@@ -64,6 +66,10 @@ export default function CompleteVisitModal({ appointmentId, patientId, patientNa
 
   function updatePrice(idx: number, price: string) {
     setLines(lines.map((l, i) => (i === idx ? { ...l, price } : l)))
+  }
+
+  function updateTeeth(idx: number, tooth_numbers: string) {
+    setLines(lines.map((l, i) => (i === idx ? { ...l, tooth_numbers } : l)))
   }
 
   async function submit() {
@@ -89,18 +95,50 @@ export default function CompleteVisitModal({ appointmentId, patientId, patientNa
       // Discount is distributed proportionally across lines so the sum of
       // the submitted unit_prices matches the discounted total exactly.
       const discountRatio = subtotal > 0 ? discountAmount / subtotal : 0
+      const itemIds: number[] = []
       for (const l of lines) {
         const linePrice = Number(l.price) || 0
         const adjustedPrice = Math.round(linePrice * (1 - discountRatio) * 100) / 100
-        await api.post(`/treatment-plans/${planId}/items`, {
-          service_id: l.service_id,
-          unit_price: adjustedPrice,
-          sessions_count: 1,
+        const teeth = l.tooth_numbers
+          .split(',')
+          .map((t) => t.trim())
+          .filter(Boolean)
+          .map(Number)
+        // No tooth picked (whole-mouth service like a cleaning) -> one item, no tooth.
+        // One or more teeth picked -> one item per tooth (same price each) — the tooth
+        // finding itself (and its chart color/history) is recorded automatically when
+        // the item's session is completed below, not here.
+        const toothTargets = teeth.length > 0 ? teeth : [null]
+        for (const tooth of toothTargets) {
+          const itemRes = await api.post(`/treatment-plans/${planId}/items`, {
+            service_id: l.service_id,
+            tooth_number: tooth,
+            unit_price: adjustedPrice,
+            sessions_count: 1,
+          })
+          itemIds.push(itemRes.data.data.id)
+        }
+      }
+
+      // Approving only schedules the (single) session per item — nothing is
+      // charged until each session is explicitly completed right below, which
+      // is what actually bills the visit. This is a same-day visit, so every
+      // item's one session is completed immediately.
+      await api.post(`/treatment-plans/${planId}/approve`)
+      const planAfterApprove = await api.get(`/treatment-plans/${planId}`)
+      const itemsById: Record<number, { unit_price: string; sessions: { id: number }[] }> = {}
+      for (const it of planAfterApprove.data.data.items) itemsById[it.id] = it
+
+      for (const itemId of itemIds) {
+        const item = itemsById[itemId]
+        const sessionId = item.sessions[0].id
+        await api.post(`/treatment-plans/${planId}/items/${itemId}/sessions/${sessionId}/complete`, {
+          price: Number(item.unit_price),
         })
       }
 
-      const approveRes = await api.post(`/treatment-plans/${planId}/approve`)
-      const invoiceId = approveRes.data.data.id
+      const finalPlan = await api.get(`/treatment-plans/${planId}`)
+      const invoiceId = finalPlan.data.data.latest_invoice_id
       await api.put(`/appointments/${appointmentId}`, { status: 'done' })
 
       if (payMode === 'now') {
@@ -159,10 +197,19 @@ export default function CompleteVisitModal({ appointmentId, patientId, patientNa
               <div key={idx} className="flex items-center gap-2 text-sm">
                 <span className="flex-1">{l.name}</span>
                 <input
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="رقم السن (اختياري)"
+                  value={l.tooth_numbers}
+                  onChange={(e) => updateTeeth(idx, e.target.value)}
+                  title="اكتب رقم/أرقام الأسنان (مفصولة بفاصلة) اللي اشتغلتها بهاي الخدمة — بيسجلها بسجل السن كمان"
+                  className="w-28 rounded-lg border border-border px-2 py-1 text-sm"
+                />
+                <input
                   type="number"
                   value={l.price}
                   onChange={(e) => updatePrice(idx, e.target.value)}
-                  className="w-24 rounded-lg border border-border px-2 py-1 text-sm"
+                  className="w-20 rounded-lg border border-border px-2 py-1 text-sm"
                 />
                 <span className="text-xs text-muted">₪</span>
                 <button onClick={() => removeLine(idx)} className="text-danger">

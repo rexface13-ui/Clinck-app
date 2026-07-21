@@ -18,6 +18,7 @@ class TreatmentPlanResource extends JsonResource
             'approved_at' => display_date($this->approved_at),
             'notes' => $this->notes,
             'items' => PlanItemResource::collection($this->whenLoaded('items')),
+            'latest_invoice_id' => $this->invoices()->latest('id')->value('id'),
             'created_at' => display_date($this->created_at),
         ];
     }

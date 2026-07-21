@@ -63,6 +63,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('patients', PatientController::class);
     Route::get('patients/{patient}/profile', [PatientController::class, 'profile']);
     Route::post('patients/{patient}/notes', [PatientNoteController::class, 'store']);
+    Route::patch('patients/{patient}/notes/{note}', [PatientNoteController::class, 'update']);
     Route::delete('patients/{patient}/notes/{note}', [PatientNoteController::class, 'destroy']);
     Route::post('patients/{patient}/attachments', [PatientAttachmentController::class, 'store']);
     Route::delete('patients/{patient}/attachments/{attachment}', [PatientAttachmentController::class, 'destroy']);
@@ -70,6 +71,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('patients/{patient}/chart', [ToothChartController::class, 'show']);
     Route::post('patients/{patient}/chart/findings', [ToothChartController::class, 'storeFinding']);
+    Route::patch('patients/{patient}/chart/findings/{finding}', [ToothChartController::class, 'updateFinding']);
     Route::delete('patients/{patient}/chart/findings/{finding}', [ToothChartController::class, 'destroyFinding']);
 
     Route::apiResource('appointments', AppointmentController::class);
@@ -86,6 +88,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('treatment-plans/{treatmentPlan}', [TreatmentPlanController::class, 'destroy']);
     Route::post('treatment-plans/{treatmentPlan}/items', [TreatmentPlanController::class, 'addItem']);
     Route::delete('treatment-plans/{treatmentPlan}/items/{item}', [TreatmentPlanController::class, 'removeItem']);
+    Route::post('treatment-plans/{treatmentPlan}/items/{item}/cancel', [TreatmentPlanController::class, 'cancelItem']);
+    Route::post('treatment-plans/{treatmentPlan}/items/{item}/sessions/{session}/complete', [TreatmentPlanController::class, 'completeSession']);
+    Route::post('treatment-plans/{treatmentPlan}/items/{item}/sessions/{session}/cancel', [TreatmentPlanController::class, 'cancelSession']);
+    Route::patch('treatment-plans/{treatmentPlan}/items/{item}/sessions/{session}', [TreatmentPlanController::class, 'updateSession']);
     Route::post('treatment-plans/{treatmentPlan}/cancel', [TreatmentPlanController::class, 'cancel']);
     Route::post('treatment-plans/{treatmentPlan}/approve', [TreatmentPlanController::class, 'approve']);
     Route::post('treatment-plans/{treatmentPlan}/schedule-sessions', [TreatmentPlanController::class, 'scheduleSessions']);
@@ -95,6 +101,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('invoices/{invoice}', [PatientBillingController::class, 'showInvoice']);
     Route::get('patients/{patient}/ledger', [PatientBillingController::class, 'ledger']);
     Route::post('patients/{patient}/payments', [PatientBillingController::class, 'storePayment']);
+    Route::get('patients/{patient}/visits', [PatientBillingController::class, 'visits']);
 
     // Cash
     Route::get('cashboxes', [CashboxController::class, 'index']);

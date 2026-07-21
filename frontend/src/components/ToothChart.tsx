@@ -1,4 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
+import { faPen, faTrash } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import {
@@ -19,7 +21,7 @@ import {
   toothSize,
   type ArchConfig,
 } from '../lib/dental'
-import type { Doctor, Service, ToothFinding, ToothState } from '../types'
+import type { Doctor, Service, ToothFinding, ToothState, Visit } from '../types'
 
 interface Props {
   patientId: number
@@ -87,6 +89,8 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
   const [findingType, setFindingType] = useState('caries')
   const [status, setStatus] = useState<'planned' | 'in_progress' | 'done'>('planned')
   const [markMissing, setMarkMissing] = useState(false)
+  const [performedExternally, setPerformedExternally] = useState(false)
+  const [linkedSessionId, setLinkedSessionId] = useState<string>('')
   const [serviceId, setServiceId] = useState<string>('')
   const [doctorId, setDoctorId] = useState<string>('')
   const [note, setNote] = useState('')
@@ -95,6 +99,12 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
   const [externalNoteOpen, setExternalNoteOpen] = useState(false)
   const [externalNote, setExternalNote] = useState('')
   const [savingExternalNote, setSavingExternalNote] = useState(false)
+  const [editingFindingId, setEditingFindingId] = useState<number | null>(null)
+  const [visits, setVisits] = useState<Visit[]>([])
+
+  useEffect(() => {
+    api.get(`/patients/${patientId}/visits`).then((res) => setVisits(res.data))
+  }, [patientId])
 
   const stateByTooth = useMemo(() => {
     const map = new Map<number, string>()
@@ -127,15 +137,23 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
     return '#fff8f0'
   }
 
+  /** Teeth worked on by an outside party get a dashed ring instead of the usual solid one, layered on top of whatever status color already applies. */
+  function performedExternallyFor(tooth: number): boolean {
+    return activeFindingByTooth.get(tooth)?.performed_externally ?? false
+  }
+
   function resetForm() {
     setSurfaces([])
     setFindingType('caries')
     setStatus('planned')
     setMarkMissing(false)
+    setPerformedExternally(false)
+    setLinkedSessionId('')
     setServiceId('')
     setDoctorId('')
     setNote('')
     setError(null)
+    setEditingFindingId(null)
   }
 
   function openTooth(tooth: number) {
@@ -145,6 +163,28 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
     }
     setSelectedTeeth([tooth])
     resetForm()
+  }
+
+  function editFinding(f: ToothFinding) {
+    setSelectedTeeth([f.tooth_number])
+    setSurfaces(f.surfaces ? f.surfaces.split('') : [])
+    setFindingType(f.finding_type)
+    setStatus(f.status)
+    setMarkMissing(f.marks_missing)
+    setPerformedExternally(f.performed_externally)
+    setLinkedSessionId(f.plan_item_session_id ? String(f.plan_item_session_id) : '')
+    setServiceId(f.service_id ? String(f.service_id) : '')
+    setDoctorId(f.doctor_id ? String(f.doctor_id) : '')
+    setNote(f.note ?? '')
+    setError(null)
+    setEditingFindingId(f.id)
+  }
+
+  async function deleteFinding(findingId: number) {
+    if (!window.confirm('حذف هذا السجل نهائياً؟')) return
+    await api.delete(`/patients/${patientId}/chart/findings/${findingId}`)
+    if (editingFindingId === findingId) resetForm()
+    onChanged()
   }
 
   function confirmPick() {
@@ -179,17 +219,30 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
     setSaving(true)
     setError(null)
     try {
-      for (const tooth of selectedTeeth) {
-        await api.post(`/patients/${patientId}/chart/findings`, {
-          tooth_number: tooth,
-          surfaces: surfaces.length ? surfaces.join('') : null,
-          finding_type: findingType,
+      if (editingFindingId) {
+        await api.patch(`/patients/${patientId}/chart/findings/${editingFindingId}`, {
           status,
-          marks_missing: markMissing,
-          service_id: serviceId || null,
-          doctor_id: doctorId || null,
           note: note || null,
+          marks_missing: markMissing,
+          performed_externally: performedExternally,
+          doctor_id: doctorId || null,
+          plan_item_session_id: linkedSessionId || null,
         })
+      } else {
+        for (const tooth of selectedTeeth) {
+          await api.post(`/patients/${patientId}/chart/findings`, {
+            tooth_number: tooth,
+            surfaces: surfaces.length ? surfaces.join('') : null,
+            finding_type: findingType,
+            status,
+            marks_missing: markMissing,
+            performed_externally: performedExternally,
+            plan_item_session_id: linkedSessionId || null,
+            service_id: serviceId || null,
+            doctor_id: doctorId || null,
+            note: note || null,
+          })
+        }
       }
       clearSelection()
       onChanged()
@@ -279,6 +332,7 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
                   fill={toothColor(t.number)}
                   stroke={selectedTeeth.includes(t.number) ? 'var(--color-accent)' : '#c9b8a8'}
                   strokeWidth={selectedTeeth.includes(t.number) ? 2.5 : 1.2}
+                  strokeDasharray={performedExternallyFor(t.number) ? '3 2' : undefined}
                 />
                 {t.cusps.map((c, i) => (
                   <circle key={i} cx={c.x} cy={c.y} r={c.r} fill="#00000010" />
@@ -312,6 +366,9 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
           </span>
           <span className="flex items-center gap-1">
             <span className="inline-block size-3 rounded" style={{ background: STATUS_COLOR.missing }} /> مفقود
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block size-3 rounded border border-dashed border-ink/50" /> طرف خارجي
           </span>
         </div>
       </div>
@@ -392,11 +449,37 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
                 هذا السن مفقود (خلع، سقوط، أو غير موجود من الأساس) — بيصير مستثنى من "تحديد الكل/النصف" لاحقاً
               </label>
 
+              <label className="mb-3 flex items-center gap-2 text-xs text-ink/70">
+                <input type="checkbox" checked={performedExternally} onChange={(e) => setPerformedExternally(e.target.checked)} className="size-3.5" />
+                اشتغل عليه طرف خارجي (مو إحنا) — بيتحدد بخط منقّط عالرسمة
+              </label>
+
+              {editingFindingId === null && singleSelectedTooth && (
+                <>
+                  <label className="mb-1 block text-xs text-ink/60">اربط بجلسة موجودة (اختياري)</label>
+                  <select
+                    value={linkedSessionId}
+                    onChange={(e) => setLinkedSessionId(e.target.value)}
+                    className="mb-3 w-full rounded-lg border border-ink/10 px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
+                  >
+                    <option value="">بدون ربط</option>
+                    {visits
+                      .filter((v) => v.tooth_number === singleSelectedTooth)
+                      .map((v) => (
+                        <option key={v.session_id} value={v.session_id}>
+                          {v.service_name} — {v.date} — {v.price} ₪
+                        </option>
+                      ))}
+                  </select>
+                </>
+              )}
+
               <label className="mb-1 block text-xs text-ink/60">الخدمة المرتبطة (اختياري)</label>
               <select
                 value={serviceId}
                 onChange={(e) => setServiceId(e.target.value)}
-                className="mb-3 w-full rounded-lg border border-ink/10 px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
+                disabled={editingFindingId !== null}
+                className="mb-3 w-full rounded-lg border border-ink/10 px-2 py-1.5 text-sm focus:border-accent focus:outline-none disabled:opacity-50"
               >
                 <option value="">بدون</option>
                 {services.map((s) => (
@@ -430,13 +513,20 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
 
               {error && <p className="mb-2 text-xs text-danger">{error}</p>}
 
-              <button
-                onClick={saveFinding}
-                disabled={saving}
-                className="w-full rounded-lg bg-accent py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60"
-              >
-                {saving ? 'جارِ الحفظ...' : singleSelectedTooth ? 'إضافة' : `إضافة لـ${selectedTeeth.length} سن`}
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={saveFinding}
+                  disabled={saving}
+                  className="flex-1 rounded-lg bg-accent py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60"
+                >
+                  {saving ? 'جارِ الحفظ...' : editingFindingId ? 'تحديث' : singleSelectedTooth ? 'إضافة' : `إضافة لـ${selectedTeeth.length} سن`}
+                </button>
+                {editingFindingId && (
+                  <button onClick={resetForm} className="rounded-lg border border-ink/10 px-3 py-2 text-sm text-ink/60 hover:bg-background">
+                    إلغاء
+                  </button>
+                )}
+              </div>
             </>
           )}
 
@@ -479,10 +569,24 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
               ) : (
                 <ul className="space-y-2">
                   {history.map((f) => (
-                    <li key={f.id} className="text-xs text-ink/70">
-                      <span className="font-medium text-ink">{f.finding_type}</span>
-                      {f.surfaces && <span className="text-ink/50"> ({f.surfaces})</span>} — {f.status}
-                      {f.doctor_name && <> — {f.doctor_name}</>} — {f.recorded_at}
+                    <li key={f.id} className="flex items-start justify-between gap-2 text-xs text-ink/70">
+                      <span>
+                        <span className="font-medium text-ink">{f.finding_type}</span>
+                        {f.surfaces && <span className="text-ink/50"> ({f.surfaces})</span>} — {f.status}
+                        {f.performed_externally && <span className="text-warning"> — طرف خارجي</span>}
+                        {f.doctor_name && <> — {f.doctor_name}</>} — {f.recorded_at}
+                        {f.note && <p className="mt-0.5 text-ink/50">{f.note}</p>}
+                      </span>
+                      {canManage && (
+                        <span className="flex shrink-0 gap-2">
+                          <button onClick={() => editFinding(f)} className="text-ink/40 hover:text-accent">
+                            <FontAwesomeIcon icon={faPen} />
+                          </button>
+                          <button onClick={() => deleteFinding(f.id)} className="text-ink/40 hover:text-danger">
+                            <FontAwesomeIcon icon={faTrash} />
+                          </button>
+                        </span>
+                      )}
                     </li>
                   ))}
                 </ul>

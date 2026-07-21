@@ -8,6 +8,7 @@ use App\Http\Resources\InvoiceResource;
 use App\Http\Resources\PaymentResource;
 use App\Models\Cashbox;
 use App\Models\Invoice;
+use App\Models\InvoiceLine;
 use App\Models\Patient;
 use App\Services\PaymentService;
 use Illuminate\Http\Request;
@@ -67,6 +68,43 @@ class PatientBillingController extends Controller
             'outstanding_ils' => round($running, 2),
             'transactions' => $rows->reverse()->values(),
         ];
+    }
+
+    /**
+     * "سجل الزيارات" — one row per actually-completed session, billed or
+     * not (billed via completeSession()). Grouped implicitly by the visit
+     * itself (a session IS a visit here) rather than by invoice, since one
+     * invoice can accumulate lines from sessions on different days.
+     */
+    public function visits(Request $request, Patient $patient)
+    {
+        $this->requireBillingView($request);
+
+        $lines = InvoiceLine::with(['planItemSession.planItem.service', 'planItemSession.planItem.treatmentPlan.doctor', 'invoice'])
+            ->whereHas('planItemSession', function ($q) use ($patient) {
+                $q->whereHas('planItem.treatmentPlan', fn ($q2) => $q2->where('patient_id', $patient->id));
+            })
+            ->orderByDesc('created_at')
+            ->get();
+
+        return $lines->map(function (InvoiceLine $line) {
+            $session = $line->planItemSession;
+            $item = $session?->planItem;
+
+            return [
+                'session_id' => $session?->id,
+                'item_id' => $item?->id,
+                'plan_id' => $item?->treatment_plan_id,
+                'date' => display_datetime($line->created_at),
+                'service_name' => $item?->service?->name,
+                'tooth_number' => $item?->tooth_number,
+                'price' => $line->amount_ils,
+                'note' => $session?->note,
+                'doctor_name' => $item?->treatmentPlan?->doctor?->full_name,
+                'invoice_id' => $line->invoice_id,
+                'invoice_status' => $line->invoice?->status,
+            ];
+        })->values();
     }
 
     public function storePayment(StorePaymentRequest $request, Patient $patient, PaymentService $paymentService)

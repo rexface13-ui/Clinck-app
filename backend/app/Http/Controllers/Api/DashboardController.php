@@ -44,12 +44,18 @@ class DashboardController extends Controller
             ->whereBetween('issued_at', [$monthStart, Carbon::now()])
             ->sum('total_amount_ils') : null;
 
-        // Signed sum, matching PatientBillingController::ledger(): charges/
-        // adjustments increase what's owed, payments/refunds reduce it. A
-        // raw sum() double-counts every payment as if it were still owed.
-        $outstandingBalance = $canViewFinance ? (float) PatientTransaction::sum(DB::raw(
-            "CASE WHEN type IN ('charge','adjustment') THEN amount_ils ELSE -amount_ils END"
-        )) : null;
+        // Per-patient signed balance (matching PatientBillingController::ledger()
+        // and DebtController), summing only positive balances. A single global
+        // sum would let one patient's credit (e.g. a refunded/cancelled plan
+        // whose payment stays on the books) net against another patient's real
+        // debt and hide it.
+        $outstandingBalance = $canViewFinance ? (float) PatientTransaction::select(DB::raw(
+            "SUM(CASE WHEN type IN ('charge','adjustment') THEN amount_ils ELSE -amount_ils END) as balance"
+        ))
+            ->groupBy('patient_id')
+            ->havingRaw("SUM(CASE WHEN type IN ('charge','adjustment') THEN amount_ils ELSE -amount_ils END) > 0")
+            ->get()
+            ->sum('balance') : null;
 
         $unsettledCommissions = $canViewCommissions ? (float) DoctorTransaction::whereNull('settled_at')->sum('amount_ils') : null;
 

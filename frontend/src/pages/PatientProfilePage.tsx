@@ -18,9 +18,10 @@ import { api } from '../lib/api'
 import ToothChart from '../components/ToothChart'
 import TreatmentPlanPanel from '../components/TreatmentPlanPanel'
 import PatientLedgerPanel from '../components/PatientLedgerPanel'
+import VisitHistoryPanel from '../components/VisitHistoryPanel'
 import DatePicker from '../components/DatePicker'
 import CompleteVisitModal from '../components/CompleteVisitModal'
-import { Card, Badge, Button } from '../components/ui'
+import { Card, Badge, Button, Tabs } from '../components/ui'
 import { useAuth } from '../contexts/AuthContext'
 import type { PatientProfile, Service, Ledger, Doctor, TreatmentPlan } from '../types'
 
@@ -46,6 +47,8 @@ export default function PatientProfilePage() {
   const [services, setServices] = useState<Service[]>([])
   const [ledger, setLedger] = useState<Ledger | null>(null)
   const [noteBody, setNoteBody] = useState('')
+  const [editingNoteId, setEditingNoteId] = useState<number | null>(null)
+  const [editingNoteBody, setEditingNoteBody] = useState('')
   const [uploadingAttachment, setUploadingAttachment] = useState(false)
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
   const attachmentInputRef = useRef<HTMLInputElement>(null)
@@ -161,6 +164,19 @@ export default function PatientProfilePage() {
     if (!noteBody.trim()) return
     await api.post(`/patients/${id}/notes`, { body: noteBody })
     setNoteBody('')
+    load()
+  }
+
+  async function saveNoteEdit() {
+    if (!editingNoteId || !editingNoteBody.trim()) return
+    await api.patch(`/patients/${id}/notes/${editingNoteId}`, { body: editingNoteBody })
+    setEditingNoteId(null)
+    load()
+  }
+
+  async function deleteNote(noteId: number) {
+    if (!window.confirm('حذف هالملاحظة نهائياً؟')) return
+    await api.delete(`/patients/${id}/notes/${noteId}`)
     load()
   }
 
@@ -283,51 +299,68 @@ export default function PatientProfilePage() {
         </Card>
       )}
 
-      <div className="mb-6 grid grid-cols-1 gap-6 2xl:grid-cols-[1fr_1.4fr]">
-        {/* DOM order matters here, not just visual: this app is RTL, so the first grid
-            child renders on the right. Tooth chart must appear on screen-left, so it's
-            written second even though it reads first in the page top-to-bottom. Its
-            column is also wider than the plan's — the chart is the thing that needs
-            room to be legible/clickable, the plan is just a table. */}
-        <TreatmentPlanPanel
-          patientId={patient.id}
-          pickedTooth={pickedTooth}
-          onToothConsumed={() => setPickedTooth(null)}
-          onRequestPickTooth={(planId) => setPickingForPlanId((cur) => (cur === planId ? null : planId))}
-          pickingForPlanId={pickingForPlanId}
-          onPlansLoaded={handlePlansLoaded}
-          refreshSignal={plansRefreshSignal}
-        />
-        <div>
-          <h2 className="mb-3 text-sm font-medium text-ink/70">رسمة الأسنان</h2>
-          <ToothChart
-            patientId={patient.id}
-            isChild={patient.is_child}
-            toothStates={tooth_states}
-            toothFindings={tooth_findings}
-            services={services}
-            doctors={doctors}
-            onChanged={load}
-            pickMode={pickingForPlanId !== null}
-            onPickTooth={(toothNumbers) => {
-              if (pickingForPlanId === null) return
-              setPickedTooth({ planId: pickingForPlanId, toothNumbers })
-              setPickingForPlanId(null)
-            }}
-            busyToothNumbers={busyToothNumbers}
-          />
-        </div>
-      </div>
-
-      {canViewBilling && (
-        <div className="mb-6">
-          <PatientLedgerPanel patientId={patient.id} refreshSignal={plansRefreshSignal} />
-        </div>
-      )}
-
-      <div className="grid grid-cols-2 gap-6">
+      <Tabs
+        tabs={[
+          {
+            key: 'treatment',
+            label: 'العلاج',
+            content: (
+              <div className="grid grid-cols-1 gap-6 2xl:grid-cols-[1fr_1.4fr]">
+                {/* DOM order matters here, not just visual: this app is RTL, so the first grid
+                    child renders on the right. Tooth chart must appear on screen-left, so it's
+                    written second even though it reads first in the page top-to-bottom. Its
+                    column is also wider than the plan's — the chart is the thing that needs
+                    room to be legible/clickable, the plan is just a table. */}
+                <TreatmentPlanPanel
+                  patientId={patient.id}
+                  pickedTooth={pickedTooth}
+                  onToothConsumed={() => setPickedTooth(null)}
+                  onRequestPickTooth={(planId) => setPickingForPlanId((cur) => (cur === planId ? null : planId))}
+                  pickingForPlanId={pickingForPlanId}
+                  onPlansLoaded={handlePlansLoaded}
+                  refreshSignal={plansRefreshSignal}
+                />
+                <div>
+                  <h2 className="mb-3 text-sm font-medium text-ink/70">رسمة الأسنان</h2>
+                  <ToothChart
+                    patientId={patient.id}
+                    isChild={patient.is_child}
+                    toothStates={tooth_states}
+                    toothFindings={tooth_findings}
+                    services={services}
+                    doctors={doctors}
+                    onChanged={load}
+                    pickMode={pickingForPlanId !== null}
+                    onPickTooth={(toothNumbers) => {
+                      if (pickingForPlanId === null) return
+                      setPickedTooth({ planId: pickingForPlanId, toothNumbers })
+                      setPickingForPlanId(null)
+                    }}
+                    busyToothNumbers={busyToothNumbers}
+                  />
+                </div>
+              </div>
+            ),
+          },
+          {
+            key: 'visits',
+            label: 'سجل الزيارات',
+            content: <VisitHistoryPanel patientId={patient.id} onChanged={load} />,
+          },
+          ...(canViewBilling
+            ? [
+                {
+                  key: 'ledger',
+                  label: 'الحساب',
+                  content: <PatientLedgerPanel patientId={patient.id} refreshSignal={plansRefreshSignal} />,
+                },
+              ]
+            : []),
+          {
+            key: 'appointments',
+            label: 'المواعيد',
+            content: (
         <Card className="p-6">
-          <h2 className="mb-3 text-sm font-medium text-ink/70">المواعيد</h2>
           {appointments.length === 0 ? (
             <p className="text-sm text-muted">لا توجد مواعيد.</p>
           ) : (
@@ -405,7 +438,13 @@ export default function PatientProfilePage() {
             </ul>
           )}
         </Card>
-
+            ),
+          },
+          {
+            key: 'notes',
+            label: 'الملاحظات والمرفقات',
+            content: (
+              <div className="grid grid-cols-2 gap-6">
         <Card className="p-6">
           <h2 className="mb-3 text-sm font-medium text-ink/70">الملاحظات</h2>
           <div className="mb-3 flex gap-2">
@@ -425,17 +464,41 @@ export default function PatientProfilePage() {
             <ul className="space-y-2">
               {notes.map((n) => (
                 <li key={n.id} className="border-b border-border/70 pb-2 text-sm last:border-0">
-                  <p className="text-ink">{n.body}</p>
-                  <p className="text-xs text-muted">
-                    {n.author} · {n.created_at}
-                  </p>
+                  {editingNoteId === n.id ? (
+                    <div className="flex gap-2">
+                      <input
+                        value={editingNoteBody}
+                        onChange={(e) => setEditingNoteBody(e.target.value)}
+                        className="flex-1 rounded-lg border border-border bg-surface px-2 py-1 text-sm focus:border-accent focus:outline-none"
+                      />
+                      <button onClick={saveNoteEdit} className="text-xs text-accent hover:underline">حفظ</button>
+                      <button onClick={() => setEditingNoteId(null)} className="text-xs text-muted hover:underline">إلغاء</button>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-ink">{n.body}</p>
+                        <div className="flex shrink-0 gap-2">
+                          <button onClick={() => { setEditingNoteId(n.id); setEditingNoteBody(n.body) }} className="text-muted hover:text-accent">
+                            <FontAwesomeIcon icon={faPen} />
+                          </button>
+                          <button onClick={() => deleteNote(n.id)} className="text-muted hover:text-danger">
+                            <FontAwesomeIcon icon={faTrash} />
+                          </button>
+                        </div>
+                      </div>
+                      <p className="text-xs text-muted">
+                        {n.author} · {n.created_at}
+                      </p>
+                    </>
+                  )}
                 </li>
               ))}
             </ul>
           )}
         </Card>
 
-        <Card className="col-span-2 p-6">
+        <Card className="p-6">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-sm font-medium text-ink/70">
               <FontAwesomeIcon icon={faPaperclip} className="ml-2 text-muted" />
@@ -487,7 +550,11 @@ export default function PatientProfilePage() {
             </ul>
           )}
         </Card>
-      </div>
+              </div>
+            ),
+          },
+        ]}
+      />
 
       {completingVisit && (
         <CompleteVisitModal
