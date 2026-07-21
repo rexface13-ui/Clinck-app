@@ -25,7 +25,7 @@ const TYPE_VARIANTS: Record<string, BadgeVariant> = {
 
 type Tab = 'cash' | 'check'
 
-export default function PatientLedgerPanel({ patientId }: { patientId: number }) {
+export default function PatientLedgerPanel({ patientId, refreshSignal }: { patientId: number; refreshSignal?: number }) {
   const { can } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
   const canCollectCash = can('billing.manage')
@@ -54,6 +54,11 @@ export default function PatientLedgerPanel({ patientId }: { patientId: number })
     load()
     api.get('/cashboxes').then((res) => setCashboxes(res.data))
   }, [patientId])
+
+  useEffect(() => {
+    if (refreshSignal) load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshSignal])
 
   useEffect(() => {
     if (searchParams.get('pay') === '1') {

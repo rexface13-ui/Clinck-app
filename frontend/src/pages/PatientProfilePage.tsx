@@ -287,7 +287,7 @@ export default function PatientProfilePage() {
 
       {canViewBilling && (
         <div className="mb-6">
-          <PatientLedgerPanel patientId={patient.id} />
+          <PatientLedgerPanel patientId={patient.id} refreshSignal={plansRefreshSignal} />
         </div>
       )}
 
