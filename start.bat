@@ -2,6 +2,14 @@
 setlocal
 set ROOT=%~dp0
 
+call "%ROOT%check-requirements.bat"
+if errorlevel 1 (
+    echo.
+    echo DentaFlow was NOT started because of the problem^(s^) above.
+    pause
+    exit /b 1
+)
+
 echo Starting backend server...
 start "DentaFlow Backend" cmd /k call "%ROOT%run-backend.bat"
 
