@@ -10,7 +10,11 @@ use App\Http\Resources\NoteResource;
 use App\Http\Resources\PatientResource;
 use App\Http\Resources\ToothFindingResource;
 use App\Http\Resources\ToothStateResource;
+use App\Models\Appointment;
 use App\Models\Patient;
+use App\Models\PatientTransaction;
+use App\Models\ToothFinding;
+use App\Models\TreatmentPlan;
 use App\Support\Arabic;
 use Illuminate\Http\Request;
 
@@ -76,6 +80,22 @@ class PatientController extends Controller
     public function destroy(Patient $patient)
     {
         $this->authorize('delete', $patient);
+
+        // appointments/treatment_plans/invoices/payments/patient_transactions
+        // all cascade-delete on patient_id at the DB level — for a patient
+        // with any real visit or billing history that would silently wipe
+        // the clinical/financial record. Block that; a patient can only be
+        // removed while they're still an empty shell (added by mistake,
+        // never seen).
+        abort_if(
+            $patient->appointments()->exists()
+                || TreatmentPlan::where('patient_id', $patient->id)->exists()
+                || PatientTransaction::where('patient_id', $patient->id)->exists()
+                || ToothFinding::where('patient_id', $patient->id)->exists(),
+            422,
+            'هذا المريض له سجل زيارات أو خطط علاج أو حركات مالية — لا يمكن حذفه نهائياً حفاظاً على السجل.',
+        );
+
         $patient->delete();
 
         return response()->noContent();
