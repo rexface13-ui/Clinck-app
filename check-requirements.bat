@@ -28,6 +28,11 @@ if not exist "%ROOT%php83\php.exe" (
     )
 )
 
+rem --- OPcache - the single biggest speed lever under `php artisan serve`.
+rem php83\ is not tracked by git, so every machine's php.ini needs this
+rem patched separately; this runs on every startup and is a no-op once set.
+call "%ROOT%enable-opcache.bat"
+
 rem --- Node / npm (for the frontend dev server) ---
 where npm >nul 2>nul
 if errorlevel 1 (

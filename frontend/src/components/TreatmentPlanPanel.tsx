@@ -12,6 +12,24 @@ const STATUS_LABELS: Record<TreatmentPlan['status'], string> = {
   cancelled: 'ملغاة',
 }
 
+interface ItemFormState {
+  service_id: string
+  tooth_number: string
+  unit_price: string
+  sessions_count: string
+  interval_days: string
+  discount_type: 'percent' | 'fixed'
+  discount_value: string
+}
+
+/** Final per-session price after applying the line's discount — this is what actually gets billed/stored as unit_price. */
+function discountedPrice(f: ItemFormState): number {
+  const base = Number(f.unit_price) || 0
+  const raw = Number(f.discount_value) || 0
+  const discount = f.discount_type === 'percent' ? (base * raw) / 100 : raw
+  return Math.max(0, base - Math.min(base, discount))
+}
+
 interface Props {
   patientId: number
   /** Tooth number(s) most recently picked from the chart, and which plan it's for — filled by the parent when pick mode is active. */
@@ -33,7 +51,7 @@ export default function TreatmentPlanPanel({ patientId, pickedTooth, onToothCons
   const [services, setServices] = useState<Service[]>([])
   const [showNewPlan, setShowNewPlan] = useState(false)
   const [newDoctorId, setNewDoctorId] = useState('')
-  const [itemForm, setItemForm] = useState<Record<number, { service_id: string; tooth_number: string; unit_price: string; sessions_count: string; interval_days: string }>>({})
+  const [itemForm, setItemForm] = useState<Record<number, ItemFormState>>({})
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
@@ -74,8 +92,8 @@ export default function TreatmentPlanPanel({ patientId, pickedTooth, onToothCons
     }
   }
 
-  function itemFormFor(planId: number, map: typeof itemForm = itemForm) {
-    return map[planId] ?? { service_id: '', tooth_number: '', unit_price: '', sessions_count: '1', interval_days: '' }
+  function itemFormFor(planId: number, map: typeof itemForm = itemForm): ItemFormState {
+    return map[planId] ?? { service_id: '', tooth_number: '', unit_price: '', sessions_count: '1', interval_days: '', discount_type: 'percent', discount_value: '' }
   }
 
   async function addItem(planId: number) {
@@ -91,6 +109,7 @@ export default function TreatmentPlanPanel({ patientId, pickedTooth, onToothCons
       .filter(Boolean)
       .map(Number)
     const toothNumbers = teeth.length > 0 ? teeth : [null]
+    const finalPrice = discountedPrice(f)
 
     setBusy(true)
     try {
@@ -98,12 +117,12 @@ export default function TreatmentPlanPanel({ patientId, pickedTooth, onToothCons
         await api.post(`/treatment-plans/${planId}/items`, {
           service_id: Number(f.service_id),
           tooth_number: tooth,
-          unit_price: Number(f.unit_price),
+          unit_price: finalPrice,
           sessions_count: Number(f.sessions_count) || 1,
           interval_days: f.interval_days ? Number(f.interval_days) : null,
         })
       }
-      setItemForm({ ...itemForm, [planId]: { service_id: '', tooth_number: '', unit_price: '', sessions_count: '1', interval_days: '' } })
+      setItemForm({ ...itemForm, [planId]: { service_id: '', tooth_number: '', unit_price: '', sessions_count: '1', interval_days: '', discount_type: 'percent', discount_value: '' } })
       load()
     } finally {
       setBusy(false)
@@ -165,7 +184,7 @@ export default function TreatmentPlanPanel({ patientId, pickedTooth, onToothCons
 
   return (
     <div className="rounded-xl bg-white p-6 shadow-sm">
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-1 flex items-center justify-between">
         <h2 className="text-sm font-medium text-ink/70">خطط العلاج</h2>
         {canManage && (
           <button
@@ -177,6 +196,10 @@ export default function TreatmentPlanPanel({ patientId, pickedTooth, onToothCons
           </button>
         )}
       </div>
+      <p className="mb-4 text-xs text-ink/40">
+        لجلسة اليوم فقط (خدمة أو أكثر بزيارة وحدة، مع خصم ودفع مباشر) استخدم زر "اجاني هلق" أو "تمّت الزيارة" فوق —
+        هون تحت لخطة علاج بعدة جلسات ممتدة على أكثر من زيارة.
+      </p>
 
       {showNewPlan && (
         <div className="mb-4 flex items-end gap-2 rounded-lg bg-background p-3">
@@ -344,8 +367,32 @@ export default function TreatmentPlanPanel({ patientId, pickedTooth, onToothCons
                           placeholder="السعر"
                           value={itemFormFor(plan.id).unit_price}
                           onChange={(e) => setItemForm({ ...itemForm, [plan.id]: { ...itemFormFor(plan.id), unit_price: e.target.value } })}
-                          className="w-full rounded-lg border border-ink/10 px-2 py-1 text-xs"
+                          className="mb-1 w-full rounded-lg border border-ink/10 px-2 py-1 text-xs"
                         />
+                        <div className="flex gap-1">
+                          <select
+                            value={itemFormFor(plan.id).discount_type}
+                            onChange={(e) => setItemForm({ ...itemForm, [plan.id]: { ...itemFormFor(plan.id), discount_type: e.target.value as 'percent' | 'fixed' } })}
+                            className="rounded-lg border border-ink/10 px-1 py-1 text-xs text-ink/60"
+                            title="نوع الخصم"
+                          >
+                            <option value="percent">خصم %</option>
+                            <option value="fixed">خصم ₪</option>
+                          </select>
+                          <input
+                            type="number"
+                            placeholder="0"
+                            value={itemFormFor(plan.id).discount_value}
+                            onChange={(e) => setItemForm({ ...itemForm, [plan.id]: { ...itemFormFor(plan.id), discount_value: e.target.value } })}
+                            className="w-14 rounded-lg border border-ink/10 px-1 py-1 text-xs"
+                            title="قيمة الخصم"
+                          />
+                        </div>
+                        {Number(itemFormFor(plan.id).discount_value) > 0 && (
+                          <p className="mt-0.5 text-[10px] text-accent">
+                            السعر بعد الخصم: {discountedPrice(itemFormFor(plan.id)).toFixed(2)} ₪
+                          </p>
+                        )}
                       </td>
                       <td className="p-1 align-top">
                         <input

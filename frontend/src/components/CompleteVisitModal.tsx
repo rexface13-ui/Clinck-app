@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faPlus, faTrash, faCheck } from '@fortawesome/free-solid-svg-icons'
+import { faTrash, faCheck } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import DatePicker from './DatePicker'
 import { Modal, Button, SearchableSelect } from './ui'
@@ -51,9 +51,8 @@ export default function CompleteVisitModal({ appointmentId, patientId, patientNa
   )
   const total = Math.max(0, subtotal - discountAmount)
 
-  function addService() {
-    if (!addServiceId) return
-    const svc = services.find((s) => s.id === Number(addServiceId))
+  function addService(serviceId: string) {
+    const svc = services.find((s) => s.id === Number(serviceId))
     if (!svc) return
     setLines([...lines, { service_id: svc.id, name: svc.name, price: svc.default_price }])
     setAddServiceId('')
@@ -100,13 +99,15 @@ export default function CompleteVisitModal({ appointmentId, patientId, patientNa
         })
       }
 
-      await api.post(`/treatment-plans/${planId}/approve`)
+      const approveRes = await api.post(`/treatment-plans/${planId}/approve`)
+      const invoiceId = approveRes.data.data.id
       await api.put(`/appointments/${appointmentId}`, { status: 'done' })
 
       if (payMode === 'now') {
         const box = cashboxes.find((c) => c.id === Number(cashboxId))
         if (box) {
           await api.post(`/patients/${patientId}/payments`, {
+            invoice_id: invoiceId,
             cashbox_id: box.id,
             amount: total,
             currency: box.currency,
@@ -143,24 +144,13 @@ export default function CompleteVisitModal({ appointmentId, patientId, patientNa
     <Modal title={`تمّت الزيارة — ${patientName}`} onClose={onClose} width="w-[560px]">
       <div className="space-y-4">
         <div>
-          <label className="mb-1 block text-xs font-medium text-muted">الخدمات المقدّمة اليوم</label>
-          <div className="flex gap-2">
-            <SearchableSelect
-              options={serviceOptions}
-              value={addServiceId}
-              onChange={setAddServiceId}
-              placeholder="اختر خدمة..."
-              className="flex-1"
-            />
-            <button
-              type="button"
-              onClick={addService}
-              className="flex items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-sm text-white hover:bg-accent-hover"
-            >
-              <FontAwesomeIcon icon={faPlus} />
-              إضافة
-            </button>
-          </div>
+          <label className="mb-1 block text-xs font-medium text-muted">الخدمات المقدّمة اليوم — اختر خدمة وتنضاف فوراً</label>
+          <SearchableSelect
+            options={serviceOptions}
+            value={addServiceId}
+            onChange={addService}
+            placeholder="اختر خدمة..."
+          />
         </div>
 
         {lines.length > 0 && (
