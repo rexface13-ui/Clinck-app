@@ -34,19 +34,110 @@ function App() {
             }
           >
             <Route path="/" element={<DashboardPage />} />
-            <Route path="/patients" element={<PatientsListPage />} />
-            <Route path="/patients/:id" element={<PatientProfilePage />} />
-            <Route path="/doctors" element={<DoctorsPage />} />
-            <Route path="/services" element={<ServicesPage />} />
-            <Route path="/users" element={<UsersPage />} />
-            <Route path="/appointments" element={<AppointmentsPage />} />
-            <Route path="/backups" element={<BackupPage />} />
-            <Route path="/cash" element={<CashPage />} />
-            <Route path="/commissions" element={<CommissionsPage />} />
-            <Route path="/suppliers" element={<SuppliersPage />} />
-            <Route path="/items" element={<ItemsPage />} />
-            <Route path="/purchase-invoices" element={<PurchaseInvoicesPage />} />
-            <Route path="/checks" element={<ChecksPage />} />
+            <Route
+              path="/patients"
+              element={
+                <ProtectedRoute permission="patients.view">
+                  <PatientsListPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/patients/:id"
+              element={
+                <ProtectedRoute permission="patients.view">
+                  <PatientProfilePage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/doctors"
+              element={
+                <ProtectedRoute permission="doctors.view">
+                  <DoctorsPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/services"
+              element={
+                <ProtectedRoute permission="services.view">
+                  <ServicesPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/users"
+              element={
+                <ProtectedRoute permission="users.view">
+                  <UsersPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/appointments"
+              element={
+                <ProtectedRoute permission="appointments.view">
+                  <AppointmentsPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/backups"
+              element={
+                <ProtectedRoute permission="settings.manage">
+                  <BackupPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/cash"
+              element={
+                <ProtectedRoute permission="cash.view">
+                  <CashPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/commissions"
+              element={
+                <ProtectedRoute permission="commissions.view">
+                  <CommissionsPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/suppliers"
+              element={
+                <ProtectedRoute permission="suppliers.view">
+                  <SuppliersPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/items"
+              element={
+                <ProtectedRoute permission="inventory.view">
+                  <ItemsPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/purchase-invoices"
+              element={
+                <ProtectedRoute permission="purchasing.view">
+                  <PurchaseInvoicesPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/checks"
+              element={
+                <ProtectedRoute permission="checks.view">
+                  <ChecksPage />
+                </ProtectedRoute>
+              }
+            />
             <Route path="/debts" element={<DebtsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Route>
