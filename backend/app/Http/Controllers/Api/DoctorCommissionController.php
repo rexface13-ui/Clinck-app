@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Doctor;
 use App\Models\DoctorTransaction;
+use App\Models\InvoiceLine;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 
@@ -25,9 +26,17 @@ class DoctorCommissionController extends Controller
         $commissionTransactions = DoctorTransaction::where('doctor_id', $doctor->id)
             ->where('type', 'commission')
             ->whereDate('period_month', $month->toDateString())
-            ->with(['toothFinding.patient', 'toothFinding.service'])
+            ->with(['toothFinding.patient', 'toothFinding.service', 'toothFinding.planItemSession'])
             ->orderBy('created_at')
             ->get();
+
+        // The invoice line (if any) tied to each session, keyed by session
+        // id — one query up front instead of N+1 per transaction below.
+        $sessionIds = $commissionTransactions->pluck('toothFinding.plan_item_session_id')->filter()->values();
+        $invoiceLinesBySession = InvoiceLine::whereIn('plan_item_session_id', $sessionIds)
+            ->with('invoice.payments')
+            ->get()
+            ->keyBy('plan_item_session_id');
 
         $payouts = DoctorTransaction::where('doctor_id', $doctor->id)
             ->where('type', 'settlement')
@@ -50,15 +59,28 @@ class DoctorCommissionController extends Controller
             'total_due_ils' => $totalDue,
             'paid_ils' => $paidTotal,
             'remaining_ils' => round($totalDue - $paidTotal, 2),
-            'transactions' => $commissionTransactions->map(fn (DoctorTransaction $t) => [
-                'id' => $t->id,
-                'amount_ils' => $t->amount_ils,
-                'patient_name' => $t->toothFinding?->patient?->full_name,
-                'tooth_number' => $t->toothFinding?->tooth_number,
-                'service_name' => $t->toothFinding?->service?->name,
-                'finding_type' => $t->toothFinding?->finding_type,
-                'recorded_at' => display_datetime($t->toothFinding?->recorded_at),
-            ]),
+            'transactions' => $commissionTransactions->map(function (DoctorTransaction $t) use ($invoiceLinesBySession) {
+                $finding = $t->toothFinding;
+                $line = $finding?->plan_item_session_id ? $invoiceLinesBySession->get($finding->plan_item_session_id) : null;
+                $invoice = $line?->invoice;
+
+                return [
+                    'id' => $t->id,
+                    'amount_ils' => $t->amount_ils,
+                    'patient_name' => $finding?->patient?->full_name,
+                    'tooth_number' => $finding?->tooth_number,
+                    'surfaces' => $finding?->surfaces,
+                    'service_name' => $finding?->service?->name,
+                    'finding_type' => $finding?->finding_type,
+                    'finding_status' => $finding?->status,
+                    'note' => $finding?->note,
+                    'recorded_at' => display_datetime($finding?->recorded_at),
+                    'invoice_number' => $invoice?->invoice_number,
+                    'invoice_status' => $invoice?->status,
+                    'invoice_total_ils' => $invoice ? (float) $invoice->total_amount_ils : null,
+                    'invoice_paid_ils' => $invoice ? (float) $invoice->payments->sum('amount_ils') : null,
+                ];
+            }),
             'payouts' => $payouts->map(fn (DoctorTransaction $t) => [
                 'id' => $t->id,
                 'amount_ils' => $t->amount_ils,

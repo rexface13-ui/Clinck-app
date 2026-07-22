@@ -375,9 +375,16 @@ export interface CommissionStatement {
     amount_ils: string
     patient_name: string | null
     tooth_number: number | null
+    surfaces: string | null
     service_name: string | null
     finding_type: string | null
+    finding_status: 'planned' | 'in_progress' | 'done' | null
+    note: string | null
     recorded_at: string | null
+    invoice_number: string | null
+    invoice_status: 'unpaid' | 'partial' | 'paid' | 'void' | null
+    invoice_total_ils: number | null
+    invoice_paid_ils: number | null
   }[]
   payouts: {
     id: number

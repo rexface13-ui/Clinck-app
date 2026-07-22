@@ -4,6 +4,8 @@ import { faInfoCircle } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import { Card, PageHeader, Badge, Button, Table, Thead, Th, Td, Tr, EmptyRow, Modal } from '../components/ui'
+import type { BadgeVariant } from '../components/ui'
+import { toothShapeType, toothSize, toothCrownPath, cuspPositions } from '../lib/dental'
 import type { CommissionStatement, Doctor } from '../types'
 
 const MONTH_LABELS = [
@@ -28,6 +30,44 @@ function currentMonthNum(): number {
 
 function money(value: number): string {
   return new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(value)
+}
+
+const FINDING_STATUS_LABELS: Record<string, string> = {
+  planned: 'مخطط',
+  in_progress: 'قيد التنفيذ',
+  done: 'منجز',
+}
+
+const INVOICE_STATUS_LABELS: Record<string, string> = {
+  unpaid: 'غير مدفوعة',
+  partial: 'مدفوعة جزئياً',
+  paid: 'مدفوعة بالكامل',
+  void: 'ملغاة',
+}
+
+const INVOICE_STATUS_VARIANTS: Record<string, BadgeVariant> = {
+  unpaid: 'danger',
+  partial: 'warning',
+  paid: 'success',
+  void: 'neutral',
+}
+
+/** A single tooth crown, drawn standalone (no arch) — just to visually identify which tooth this session was on. */
+function ToothPreview({ toothNumber }: { toothNumber: number }) {
+  const isPrimary = toothNumber >= 51
+  const type = toothShapeType(toothNumber, isPrimary)
+  const { w, h, cusps: cuspCount } = toothSize(type, isPrimary)
+  const crownPath = toothCrownPath(type, w * 2.2, h * 2.2)
+  const cusps = cuspPositions(type, w * 2.2, h * 2.2)
+  return (
+    <svg viewBox="-40 -40 80 80" className="mx-auto" style={{ width: 90, height: 90 }}>
+      <path d={crownPath} fill="var(--color-accent-soft)" stroke="var(--color-accent)" strokeWidth={2} />
+      {cuspCount > 0 && cusps.map((c, i) => <circle key={i} cx={c.x} cy={c.y} r={c.r} fill="#00000015" />)}
+      <text x={0} y={5} textAnchor="middle" fontSize="16" fontWeight="bold" fill="var(--color-ink)">
+        {toothNumber}
+      </text>
+    </svg>
+  )
 }
 
 export default function CommissionsPage() {
@@ -169,15 +209,55 @@ export default function CommissionsPage() {
           )}
 
           {selectedSession && (
-            <Modal title="تفاصيل الجلسة" onClose={() => setSelectedSession(null)} width="w-[400px]">
+            <Modal title="تفاصيل الجلسة" onClose={() => setSelectedSession(null)} width="w-[420px]">
+              {selectedSession.tooth_number && <ToothPreview toothNumber={selectedSession.tooth_number} />}
               <dl className="space-y-2 text-sm">
                 <div className="flex justify-between"><dt className="text-muted">المريض</dt><dd>{selectedSession.patient_name}</dd></div>
                 <div className="flex justify-between"><dt className="text-muted">السن</dt><dd>{selectedSession.tooth_number ?? '—'}</dd></div>
+                {selectedSession.surfaces && (
+                  <div className="flex justify-between"><dt className="text-muted">السطوح</dt><dd>{selectedSession.surfaces}</dd></div>
+                )}
                 <div className="flex justify-between"><dt className="text-muted">الخدمة</dt><dd>{selectedSession.service_name ?? '—'}</dd></div>
                 <div className="flex justify-between"><dt className="text-muted">نوع الإجراء</dt><dd>{selectedSession.finding_type ?? '—'}</dd></div>
+                {selectedSession.finding_status && (
+                  <div className="flex justify-between">
+                    <dt className="text-muted">حالة الإجراء</dt>
+                    <dd>{FINDING_STATUS_LABELS[selectedSession.finding_status] ?? selectedSession.finding_status}</dd>
+                  </div>
+                )}
+                {selectedSession.note && (
+                  <div className="flex justify-between"><dt className="text-muted">ملاحظة</dt><dd className="text-end">{selectedSession.note}</dd></div>
+                )}
                 <div className="flex justify-between"><dt className="text-muted">التاريخ</dt><dd>{selectedSession.recorded_at ?? '—'}</dd></div>
                 <div className="flex justify-between border-t border-border/70 pt-2 font-semibold text-ink"><dt>العمولة</dt><dd>{selectedSession.amount_ils} ₪</dd></div>
               </dl>
+
+              <div className="mt-3 border-t border-border/70 pt-3">
+                <h4 className="mb-2 text-xs font-medium text-muted">دفعة المريض</h4>
+                {selectedSession.invoice_status ? (
+                  <dl className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <dt className="text-muted">حالة الفاتورة</dt>
+                      <dd>
+                        <Badge variant={INVOICE_STATUS_VARIANTS[selectedSession.invoice_status] ?? 'neutral'}>
+                          {INVOICE_STATUS_LABELS[selectedSession.invoice_status] ?? selectedSession.invoice_status}
+                        </Badge>
+                      </dd>
+                    </div>
+                    {selectedSession.invoice_number && (
+                      <div className="flex justify-between"><dt className="text-muted">رقم الفاتورة</dt><dd>{selectedSession.invoice_number}</dd></div>
+                    )}
+                    <div className="flex justify-between"><dt className="text-muted">إجمالي الفاتورة</dt><dd>{money(selectedSession.invoice_total_ils ?? 0)} ₪</dd></div>
+                    <div className="flex justify-between"><dt className="text-muted">المدفوع</dt><dd>{money(selectedSession.invoice_paid_ils ?? 0)} ₪</dd></div>
+                    <div className="flex justify-between font-semibold text-ink">
+                      <dt>المتبقي على المريض</dt>
+                      <dd>{money((selectedSession.invoice_total_ils ?? 0) - (selectedSession.invoice_paid_ils ?? 0))} ₪</dd>
+                    </div>
+                  </dl>
+                ) : (
+                  <p className="text-sm text-muted">مافي فاتورة مرتبطة بهاي الجلسة.</p>
+                )}
+              </div>
             </Modal>
           )}
 
