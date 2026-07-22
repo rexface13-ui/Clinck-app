@@ -3,13 +3,18 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Cashbox;
 use App\Models\Item;
 use App\Models\ItemSupplierPrice;
 use App\Models\PurchaseInvoice;
 use App\Models\PurchaseInvoiceLine;
+use App\Services\CashboxService;
+use App\Services\CheckService;
 use App\Services\PurchaseInvoiceService;
+use App\Services\SupplierService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 class PurchaseInvoiceController extends Controller
 {
@@ -103,11 +108,61 @@ class PurchaseInvoiceController extends Controller
         return response()->noContent();
     }
 
-    public function confirm(Request $request, PurchaseInvoice $purchaseInvoice, PurchaseInvoiceService $service)
-    {
+    /**
+     * Confirming moves stock regardless of payment method (that part is
+     * unconditional). "credit" is the default and needs nothing further —
+     * the purchase transaction service->confirm() already posts is exactly
+     * the debt. "cash" additionally pays the supplier immediately from a
+     * cashbox; "check" issues an outgoing check to the supplier — which,
+     * matching how every other check in this app behaves, only reduces the
+     * debt once it actually clears (or adds back if it bounces), not at
+     * the moment it's handed over.
+     */
+    public function confirm(
+        Request $request,
+        PurchaseInvoice $purchaseInvoice,
+        PurchaseInvoiceService $service,
+        SupplierService $supplierService,
+        CheckService $checkService,
+        CashboxService $cashboxService,
+    ) {
         abort_unless($request->user()->can('purchasing.manage'), 403);
 
-        return $service->confirm($purchaseInvoice);
+        $data = $request->validate([
+            'payment_method' => ['sometimes', Rule::in(['credit', 'cash', 'check'])],
+            'cashbox_id' => ['required_if:payment_method,cash', 'nullable', 'exists:cashboxes,id'],
+            'check_number' => ['required_if:payment_method,check', 'nullable', 'string', 'max:255'],
+            'bank_name' => ['nullable', 'string', 'max:255'],
+            'due_date' => ['required_if:payment_method,check', 'nullable', 'date'],
+        ]);
+
+        $invoice = $service->confirm($purchaseInvoice);
+        $paymentMethod = $data['payment_method'] ?? 'credit';
+
+        if ($paymentMethod === 'cash') {
+            $cashbox = Cashbox::findOrFail($data['cashbox_id']);
+            $supplierService->pay(
+                supplier: $invoice->supplier,
+                cashbox: $cashbox,
+                amount: (float) $invoice->total_amount_ils,
+                currency: $cashbox->currency,
+                exchangeRate: 1,
+                cashboxService: $cashboxService,
+            );
+        } elseif ($paymentMethod === 'check') {
+            $checkService->receive(
+                direction: 'outgoing',
+                partyType: 'supplier',
+                partyId: $invoice->supplier_id,
+                checkNumber: $data['check_number'],
+                bankName: $data['bank_name'] ?? null,
+                amount: (float) $invoice->total_amount_ils,
+                currency: 'ILS',
+                dueDate: $data['due_date'],
+            );
+        }
+
+        return $invoice->fresh(['lines.item', 'lines.itemLot', 'supplier', 'branch']);
     }
 
     public function destroy(Request $request, PurchaseInvoice $purchaseInvoice)

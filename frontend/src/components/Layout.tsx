@@ -60,9 +60,9 @@ const navGroups: NavGroup[] = [
   {
     label: 'المخزون والمشتريات',
     items: [
-      { to: '/suppliers', label: 'الموردون', icon: faTruck, permission: 'suppliers.view' },
       { to: '/items', label: 'الأصناف والمخزون', icon: faBoxesStacked, permission: 'inventory.view' },
       { to: '/purchase-invoices', label: 'فواتير الشراء', icon: faFileInvoiceDollar, permission: 'purchasing.view' },
+      { to: '/suppliers', label: 'الموردون', icon: faTruck, permission: 'suppliers.view' },
     ],
   },
   {

@@ -1,16 +1,18 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faPlus, faCheck, faTrash, faFileInvoiceDollar, faMagnifyingGlass } from '@fortawesome/free-solid-svg-icons'
+import { faPlus, faCheck, faTrash, faFileInvoiceDollar, faMagnifyingGlass, faTruck } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import DatePicker from '../components/DatePicker'
 import { Card, PageHeader, Badge, Button, Modal, Table, Thead, Th, Td, Tr, EmptyRow, SearchableSelect, Input } from '../components/ui'
 import type { BadgeVariant } from '../components/ui'
-import type { Branch, Item, PurchaseInvoice, StockMovement, Supplier } from '../types'
+import type { Branch, Cashbox, Item, PurchaseInvoice, StockMovement, Supplier } from '../types'
 
 const STATUS_LABELS: Record<PurchaseInvoice['status'], string> = { draft: 'مسودة', confirmed: 'مؤكدة' }
 const STATUS_VARIANTS: Record<PurchaseInvoice['status'], BadgeVariant> = { draft: 'neutral', confirmed: 'success' }
+
+type PaymentMethod = 'credit' | 'cash' | 'check'
 
 export default function PurchaseInvoicesPage() {
   const { can } = useAuth()
@@ -19,7 +21,10 @@ export default function PurchaseInvoicesPage() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [branches, setBranches] = useState<Branch[]>([])
   const [items, setItems] = useState<Item[]>([])
+  const [cashboxes, setCashboxes] = useState<Cashbox[]>([])
   const [invoices, setInvoices] = useState<PurchaseInvoice[]>([])
+  const [supplierSearch, setSupplierSearch] = useState('')
+  const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null)
   const [selected, setSelected] = useState<PurchaseInvoice | null>(null)
   const [movements, setMovements] = useState<StockMovement[]>([])
   const [showForm, setShowForm] = useState(() => searchParams.get('new') === '1')
@@ -29,12 +34,20 @@ export default function PurchaseInvoicesPage() {
   const [creatingSupplier, setCreatingSupplier] = useState(false)
   const [lineForm, setLineForm] = useState({ item_id: '', quantity: '', unit_price: '', currency: 'ILS', lot_number: '', expiry_date: '' })
   const [busy, setBusy] = useState(false)
-  const [search, setSearch] = useState('')
+  const [showConfirmForm, setShowConfirmForm] = useState(false)
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('credit')
+  const [payCashboxId, setPayCashboxId] = useState('')
+  const [payCheck, setPayCheck] = useState({ check_number: '', bank_name: '', due_date: '' })
 
   function loadAll() {
     api.get('/suppliers').then((res) => setSuppliers(res.data))
     api.get('/branches').then((res) => setBranches(res.data))
     api.get('/items').then((res) => setItems(res.data))
+    api.get('/cashboxes').then((res) => {
+      setCashboxes(res.data)
+      const ils = res.data.find((c: Cashbox) => c.currency === 'ILS')
+      if (ils) setPayCashboxId(String(ils.id))
+    })
     api.get('/purchase-invoices').then((res) => setInvoices(res.data))
   }
 
@@ -48,6 +61,12 @@ export default function PurchaseInvoicesPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  function selectSupplier(supplier: Supplier) {
+    setSelectedSupplier(supplier)
+    setSelected(null)
+    setMovements([])
+  }
 
   function openInvoice(invoice: PurchaseInvoice) {
     api.get(`/purchase-invoices/${invoice.id}`).then((res) => setSelected(res.data))
@@ -75,6 +94,11 @@ export default function PurchaseInvoicesPage() {
     }
   }
 
+  function openNewInvoiceForm() {
+    setNewForm({ supplier_id: selectedSupplier ? String(selectedSupplier.id) : '', branch_id: '' })
+    setShowForm(true)
+  }
+
   async function createInvoice() {
     if (!newForm.supplier_id || !newForm.branch_id) return
     setBusy(true)
@@ -84,7 +108,8 @@ export default function PurchaseInvoicesPage() {
         branch_id: Number(newForm.branch_id),
       })
       setShowForm(false)
-      setNewForm({ supplier_id: '', branch_id: '' })
+      const supplier = suppliers.find((s) => s.id === Number(newForm.supplier_id))
+      if (supplier) setSelectedSupplier(supplier)
       loadAll()
       openInvoice(res.data)
     } finally {
@@ -121,12 +146,27 @@ export default function PurchaseInvoicesPage() {
     loadAll()
   }
 
+  function openConfirmForm() {
+    setPaymentMethod('credit')
+    setPayCheck({ check_number: '', bank_name: '', due_date: '' })
+    setShowConfirmForm(true)
+  }
+
   async function confirmInvoice() {
     if (!selected) return
-    if (!confirm('تأكيد الفاتورة يحرّك المخزون ولا يمكن التراجع عنه. متابعة؟')) return
+    if (paymentMethod === 'cash' && !payCashboxId) return
+    if (paymentMethod === 'check' && (!payCheck.check_number || !payCheck.due_date)) return
     setBusy(true)
     try {
-      const res = await api.post(`/purchase-invoices/${selected.id}/confirm`)
+      const payload: Record<string, unknown> = { payment_method: paymentMethod }
+      if (paymentMethod === 'cash') payload.cashbox_id = Number(payCashboxId)
+      if (paymentMethod === 'check') {
+        payload.check_number = payCheck.check_number
+        payload.bank_name = payCheck.bank_name || null
+        payload.due_date = payCheck.due_date
+      }
+      const res = await api.post(`/purchase-invoices/${selected.id}/confirm`, payload)
+      setShowConfirmForm(false)
       setSelected(res.data)
       openInvoice(res.data)
       loadAll()
@@ -151,107 +191,136 @@ export default function PurchaseInvoicesPage() {
     }
   }
 
+  const filteredSuppliers = suppliers.filter((s) => {
+    const q = supplierSearch.trim().toLowerCase()
+    if (!q) return true
+    return s.name.toLowerCase().includes(q) || (s.phone ?? '').toLowerCase().includes(q)
+  })
+
+  const supplierInvoices = selectedSupplier ? invoices.filter((inv) => inv.supplier_id === selectedSupplier.id) : []
+
   return (
     <div>
-      <PageHeader title="فواتير الشراء" subtitle="فواتير الموردين وحركات المخزون الناتجة" />
+      <PageHeader title="فواتير الشراء" subtitle="اختر مورداً لعرض فواتيره، وحركات المخزون الناتجة" />
 
-      <div className="grid grid-cols-3 gap-6">
+      <div className="grid grid-cols-4 gap-6">
         <div className="col-span-1">
-          {canManage && (
-            <Button onClick={() => setShowForm((v) => !v)} className="mb-4">
-              <FontAwesomeIcon icon={faPlus} />
-              فاتورة جديدة
-            </Button>
-          )}
-
-          {showForm && (
-            <Modal title="فاتورة شراء جديدة" onClose={() => setShowForm(false)}>
-              <div className="space-y-3">
-                <SearchableSelect
-                  options={suppliers.map((s) => ({ value: String(s.id), label: s.name, sublabel: s.phone ?? undefined }))}
-                  value={newForm.supplier_id}
-                  onChange={(value) => setNewForm({ ...newForm, supplier_id: value })}
-                  placeholder="المورد..."
-                  onCreateNew={(query) => setNewSupplierName(query)}
-                  createNewLabel="مورد جديد"
-                />
-
-                {newSupplierName !== null && (
-                  <div className="space-y-2 rounded-lg bg-background p-3">
-                    <p className="text-xs font-medium text-ink/70">مورد جديد</p>
-                    <Input
-                      placeholder="اسم المورد"
-                      value={newSupplierName}
-                      onChange={(e) => setNewSupplierName(e.target.value)}
-                    />
-                    <Input
-                      placeholder="الهاتف (اختياري)"
-                      value={newSupplierPhone}
-                      onChange={(e) => setNewSupplierPhone(e.target.value)}
-                    />
-                    <div className="flex gap-2">
-                      <Button onClick={createSupplier} loading={creatingSupplier} className="flex-1 justify-center px-3 py-1.5 text-xs">
-                        إضافة ومتابعة
-                      </Button>
-                      <button
-                        type="button"
-                        onClick={() => setNewSupplierName(null)}
-                        className="rounded-xl px-3 py-1.5 text-xs text-muted hover:bg-surface"
-                      >
-                        إلغاء
-                      </button>
-                    </div>
-                  </div>
-                )}
-                <select value={newForm.branch_id} onChange={(e) => setNewForm({ ...newForm, branch_id: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
-                  <option value="">الفرع...</option>
-                  {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-                </select>
-                <Button onClick={createInvoice} loading={busy} className="w-full justify-center">
-                  إنشاء مسودة
-                </Button>
-              </div>
-            </Modal>
-          )}
-
           <div className="relative mb-3">
             <FontAwesomeIcon icon={faMagnifyingGlass} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted" />
             <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="بحث باسم المورد أو رقم الفاتورة..."
+              value={supplierSearch}
+              onChange={(e) => setSupplierSearch(e.target.value)}
+              placeholder="بحث بالاسم أو الهاتف..."
               className="w-full rounded-xl border border-border bg-surface py-2.5 pe-3 ps-9 text-sm focus:border-accent focus:outline-none"
             />
           </div>
-
           <Card>
-            {(() => {
-              const q = search.trim().toLowerCase()
-              const filtered = q
-                ? invoices.filter((inv) => (inv.supplier?.name ?? '').toLowerCase().includes(q) || (inv.invoice_number ?? '').toLowerCase().includes(q))
-                : invoices
-              if (filtered.length === 0) {
-                return <p className="p-6 text-center text-sm text-muted">{q ? 'لا توجد نتائج مطابقة.' : 'لا توجد فواتير.'}</p>
-              }
-              return filtered.map((inv) => (
+            {filteredSuppliers.length === 0 ? (
+              <p className="p-6 text-center text-sm text-muted">{supplierSearch ? 'لا توجد نتائج مطابقة.' : 'لا يوجد موردون.'}</p>
+            ) : (
+              filteredSuppliers.map((s) => (
                 <button
-                  key={inv.id}
-                  onClick={() => openInvoice(inv)}
-                  className={`flex w-full items-center justify-between gap-2 border-b border-border/70 p-4 text-right text-sm last:border-0 hover:bg-background ${selected?.id === inv.id ? 'bg-background' : ''}`}
+                  key={s.id}
+                  onClick={() => selectSupplier(s)}
+                  className={`flex w-full items-center gap-3 border-b border-border/70 p-4 text-right text-sm last:border-0 hover:bg-background ${selectedSupplier?.id === s.id ? 'bg-background' : ''}`}
                 >
-                  <div className="flex items-center gap-2">
-                    <FontAwesomeIcon icon={faFileInvoiceDollar} className="text-ink/40" />
-                    <div>
-                      <p className="font-medium text-ink">{inv.supplier?.name}</p>
-                      <p className="text-xs text-muted">{inv.total_amount_ils} ₪</p>
-                    </div>
+                  <FontAwesomeIcon icon={faTruck} className="text-ink/40" />
+                  <div>
+                    <p className="font-medium text-ink">{s.name}</p>
+                    <p className="text-xs text-muted">{s.phone ?? '—'}</p>
                   </div>
-                  <Badge variant={STATUS_VARIANTS[inv.status]}>{STATUS_LABELS[inv.status]}</Badge>
                 </button>
               ))
-            })()}
+            )}
           </Card>
         </div>
+
+        <div className="col-span-1">
+          {!selectedSupplier ? (
+            <Card className="p-6 text-center text-sm text-muted">اختر مورداً لعرض فواتيره.</Card>
+          ) : (
+            <>
+              {canManage && (
+                <Button onClick={openNewInvoiceForm} className="mb-4 w-full justify-center">
+                  <FontAwesomeIcon icon={faPlus} />
+                  فاتورة جديدة لـ{selectedSupplier.name}
+                </Button>
+              )}
+              <Card>
+                {supplierInvoices.length === 0 ? (
+                  <p className="p-6 text-center text-sm text-muted">لا توجد فواتير لهذا المورد.</p>
+                ) : (
+                  supplierInvoices.map((inv) => (
+                    <button
+                      key={inv.id}
+                      onClick={() => openInvoice(inv)}
+                      className={`flex w-full items-center justify-between gap-2 border-b border-border/70 p-4 text-right text-sm last:border-0 hover:bg-background ${selected?.id === inv.id ? 'bg-background' : ''}`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <FontAwesomeIcon icon={faFileInvoiceDollar} className="text-ink/40" />
+                        <div>
+                          <p className="font-medium text-ink">{inv.invoice_number ?? `#${inv.id}`}</p>
+                          <p className="text-xs text-muted">{inv.total_amount_ils} ₪</p>
+                        </div>
+                      </div>
+                      <Badge variant={STATUS_VARIANTS[inv.status]}>{STATUS_LABELS[inv.status]}</Badge>
+                    </button>
+                  ))
+                )}
+              </Card>
+            </>
+          )}
+        </div>
+
+        {showForm && (
+          <Modal title="فاتورة شراء جديدة" onClose={() => setShowForm(false)}>
+            <div className="space-y-3">
+              <SearchableSelect
+                options={suppliers.map((s) => ({ value: String(s.id), label: s.name, sublabel: s.phone ?? undefined }))}
+                value={newForm.supplier_id}
+                onChange={(value) => setNewForm({ ...newForm, supplier_id: value })}
+                placeholder="المورد..."
+                onCreateNew={(query) => setNewSupplierName(query)}
+                createNewLabel="مورد جديد"
+              />
+
+              {newSupplierName !== null && (
+                <div className="space-y-2 rounded-lg bg-background p-3">
+                  <p className="text-xs font-medium text-ink/70">مورد جديد</p>
+                  <Input
+                    placeholder="اسم المورد"
+                    value={newSupplierName}
+                    onChange={(e) => setNewSupplierName(e.target.value)}
+                  />
+                  <Input
+                    placeholder="الهاتف (اختياري)"
+                    value={newSupplierPhone}
+                    onChange={(e) => setNewSupplierPhone(e.target.value)}
+                  />
+                  <div className="flex gap-2">
+                    <Button onClick={createSupplier} loading={creatingSupplier} className="flex-1 justify-center px-3 py-1.5 text-xs">
+                      إضافة ومتابعة
+                    </Button>
+                    <button
+                      type="button"
+                      onClick={() => setNewSupplierName(null)}
+                      className="rounded-xl px-3 py-1.5 text-xs text-muted hover:bg-surface"
+                    >
+                      إلغاء
+                    </button>
+                  </div>
+                </div>
+              )}
+              <select value={newForm.branch_id} onChange={(e) => setNewForm({ ...newForm, branch_id: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
+                <option value="">الفرع...</option>
+                {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+              <Button onClick={createInvoice} loading={busy} className="w-full justify-center">
+                إنشاء مسودة
+              </Button>
+            </div>
+          </Modal>
+        )}
 
         <div className="col-span-2">
           {!selected ? (
@@ -266,7 +335,7 @@ export default function PurchaseInvoicesPage() {
                 <div className="flex items-center gap-2">
                   <Badge variant={STATUS_VARIANTS[selected.status]}>{STATUS_LABELS[selected.status]}</Badge>
                   {canManage && selected.status === 'draft' && (
-                    <Button onClick={confirmInvoice} loading={busy}>
+                    <Button onClick={openConfirmForm} loading={busy}>
                       <FontAwesomeIcon icon={faCheck} />
                       تأكيد الفاتورة
                     </Button>
@@ -354,6 +423,71 @@ export default function PurchaseInvoicesPage() {
           )}
         </div>
       </div>
+
+      {showConfirmForm && selected && (
+        <Modal title="تأكيد الفاتورة والدفع" onClose={() => setShowConfirmForm(false)} width="w-[420px]">
+          <div className="space-y-3">
+            <p className="text-xs text-ink/50">تأكيد الفاتورة يحرّك المخزون ولا يمكن التراجع عنه.</p>
+            <div className="flex gap-1 rounded-lg border border-border bg-white p-1">
+              <button
+                type="button"
+                onClick={() => setPaymentMethod('credit')}
+                className={`flex-1 rounded-md py-1.5 text-xs font-medium transition-colors ${paymentMethod === 'credit' ? 'bg-accent text-white' : 'text-ink/60 hover:bg-background'}`}
+              >
+                على الدين
+              </button>
+              <button
+                type="button"
+                onClick={() => setPaymentMethod('cash')}
+                className={`flex-1 rounded-md py-1.5 text-xs font-medium transition-colors ${paymentMethod === 'cash' ? 'bg-accent text-white' : 'text-ink/60 hover:bg-background'}`}
+              >
+                نقداً
+              </button>
+              <button
+                type="button"
+                onClick={() => setPaymentMethod('check')}
+                className={`flex-1 rounded-md py-1.5 text-xs font-medium transition-colors ${paymentMethod === 'check' ? 'bg-accent text-white' : 'text-ink/60 hover:bg-background'}`}
+              >
+                شيك
+              </button>
+            </div>
+
+            {paymentMethod === 'credit' && (
+              <p className="text-xs text-muted">المبلغ بيضل ديناً على العيادة للمورد، تقدر تسدده لاحقاً من صفحة الموردون.</p>
+            )}
+
+            {paymentMethod === 'cash' && (
+              <select value={payCashboxId} onChange={(e) => setPayCashboxId(e.target.value)} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
+                <option value="">الصندوق...</option>
+                {cashboxes.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.currency})</option>)}
+              </select>
+            )}
+
+            {paymentMethod === 'check' && (
+              <div className="space-y-2">
+                <input
+                  placeholder="رقم الشيك"
+                  value={payCheck.check_number}
+                  onChange={(e) => setPayCheck({ ...payCheck, check_number: e.target.value })}
+                  className="w-full rounded-lg border border-border px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
+                />
+                <input
+                  placeholder="اسم البنك (اختياري)"
+                  value={payCheck.bank_name}
+                  onChange={(e) => setPayCheck({ ...payCheck, bank_name: e.target.value })}
+                  className="w-full rounded-lg border border-border px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
+                />
+                <DatePicker value={payCheck.due_date} onChange={(v) => setPayCheck({ ...payCheck, due_date: v })} placeholder="تاريخ الاستحقاق" />
+                <p className="text-[11px] text-ink/40">الدين بيضل قائم على المورد لحد ما الشيك يتحصّل فعلياً — إذا رجع، بيرجع يضاف تلقائياً.</p>
+              </div>
+            )}
+
+            <Button onClick={confirmInvoice} loading={busy} className="w-full justify-center">
+              تأكيد الفاتورة
+            </Button>
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }
