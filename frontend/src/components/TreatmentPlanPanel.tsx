@@ -464,16 +464,20 @@ export default function TreatmentPlanPanel({ patientId, isChild = false, pickedT
                             )}
                             {first.service_name}
                           </td>
-                          <td className="p-1">{teeth.length > 0 ? describeTeeth(teeth, isChild) : '—'}</td>
-                          <td className="p-1">{totalPrice.toFixed(2)} {first.currency}</td>
+                          {/* Collapsed group row deliberately shows only the service name + session count —
+                              teeth/price/interval are per-tooth details that only make sense once expanded. */}
+                          <td className="p-1">{isSingle || isExpanded ? (teeth.length > 0 ? describeTeeth(teeth, isChild) : '—') : ''}</td>
+                          <td className="p-1">{isSingle || isExpanded ? `${totalPrice.toFixed(2)} ${first.currency}` : ''}</td>
                           <td className="p-1">
                             {totalSessions}
                             {plan.status === 'approved' && <span className="text-ink/40"> ({doneSessions} محسوبة)</span>}
                           </td>
                           <td className="p-1 text-ink/60">
-                            {first.interval_days
-                              ? `كل ${first.interval_days} يوم`
-                              : `افتراضي الخدمة (${services.find((s) => s.id === first.service_id)?.default_interval_days ?? 7} يوم)`}
+                            {isSingle || isExpanded
+                              ? first.interval_days
+                                ? `كل ${first.interval_days} يوم`
+                                : `افتراضي الخدمة (${services.find((s) => s.id === first.service_id)?.default_interval_days ?? 7} يوم)`
+                              : ''}
                           </td>
                           <td className="p-1">
                             {plan.status === 'draft' && canManage && (
