@@ -5,3 +5,4 @@
 # local dev server logs
 /backend.log
 /frontend.log
+frontend_dev.log
