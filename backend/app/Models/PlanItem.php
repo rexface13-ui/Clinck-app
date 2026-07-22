@@ -12,7 +12,7 @@ class PlanItem extends Model
     use BelongsToClinic;
 
     protected $fillable = [
-        'clinic_id', 'treatment_plan_id', 'service_id', 'tooth_number',
+        'clinic_id', 'treatment_plan_id', 'service_id', 'tooth_number', 'batch_id',
         'surfaces', 'unit_price', 'currency', 'sessions_count', 'interval_days',
     ];
 

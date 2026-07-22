@@ -315,6 +315,7 @@ export default function PatientProfilePage() {
                     room to be legible/clickable, the plan is just a table. */}
                 <TreatmentPlanPanel
                   patientId={patient.id}
+                  isChild={patient.is_child}
                   pickedTooth={pickedTooth}
                   onToothConsumed={() => setPickedTooth(null)}
                   onRequestPickTooth={(planId) => setPickingForPlanId((cur) => (cur === planId ? null : planId))}
@@ -347,7 +348,7 @@ export default function PatientProfilePage() {
           {
             key: 'visits',
             label: 'سجل الزيارات',
-            content: <VisitHistoryPanel patientId={patient.id} onChanged={load} />,
+            content: <VisitHistoryPanel patientId={patient.id} isChild={patient.is_child} onChanged={load} />,
           },
           ...(canViewBilling
             ? [

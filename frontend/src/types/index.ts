@@ -145,6 +145,7 @@ export interface PlanItem {
   service_id: number
   service_name: string | null
   tooth_number: number | null
+  batch_id: string | null
   surfaces: string | null
   unit_price: string
   currency: string
@@ -219,6 +220,7 @@ export interface Visit {
   session_id: number
   item_id: number
   plan_id: number
+  batch_id: string | null
   date: string
   service_name: string | null
   tooth_number: number | null

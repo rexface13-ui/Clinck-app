@@ -100,6 +100,7 @@ class PatientBillingController extends Controller
                 'session_id' => $session?->id,
                 'item_id' => $item?->id,
                 'plan_id' => $item?->treatment_plan_id,
+                'batch_id' => $item?->batch_id,
                 'date' => display_datetime($line->created_at),
                 'service_name' => $item?->service?->name,
                 'tooth_number' => $item?->tooth_number,

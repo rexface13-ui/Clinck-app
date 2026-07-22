@@ -11,6 +11,28 @@ export const LOWER_PRIMARY = [85, 84, 83, 82, 81, 71, 72, 73, 74, 75]
 
 export const SURFACES = ['M', 'D', 'O', 'I', 'B', 'L'] as const
 
+/**
+ * Turns a set of tooth numbers into a short, readable label instead of a
+ * long raw list — "3-4 وشوية" gets spelled out, a whole arch/mouth gets its
+ * name, and anything larger gets a count with a hint to expand for detail.
+ */
+export function describeTeeth(teeth: number[], isChild: boolean): string {
+  const sorted = [...teeth].sort((a, b) => a - b)
+  if (sorted.length === 0) return ''
+  if (sorted.length === 1) return `سن ${sorted[0]}`
+
+  const set = new Set(sorted)
+  const upper = isChild ? UPPER_PRIMARY : UPPER_PERMANENT
+  const lower = isChild ? LOWER_PRIMARY : LOWER_PERMANENT
+  const sameAs = (list: number[]) => list.length === set.size && list.every((n) => set.has(n))
+
+  if (sameAs([...upper, ...lower])) return 'كل الأسنان'
+  if (sameAs(upper)) return 'النصف العلوي'
+  if (sameAs(lower)) return 'النصف السفلي'
+  if (sorted.length <= 4) return `أسنان ${sorted.join('، ')}`
+  return `${sorted.length} سن (اضغط للتفاصيل)`
+}
+
 export const STATUS_COLOR: Record<string, string> = {
   planned: 'var(--color-tooth-planned)',
   done: 'var(--color-tooth-done)',

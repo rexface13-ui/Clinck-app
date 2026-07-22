@@ -37,6 +37,18 @@ interface Line {
   price: string
   /** Optional, comma-separated (e.g. "16" or "16,17") — one per tooth this line applies to. */
   tooth_numbers: string
+  /** true (default): price is per tooth, so picking N teeth multiplies the total (extraction, filling...).
+   *  false: price is a flat fee no matter how many teeth are picked (cleaning...) — still logs each tooth
+   *  in its history, just split evenly so the total stays the flat price. */
+  per_tooth: boolean
+}
+
+/** Pre-discount total for one line, accounting for how many teeth are selected and whether the price multiplies per tooth. */
+function lineTotal(l: Line): number {
+  const price = Number(l.price) || 0
+  if (!l.per_tooth) return price
+  const teethCount = l.tooth_numbers.split(',').map((t) => t.trim()).filter(Boolean).length
+  return price * Math.max(1, teethCount)
 }
 
 interface LaidOutTooth {
@@ -105,7 +117,7 @@ export default function CompleteVisitModal({ appointmentId, patientId, patientNa
     [isChild],
   )
 
-  const subtotal = lines.reduce((sum, l) => sum + (Number(l.price) || 0), 0)
+  const subtotal = lines.reduce((sum, l) => sum + lineTotal(l), 0)
   const discountAmount = Math.min(
     subtotal,
     Math.max(0, discountType === 'percent' ? (subtotal * (Number(discountValue) || 0)) / 100 : Number(discountValue) || 0),
@@ -115,7 +127,7 @@ export default function CompleteVisitModal({ appointmentId, patientId, patientNa
   function addService(serviceId: string) {
     const svc = services.find((s) => s.id === Number(serviceId))
     if (!svc) return
-    setLines([...lines, { service_id: svc.id, name: svc.name, price: svc.default_price, tooth_numbers: '' }])
+    setLines([...lines, { service_id: svc.id, name: svc.name, price: svc.default_price, tooth_numbers: '', per_tooth: true }])
     setAddServiceId('')
   }
 
@@ -129,6 +141,10 @@ export default function CompleteVisitModal({ appointmentId, patientId, patientNa
 
   function updateTeeth(idx: number, tooth_numbers: string) {
     setLines(lines.map((l, i) => (i === idx ? { ...l, tooth_numbers } : l)))
+  }
+
+  function togglePerTooth(idx: number) {
+    setLines(lines.map((l, i) => (i === idx ? { ...l, per_tooth: !l.per_tooth } : l)))
   }
 
   function toggleTooth(idx: number, tooth: number) {
@@ -166,27 +182,36 @@ export default function CompleteVisitModal({ appointmentId, patientId, patientNa
       const discountRatio = subtotal > 0 ? discountAmount / subtotal : 0
       const itemIds: number[] = []
       for (const l of lines) {
-        const linePrice = Number(l.price) || 0
-        const adjustedPrice = Math.round(linePrice * (1 - discountRatio) * 100) / 100
         const teeth = l.tooth_numbers
           .split(',')
           .map((t) => t.trim())
           .filter(Boolean)
           .map(Number)
-        // No tooth picked (whole-mouth service like a cleaning) -> one item, no tooth.
-        // One or more teeth picked -> one item per tooth (same price each) — the tooth
-        // finding itself (and its chart color/history) is recorded automatically when
-        // the item's session is completed below, not here.
+        // No tooth picked (whole-mouth service like a cleaning with no teeth chosen at
+        // all) -> one item, no tooth. One or more teeth picked -> one item per tooth, so
+        // each gets its own finding/history entry — but the price per item differs by
+        // per_tooth: checked multiplies (extraction: 2 teeth = 2x), unchecked splits the
+        // flat fee evenly across the picked teeth so the total stays the entered price.
         const toothTargets = teeth.length > 0 ? teeth : [null]
-        for (const tooth of toothTargets) {
-          const itemRes = await api.post(`/treatment-plans/${planId}/items`, {
-            service_id: l.service_id,
-            tooth_number: tooth,
-            unit_price: adjustedPrice,
-            sessions_count: 1,
-          })
-          itemIds.push(itemRes.data.data.id)
-        }
+        const discountedLineTotal = lineTotal(l) * (1 - discountRatio)
+        const perItemPrice = Math.round((discountedLineTotal / toothTargets.length) * 100) / 100
+        // Several teeth for the same line share a batch_id, so the visit
+        // history/plan panel can show them as one grouped entry instead of
+        // one row per tooth. Fired in parallel — sequential awaits made
+        // picking a whole arch take many seconds.
+        const batchId = toothTargets.length > 1 ? crypto.randomUUID() : null
+        const created = await Promise.all(
+          toothTargets.map((tooth) =>
+            api.post(`/treatment-plans/${planId}/items`, {
+              service_id: l.service_id,
+              tooth_number: tooth,
+              batch_id: batchId,
+              unit_price: perItemPrice,
+              sessions_count: 1,
+            }),
+          ),
+        )
+        itemIds.push(...created.map((res) => res.data.data.id))
       }
 
       // Approving only schedules the (single) session per item — nothing is
@@ -198,13 +223,15 @@ export default function CompleteVisitModal({ appointmentId, patientId, patientNa
       const itemsById: Record<number, { unit_price: string; sessions: { id: number }[] }> = {}
       for (const it of planAfterApprove.data.data.items) itemsById[it.id] = it
 
-      for (const itemId of itemIds) {
-        const item = itemsById[itemId]
-        const sessionId = item.sessions[0].id
-        await api.post(`/treatment-plans/${planId}/items/${itemId}/sessions/${sessionId}/complete`, {
-          price: Number(item.unit_price),
-        })
-      }
+      await Promise.all(
+        itemIds.map((itemId) => {
+          const item = itemsById[itemId]
+          const sessionId = item.sessions[0].id
+          return api.post(`/treatment-plans/${planId}/items/${itemId}/sessions/${sessionId}/complete`, {
+            price: Number(item.unit_price),
+          })
+        }),
+      )
 
       const finalPlan = await api.get(`/treatment-plans/${planId}`)
       const invoiceId = finalPlan.data.data.latest_invoice_id
@@ -288,6 +315,13 @@ export default function CompleteVisitModal({ appointmentId, patientId, patientNa
                     <FontAwesomeIcon icon={faTrash} />
                   </button>
                 </div>
+
+                {l.tooth_numbers.split(',').filter((t) => t.trim()).length > 1 && (
+                  <label className="mt-1 flex items-center gap-1.5 text-[11px] text-ink/60">
+                    <input type="checkbox" checked={l.per_tooth} onChange={() => togglePerTooth(idx)} className="size-3.5" />
+                    احتساب السعر لكل سن لحاله (بدل ما يبقى سعر ثابت مقسوم على الأسنان)
+                  </label>
+                )}
 
                 {pickerOpenIdx === idx && (
                   <div className="mt-2 space-y-2 rounded-lg border border-border bg-white p-2">

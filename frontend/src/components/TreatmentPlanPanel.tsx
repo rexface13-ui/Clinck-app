@@ -1,10 +1,11 @@
 import { Fragment, useEffect, useState } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faPlus, faCheck, faCalendarPlus } from '@fortawesome/free-solid-svg-icons'
+import { faPlus, faCheck, faCalendarPlus, faChevronDown, faChevronLeft } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import { SearchableSelect } from './ui'
-import type { Cashbox, Doctor, Service, TreatmentPlan } from '../types'
+import { describeTeeth } from '../lib/dental'
+import type { Cashbox, Doctor, PlanItem, Service, TreatmentPlan } from '../types'
 
 const STATUS_LABELS: Record<TreatmentPlan['status'], string> = {
   draft: 'مسودة',
@@ -53,8 +54,29 @@ function sessionDiscountedPrice(f: SessionFormState): number {
   return Math.max(0, base - Math.min(base, discount))
 }
 
+/** One row in the items table: all plan items sharing a batch_id (created together from one "add" action, e.g. picking several teeth for one service) collapse into a single group. */
+interface ItemGroup {
+  key: string
+  items: PlanItem[]
+}
+
+function groupItems(items: PlanItem[]): ItemGroup[] {
+  const order: string[] = []
+  const map = new Map<string, PlanItem[]>()
+  for (const item of items) {
+    const key = item.batch_id ?? `single-${item.id}`
+    if (!map.has(key)) {
+      map.set(key, [])
+      order.push(key)
+    }
+    map.get(key)!.push(item)
+  }
+  return order.map((key) => ({ key, items: map.get(key)! }))
+}
+
 interface Props {
   patientId: number
+  isChild?: boolean
   /** Tooth number(s) most recently picked from the chart, and which plan it's for — filled by the parent when pick mode is active. */
   pickedTooth?: { planId: number; toothNumbers: number[] } | null
   onToothConsumed?: () => void
@@ -67,7 +89,7 @@ interface Props {
   refreshSignal?: number
 }
 
-export default function TreatmentPlanPanel({ patientId, pickedTooth, onToothConsumed, onRequestPickTooth, pickingForPlanId, onPlansLoaded, refreshSignal }: Props) {
+export default function TreatmentPlanPanel({ patientId, isChild = false, pickedTooth, onToothConsumed, onRequestPickTooth, pickingForPlanId, onPlansLoaded, refreshSignal }: Props) {
   const { can } = useAuth()
   const [plans, setPlans] = useState<TreatmentPlan[]>([])
   const [doctors, setDoctors] = useState<Doctor[]>([])
@@ -78,7 +100,17 @@ export default function TreatmentPlanPanel({ patientId, pickedTooth, onToothCons
   const [itemForm, setItemForm] = useState<Record<number, ItemFormState>>({})
   const [sessionForm, setSessionForm] = useState<Record<number, SessionFormState>>({})
   const [openSessionId, setOpenSessionId] = useState<number | null>(null)
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const [busy, setBusy] = useState(false)
+
+  function toggleGroup(key: string) {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
 
   useEffect(() => {
     if (!pickedTooth) return
@@ -137,18 +169,27 @@ export default function TreatmentPlanPanel({ patientId, pickedTooth, onToothCons
       .map(Number)
     const toothNumbers = teeth.length > 0 ? teeth : [null]
     const finalPrice = discountedPrice(f)
+    // One tooth doesn't need a batch — it's already a single row. Several teeth
+    // picked in one "add" share a batch_id so they collapse into one group row
+    // instead of listing every tooth separately.
+    const batchId = toothNumbers.length > 1 ? crypto.randomUUID() : null
 
     setBusy(true)
     try {
-      for (const tooth of toothNumbers) {
-        await api.post(`/treatment-plans/${planId}/items`, {
-          service_id: Number(f.service_id),
-          tooth_number: tooth,
-          unit_price: finalPrice,
-          sessions_count: Number(f.sessions_count) || 1,
-          interval_days: f.interval_days ? Number(f.interval_days) : null,
-        })
-      }
+      // Fired in parallel, not sequentially — awaiting each POST one at a time
+      // made adding a service to a whole arch (16 teeth) take many seconds.
+      await Promise.all(
+        toothNumbers.map((tooth) =>
+          api.post(`/treatment-plans/${planId}/items`, {
+            service_id: Number(f.service_id),
+            tooth_number: tooth,
+            batch_id: batchId,
+            unit_price: finalPrice,
+            sessions_count: Number(f.sessions_count) || 1,
+            interval_days: f.interval_days ? Number(f.interval_days) : null,
+          }),
+        ),
+      )
       setItemForm({ ...itemForm, [planId]: { service_id: '', tooth_number: '', unit_price: '', sessions_count: '1', interval_days: '', discount_type: 'percent', discount_value: '' } })
       load()
     } finally {
@@ -160,6 +201,16 @@ export default function TreatmentPlanPanel({ patientId, pickedTooth, onToothCons
     setBusy(true)
     try {
       await api.delete(`/treatment-plans/${planId}/items/${itemId}`)
+      load()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function removeGroup(planId: number, itemIds: number[]) {
+    setBusy(true)
+    try {
+      await Promise.all(itemIds.map((id) => api.delete(`/treatment-plans/${planId}/items/${id}`)))
       load()
     } finally {
       setBusy(false)
@@ -215,6 +266,17 @@ export default function TreatmentPlanPanel({ patientId, pickedTooth, onToothCons
     setBusy(true)
     try {
       await api.post(`/treatment-plans/${planId}/items/${itemId}/cancel`)
+      load()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function cancelGroup(planId: number, itemIds: number[]) {
+    if (!window.confirm(`إلغاء كل البنود (${itemIds.length})؟ رح تتلغى جلساتها ومواعيدها، وكل الأسنان المرتبطة ترجع ألوانها، وقيمتها ترد كرصيد للمريض.`)) return
+    setBusy(true)
+    try {
+      await Promise.all(itemIds.map((id) => api.post(`/treatment-plans/${planId}/items/${id}/cancel`)))
       load()
     } finally {
       setBusy(false)
@@ -382,40 +444,77 @@ export default function TreatmentPlanPanel({ patientId, pickedTooth, onToothCons
                   </tr>
                 </thead>
                 <tbody>
-                  {plan.items.map((item) => (
-                    <Fragment key={item.id}>
-                      <tr className="border-t border-ink/5">
-                        <td className="p-1">{item.service_name}</td>
-                        <td className="p-1">{item.tooth_number ?? '—'}</td>
-                        <td className="p-1">{item.unit_price} {item.currency}</td>
-                        <td className="p-1">
-                          {item.sessions_count}
-                          {item.sessions && (
-                            <span className="text-ink/40">
-                              {' '}({item.sessions.filter((s) => s.status === 'done').length} محسوبة)
-                            </span>
-                          )}
-                        </td>
-                        <td className="p-1 text-ink/60">
-                          {item.interval_days
-                            ? `كل ${item.interval_days} يوم`
-                            : `افتراضي الخدمة (${services.find((s) => s.id === item.service_id)?.default_interval_days ?? 7} يوم)`}
-                        </td>
-                        <td className="p-1">
-                          {plan.status === 'draft' && canManage && (
-                            <button onClick={() => removeItem(plan.id, item.id)} className="text-danger/70 hover:text-danger">
-                              حذف
-                            </button>
-                          )}
-                          {plan.status === 'approved' && canManage && (
-                            <button onClick={() => cancelItem(plan.id, item.id)} disabled={busy} className="text-danger/70 hover:text-danger disabled:opacity-60">
-                              إلغاء الكل
-                            </button>
-                          )}
-                        </td>
-                      </tr>
+                  {groupItems(plan.items).map((group) => {
+                    const isSingle = group.items.length === 1
+                    const isExpanded = isSingle || expandedGroups.has(group.key)
+                    const teeth = group.items.map((i) => i.tooth_number).filter((n): n is number => n !== null)
+                    const totalPrice = group.items.reduce((sum, i) => sum + Number(i.unit_price) * i.sessions_count, 0)
+                    const totalSessions = group.items.reduce((sum, i) => sum + i.sessions_count, 0)
+                    const doneSessions = group.items.reduce((sum, i) => sum + (i.sessions?.filter((s) => s.status === 'done').length ?? 0), 0)
+                    const first = group.items[0]
 
-                      {plan.status === 'approved' && item.sessions?.map((session) => (
+                    return (
+                      <Fragment key={group.key}>
+                        <tr className="border-t border-ink/5">
+                          <td className="p-1">
+                            {!isSingle && (
+                              <button onClick={() => toggleGroup(group.key)} className="ml-1 text-ink/40 hover:text-ink">
+                                <FontAwesomeIcon icon={isExpanded ? faChevronDown : faChevronLeft} />
+                              </button>
+                            )}
+                            {first.service_name}
+                          </td>
+                          <td className="p-1">{teeth.length > 0 ? describeTeeth(teeth, isChild) : '—'}</td>
+                          <td className="p-1">{totalPrice.toFixed(2)} {first.currency}</td>
+                          <td className="p-1">
+                            {totalSessions}
+                            {plan.status === 'approved' && <span className="text-ink/40"> ({doneSessions} محسوبة)</span>}
+                          </td>
+                          <td className="p-1 text-ink/60">
+                            {first.interval_days
+                              ? `كل ${first.interval_days} يوم`
+                              : `افتراضي الخدمة (${services.find((s) => s.id === first.service_id)?.default_interval_days ?? 7} يوم)`}
+                          </td>
+                          <td className="p-1">
+                            {plan.status === 'draft' && canManage && (
+                              <button
+                                onClick={() => (isSingle ? removeItem(plan.id, first.id) : removeGroup(plan.id, group.items.map((i) => i.id)))}
+                                className="text-danger/70 hover:text-danger"
+                              >
+                                حذف
+                              </button>
+                            )}
+                            {plan.status === 'approved' && canManage && (
+                              <button
+                                onClick={() => (isSingle ? cancelItem(plan.id, first.id) : cancelGroup(plan.id, group.items.map((i) => i.id)))}
+                                disabled={busy}
+                                className="text-danger/70 hover:text-danger disabled:opacity-60"
+                              >
+                                إلغاء الكل
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+
+                        {!isSingle && isExpanded && group.items.map((item) => (
+                          <tr key={item.id} className="border-t border-ink/5 bg-background/30">
+                            <td colSpan={6} className="p-1 ps-6 text-[11px] text-ink/60">
+                              سن {item.tooth_number} — {item.unit_price} {item.currency}
+                              {plan.status === 'approved' && canManage && (
+                                <button onClick={() => cancelItem(plan.id, item.id)} disabled={busy} className="mr-3 text-danger/70 hover:text-danger disabled:opacity-60">
+                                  إلغاء هالسن
+                                </button>
+                              )}
+                              {plan.status === 'draft' && canManage && (
+                                <button onClick={() => removeItem(plan.id, item.id)} className="mr-3 text-danger/70 hover:text-danger">
+                                  حذف هالسن
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+
+                      {plan.status === 'approved' && isExpanded && group.items.flatMap((item) => (item.sessions ?? []).map((session) => (
                         <tr key={session.id} className="border-t border-ink/5 bg-background/50">
                           <td colSpan={6} className="p-1 ps-4">
                             <div className="flex items-center justify-between text-[11px]">
@@ -553,9 +652,10 @@ export default function TreatmentPlanPanel({ patientId, pickedTooth, onToothCons
                             )}
                           </td>
                         </tr>
-                      ))}
-                    </Fragment>
-                  ))}
+                      )))}
+                      </Fragment>
+                    )
+                  })}
 
                   {plan.status === 'draft' && canManage && (
                     <tr className="border-t border-ink/10">

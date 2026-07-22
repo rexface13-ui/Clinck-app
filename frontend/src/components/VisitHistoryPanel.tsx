@@ -1,11 +1,32 @@
 import { useEffect, useState } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faTrash, faSave, faMoneyBill } from '@fortawesome/free-solid-svg-icons'
+import { faTrash, faSave, faMoneyBill, faChevronDown, faChevronLeft } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import { Card, Badge, SearchableSelect } from './ui'
 import type { BadgeVariant } from './ui'
+import { describeTeeth } from '../lib/dental'
 import type { Cashbox, Visit } from '../types'
+
+interface VisitGroup {
+  key: string
+  visits: Visit[]
+}
+
+/** Visits created together in one "add" action (several teeth picked for the same service in one go) share a batch_id, so they show as one grouped entry with a "press for detail" list instead of a separate row per tooth. */
+function groupVisits(visits: Visit[]): VisitGroup[] {
+  const order: string[] = []
+  const map = new Map<string, Visit[]>()
+  for (const v of visits) {
+    const key = v.batch_id ?? `single-${v.session_id ?? v.invoice_id}-${v.date}`
+    if (!map.has(key)) {
+      map.set(key, [])
+      order.push(key)
+    }
+    map.get(key)!.push(v)
+  }
+  return order.map((key) => ({ key, visits: map.get(key)! }))
+}
 
 const INVOICE_STATUS_LABELS: Record<string, string> = {
   unpaid: 'غير مدفوعة',
@@ -21,7 +42,7 @@ const INVOICE_STATUS_VARIANTS: Record<string, BadgeVariant> = {
   void: 'neutral',
 }
 
-export default function VisitHistoryPanel({ patientId, onChanged }: { patientId: number; onChanged?: () => void }) {
+export default function VisitHistoryPanel({ patientId, isChild = false, onChanged }: { patientId: number; isChild?: boolean; onChanged?: () => void }) {
   const { can } = useAuth()
   const canManage = can('treatment_plans.manage')
   const canCollect = can('billing.manage')
@@ -29,6 +50,16 @@ export default function VisitHistoryPanel({ patientId, onChanged }: { patientId:
   const [visits, setVisits] = useState<Visit[]>([])
   const [cashboxes, setCashboxes] = useState<Cashbox[]>([])
   const [openId, setOpenId] = useState<number | null>(null)
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
+
+  function toggleGroup(key: string) {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
   const [editPrice, setEditPrice] = useState<Record<number, string>>({})
   const [editNote, setEditNote] = useState<Record<number, string>>({})
   const [payAmount, setPayAmount] = useState<Record<number, string>>({})
@@ -84,6 +115,23 @@ export default function VisitHistoryPanel({ patientId, onChanged }: { patientId:
     }
   }
 
+  async function deleteGroup(group: VisitGroup) {
+    if (!window.confirm(`حذف كل الزيارة (${group.visits.length} سن) نهائياً؟ رح يترد مبلغها كرصيد للمريض، وكل الأسنان ترجع ألوانها.`)) return
+    setBusy(true)
+    try {
+      await Promise.all(
+        group.visits
+          .filter((v) => v.session_id)
+          .map((v) => api.post(`/treatment-plans/${v.plan_id}/items/${v.item_id}/sessions/${v.session_id}/cancel`)),
+      )
+      setOpenId(null)
+      load()
+      onChanged?.()
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function collect(v: Visit) {
     const cashboxId = payCashboxId[v.session_id]
     const amount = Number(payAmount[v.session_id])
@@ -114,25 +162,83 @@ export default function VisitHistoryPanel({ patientId, onChanged }: { patientId:
         <p className="text-sm text-muted">لا توجد زيارات محسوبة بعد.</p>
       ) : (
         <div className="space-y-2">
-          {visits.map((v) => (
-            <div key={v.session_id} className="rounded-lg border border-ink/10">
-              <button
-                onClick={() => open(v)}
-                className="flex w-full items-center justify-between px-3 py-2 text-sm hover:bg-background"
-              >
-                <div className="flex items-center gap-2">
-                  <span className="font-medium text-ink">{v.service_name ?? 'خدمة'}</span>
-                  {v.tooth_number && <span className="text-xs text-muted">سن {v.tooth_number}</span>}
-                  {v.doctor_name && <span className="text-xs text-muted">— {v.doctor_name}</span>}
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-ink">{v.price} ₪</span>
-                  <Badge variant={INVOICE_STATUS_VARIANTS[v.invoice_status]}>{INVOICE_STATUS_LABELS[v.invoice_status]}</Badge>
-                  <span className="text-xs text-muted">{v.date}</span>
-                </div>
-              </button>
+          {groupVisits(visits).map((group) => {
+            const isSingle = group.visits.length === 1
+            const isExpanded = isSingle || expandedGroups.has(group.key)
+            const first = group.visits[0]
+            const teeth = group.visits.map((v) => v.tooth_number).filter((n): n is number => n !== null)
+            const totalPrice = group.visits.reduce((sum, v) => sum + Number(v.price), 0)
 
-              {openId === v.session_id && (
+            if (isSingle) {
+              return <VisitRow key={group.key} v={first} />
+            }
+
+            return (
+              <div key={group.key} className="rounded-lg border border-ink/10">
+                <button
+                  onClick={() => toggleGroup(group.key)}
+                  className="flex w-full items-center justify-between px-3 py-2 text-sm hover:bg-background"
+                >
+                  <div className="flex items-center gap-2">
+                    <FontAwesomeIcon icon={isExpanded ? faChevronDown : faChevronLeft} className="text-ink/40" />
+                    <span className="font-medium text-ink">{first.service_name ?? 'خدمة'}</span>
+                    <span className="text-xs text-muted">{describeTeeth(teeth, isChild)}</span>
+                    {first.doctor_name && <span className="text-xs text-muted">— {first.doctor_name}</span>}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-ink">{totalPrice.toFixed(2)} ₪</span>
+                    <Badge variant={INVOICE_STATUS_VARIANTS[first.invoice_status]}>{INVOICE_STATUS_LABELS[first.invoice_status]}</Badge>
+                    <span className="text-xs text-muted">{first.date}</span>
+                  </div>
+                </button>
+
+                {isExpanded && (
+                  <div className="space-y-1 border-t border-ink/10 p-2">
+                    {canManage && (
+                      <div className="flex justify-end px-1">
+                        <button
+                          onClick={() => deleteGroup(group)}
+                          disabled={busy}
+                          className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-danger hover:bg-danger-soft disabled:opacity-60"
+                        >
+                          <FontAwesomeIcon icon={faTrash} />
+                          حذف الكل ({group.visits.length})
+                        </button>
+                      </div>
+                    )}
+                    {group.visits.map((v) => (
+                      <VisitRow key={v.session_id ?? `${v.item_id}-${v.tooth_number}`} v={v} nested />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </Card>
+  )
+
+  function VisitRow({ v, nested = false }: { v: Visit; nested?: boolean }) {
+    return (
+      <div className={nested ? 'rounded-lg bg-background/60' : 'rounded-lg border border-ink/10'}>
+        <button
+          onClick={() => open(v)}
+          className="flex w-full items-center justify-between px-3 py-2 text-sm hover:bg-background"
+        >
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-ink">{v.service_name ?? 'خدمة'}</span>
+            {v.tooth_number && <span className="text-xs text-muted">سن {v.tooth_number}</span>}
+            {!nested && v.doctor_name && <span className="text-xs text-muted">— {v.doctor_name}</span>}
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-ink">{v.price} ₪</span>
+            {!nested && <Badge variant={INVOICE_STATUS_VARIANTS[v.invoice_status]}>{INVOICE_STATUS_LABELS[v.invoice_status]}</Badge>}
+            <span className="text-xs text-muted">{v.date}</span>
+          </div>
+        </button>
+
+        {openId === v.session_id && (
                 <div className="space-y-3 border-t border-ink/10 p-3">
                   {!v.session_id ? (
                     <p className="text-xs text-ink/50">
@@ -213,10 +319,7 @@ export default function VisitHistoryPanel({ patientId, onChanged }: { patientId:
                   )}
                 </div>
               )}
-            </div>
-          ))}
-        </div>
-      )}
-    </Card>
-  )
+      </div>
+    )
+  }
 }
