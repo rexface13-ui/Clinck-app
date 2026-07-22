@@ -9,10 +9,15 @@ interface TabDef {
 interface Props {
   tabs: TabDef[]
   defaultTab?: string
+  /** Controlled mode: when set, the active tab follows this value instead of internal state (e.g. auto-switching to the chart tab when picking a tooth). */
+  active?: string
+  onActiveChange?: (key: string) => void
 }
 
-export default function Tabs({ tabs, defaultTab }: Props) {
-  const [active, setActive] = useState(defaultTab ?? tabs[0]?.key)
+export default function Tabs({ tabs, defaultTab, active: controlledActive, onActiveChange }: Props) {
+  const [internalActive, setInternalActive] = useState(defaultTab ?? tabs[0]?.key)
+  const active = controlledActive ?? internalActive
+  const setActive = onActiveChange ?? setInternalActive
   const activeTab = tabs.find((t) => t.key === active) ?? tabs[0]
 
   return (

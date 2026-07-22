@@ -27,6 +27,7 @@ class PlanItemResource extends JsonResource
                 'session_number' => $s->session_number,
                 'status' => $s->status,
                 'appointment_id' => $s->appointment_id,
+                'tooth_numbers' => $s->tooth_numbers,
             ])),
         ];
     }

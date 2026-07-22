@@ -88,11 +88,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('treatment-plans/{treatmentPlan}', [TreatmentPlanController::class, 'show']);
     Route::delete('treatment-plans/{treatmentPlan}', [TreatmentPlanController::class, 'destroy']);
     Route::post('treatment-plans/{treatmentPlan}/items', [TreatmentPlanController::class, 'addItem']);
+    Route::patch('treatment-plans/{treatmentPlan}/items/{item}/teeth', [TreatmentPlanController::class, 'updateItemTeeth']);
     Route::delete('treatment-plans/{treatmentPlan}/items/{item}', [TreatmentPlanController::class, 'removeItem']);
     Route::post('treatment-plans/{treatmentPlan}/items/{item}/cancel', [TreatmentPlanController::class, 'cancelItem']);
     Route::post('treatment-plans/{treatmentPlan}/items/{item}/sessions/{session}/complete', [TreatmentPlanController::class, 'completeSession']);
     Route::post('treatment-plans/{treatmentPlan}/items/{item}/sessions/{session}/cancel', [TreatmentPlanController::class, 'cancelSession']);
     Route::patch('treatment-plans/{treatmentPlan}/items/{item}/sessions/{session}', [TreatmentPlanController::class, 'updateSession']);
+    Route::post('treatment-plans/{treatmentPlan}/record-session', [TreatmentPlanController::class, 'recordSession']);
     Route::post('treatment-plans/{treatmentPlan}/cancel', [TreatmentPlanController::class, 'cancel']);
     Route::post('treatment-plans/{treatmentPlan}/approve', [TreatmentPlanController::class, 'approve']);
     Route::post('treatment-plans/{treatmentPlan}/schedule-sessions', [TreatmentPlanController::class, 'scheduleSessions']);

@@ -1,11 +1,12 @@
 import { Fragment, useEffect, useState } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faPlus, faCheck, faCalendarPlus, faChevronDown, faChevronLeft } from '@fortawesome/free-solid-svg-icons'
+import { faPlus, faCheck, faCalendarPlus, faChevronDown, faChevronLeft, faPen, faStethoscope } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import { SearchableSelect } from './ui'
 import { describeTeeth } from '../lib/dental'
-import type { Cashbox, Doctor, PlanItem, Service, TreatmentPlan } from '../types'
+import RecordPlanSessionModal from './RecordPlanSessionModal'
+import type { Doctor, PlanItem, Service, TreatmentPlan } from '../types'
 
 const STATUS_LABELS: Record<TreatmentPlan['status'], string> = {
   draft: 'مسودة',
@@ -33,22 +34,6 @@ interface ItemFormState {
 /** Final per-session price after applying the line's discount — this is what actually gets billed/stored as unit_price. */
 function discountedPrice(f: ItemFormState): number {
   const base = Number(f.unit_price) || 0
-  const raw = Number(f.discount_value) || 0
-  const discount = f.discount_type === 'percent' ? (base * raw) / 100 : raw
-  return Math.max(0, base - Math.min(base, discount))
-}
-
-interface SessionFormState {
-  price: string
-  discount_type: 'percent' | 'fixed'
-  discount_value: string
-  pay_now: boolean
-  cashbox_id: string
-  method: 'cash' | 'card' | 'transfer'
-}
-
-function sessionDiscountedPrice(f: SessionFormState): number {
-  const base = Number(f.price) || 0
   const raw = Number(f.discount_value) || 0
   const discount = f.discount_type === 'percent' ? (base * raw) / 100 : raw
   return Math.max(0, base - Math.min(base, discount))
@@ -87,6 +72,7 @@ function groupItems(items: PlanItem[]): ItemGroup[] {
 
 interface Props {
   patientId: number
+  patientName: string
   isChild?: boolean
   /** Tooth number(s) most recently picked from the chart, and which plan it's for — filled by the parent when pick mode is active. */
   pickedTooth?: { planId: number; toothNumbers: number[] } | null
@@ -100,18 +86,18 @@ interface Props {
   refreshSignal?: number
 }
 
-export default function TreatmentPlanPanel({ patientId, isChild = false, pickedTooth, onToothConsumed, onRequestPickTooth, pickingForPlanId, onPlansLoaded, refreshSignal }: Props) {
+export default function TreatmentPlanPanel({ patientId, patientName, isChild = false, pickedTooth, onToothConsumed, onRequestPickTooth, pickingForPlanId, onPlansLoaded, refreshSignal }: Props) {
   const { can } = useAuth()
   const [plans, setPlans] = useState<TreatmentPlan[]>([])
   const [doctors, setDoctors] = useState<Doctor[]>([])
   const [services, setServices] = useState<Service[]>([])
-  const [cashboxes, setCashboxes] = useState<Cashbox[]>([])
   const [showNewPlan, setShowNewPlan] = useState(false)
   const [newDoctorId, setNewDoctorId] = useState('')
   const [itemForm, setItemForm] = useState<Record<number, ItemFormState>>({})
-  const [sessionForm, setSessionForm] = useState<Record<number, SessionFormState>>({})
-  const [openSessionId, setOpenSessionId] = useState<number | null>(null)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
+  const [recordingForPlanId, setRecordingForPlanId] = useState<number | null>(null)
+  const [editingTeethItemId, setEditingTeethItemId] = useState<number | null>(null)
+  const [editTeethValue, setEditTeethValue] = useState('')
   const [busy, setBusy] = useState(false)
 
   function toggleGroup(key: string) {
@@ -144,7 +130,6 @@ export default function TreatmentPlanPanel({ patientId, isChild = false, pickedT
     load()
     api.get('/doctors').then((res) => setDoctors(res.data.data))
     api.get('/services').then((res) => setServices(res.data.data))
-    api.get('/cashboxes').then((res) => setCashboxes(res.data))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [patientId, refreshSignal])
 
@@ -219,33 +204,22 @@ export default function TreatmentPlanPanel({ patientId, isChild = false, pickedT
     }
   }
 
-  function sessionFormFor(sessionId: number, defaultPrice: string): SessionFormState {
-    const ils = cashboxes.find((c) => c.currency === 'ILS')
-    return (
-      sessionForm[sessionId] ?? {
-        price: defaultPrice,
-        discount_type: 'percent',
-        discount_value: '',
-        pay_now: true,
-        cashbox_id: ils ? String(ils.id) : '',
-        method: 'cash',
-      }
-    )
+  function startEditTeeth(item: PlanItem) {
+    setEditingTeethItemId(item.id)
+    setEditTeethValue(itemTeeth(item).join(','))
   }
 
-  async function completeSession(planId: number, itemId: number, sessionId: number, defaultPrice: string) {
-    const f = sessionFormFor(sessionId, defaultPrice)
-    const price = sessionDiscountedPrice(f)
-    if (f.pay_now && !f.cashbox_id) return
+  async function saveTeethEdit(planId: number, itemId: number) {
+    const teeth = editTeethValue
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean)
+      .map(Number)
+    if (teeth.length === 0) return
     setBusy(true)
     try {
-      await api.post(`/treatment-plans/${planId}/items/${itemId}/sessions/${sessionId}/complete`, {
-        price,
-        pay_now: f.pay_now,
-        cashbox_id: f.pay_now ? Number(f.cashbox_id) : undefined,
-        method: f.pay_now ? f.method : undefined,
-      })
-      setOpenSessionId(null)
+      await api.patch(`/treatment-plans/${planId}/items/${itemId}/teeth`, { tooth_numbers: teeth })
+      setEditingTeethItemId(null)
       load()
     } finally {
       setBusy(false)
@@ -344,7 +318,8 @@ export default function TreatmentPlanPanel({ patientId, isChild = false, pickedT
       </div>
       <p className="mb-4 text-xs text-ink/40">
         لجلسة اليوم فقط (خدمة أو أكثر بزيارة وحدة، مع خصم ودفع مباشر) استخدم زر "اجاني هلق" أو "تمّت الزيارة" فوق —
-        هون تحت لخطة علاج بعدة جلسات ممتدة على أكثر من زيارة.
+        هون تحت لخطة علاج بعدة خدمات وجلسات ممتدة على أكثر من زيارة. ضيف خدمة وحدد أسنانها بالخطة، وبعدين "تسجيل جلسة"
+        كل مرة تشتغل فيها — بتختار أي سن من أسنان الخطة اشتغلته هالمرة.
       </p>
 
       {showNewPlan && (
@@ -416,10 +391,18 @@ export default function TreatmentPlanPanel({ patientId, isChild = false, pickedT
                     <button
                       onClick={() => scheduleSessions(plan.id)}
                       disabled={busy}
-                      className="flex items-center gap-1 rounded-lg bg-accent px-3 py-1 text-xs text-white hover:bg-accent-hover disabled:opacity-60"
+                      className="flex items-center gap-1 rounded-lg border border-ink/10 px-3 py-1 text-xs text-ink/70 hover:border-accent hover:text-accent disabled:opacity-60"
                     >
                       <FontAwesomeIcon icon={faCalendarPlus} />
                       جدولة الجلسات
+                    </button>
+                    <button
+                      onClick={() => setRecordingForPlanId(plan.id)}
+                      disabled={busy || plan.items.length === 0}
+                      className="flex items-center gap-1 rounded-lg bg-accent px-3 py-1 text-xs text-white hover:bg-accent-hover disabled:opacity-60"
+                    >
+                      <FontAwesomeIcon icon={faStethoscope} />
+                      تسجيل جلسة
                     </button>
                   </div>
                 )}
@@ -478,7 +461,12 @@ export default function TreatmentPlanPanel({ patientId, isChild = false, pickedT
                               : ''}
                           </td>
                           <td className="p-1" onClick={(e) => e.stopPropagation()}>
-                            {plan.status === 'draft' && canManage && (
+                            {canManage && isSingle && plan.status !== 'cancelled' && (
+                              <button onClick={() => startEditTeeth(first)} className="ml-2 text-ink/50 hover:text-accent">
+                                <FontAwesomeIcon icon={faPen} /> تعديل
+                              </button>
+                            )}
+                            {plan.status !== 'approved' && canManage && (
                               <button
                                 onClick={() => (isSingle ? removeItem(plan.id, first.id) : removeGroup(plan.id, group.items.map((i) => i.id)))}
                                 className="text-danger/70 hover:text-danger"
@@ -497,6 +485,29 @@ export default function TreatmentPlanPanel({ patientId, isChild = false, pickedT
                             )}
                           </td>
                         </tr>
+
+                        {isSingle && editingTeethItemId === first.id && (
+                          <tr className="border-t border-ink/5 bg-background/40">
+                            <td colSpan={6} className="p-2">
+                              <div className="flex items-center gap-2">
+                                <label className="text-[11px] text-ink/60">أسنان الخطة لهالخدمة:</label>
+                                <input
+                                  type="text"
+                                  value={editTeethValue}
+                                  onChange={(e) => setEditTeethValue(e.target.value)}
+                                  placeholder="أرقام الأسنان مفصولة بفاصلة"
+                                  className="flex-1 rounded-lg border border-ink/10 px-2 py-1 text-xs"
+                                />
+                                <button onClick={() => saveTeethEdit(plan.id, first.id)} disabled={busy} className="rounded-lg bg-accent px-3 py-1 text-xs text-white hover:bg-accent-hover disabled:opacity-60">
+                                  حفظ
+                                </button>
+                                <button onClick={() => setEditingTeethItemId(null)} className="text-xs text-ink/50 hover:underline">
+                                  إلغاء
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
 
                         {!isSingle && isExpanded && group.items.map((item) => (
                           <tr key={item.id} className="border-t border-ink/5 bg-background/30">
@@ -521,7 +532,11 @@ export default function TreatmentPlanPanel({ patientId, isChild = false, pickedT
                           <td colSpan={6} className="p-1 ps-4">
                             <div className="flex items-center justify-between text-[11px]">
                               <span className="text-ink/60">
-                                جلسة {session.session_number}/{item.sessions_count} —{' '}
+                                جلسة {session.session_number}
+                                {session.tooth_numbers && session.tooth_numbers.length > 0 && (
+                                  <span> — {describeTeeth(session.tooth_numbers, isChild)}</span>
+                                )}
+                                {' — '}
                                 <span
                                   className={
                                     session.status === 'done'
@@ -534,124 +549,16 @@ export default function TreatmentPlanPanel({ patientId, isChild = false, pickedT
                                   {SESSION_STATUS_LABELS[session.status]}
                                 </span>
                               </span>
-                              {canManage && (session.status === 'pending' || session.status === 'scheduled') && (
-                                <div className="flex items-center gap-2">
-                                  <button
-                                    onClick={() => setOpenSessionId(openSessionId === session.id ? null : session.id)}
-                                    className="rounded-lg bg-accent px-2 py-1 text-white hover:bg-accent-hover"
-                                  >
-                                    تمّت + حاسب
-                                  </button>
-                                  <button
-                                    onClick={() => cancelSessionAction(plan.id, item.id, session.id)}
-                                    disabled={busy}
-                                    className="text-danger/70 hover:text-danger disabled:opacity-60"
-                                  >
-                                    إلغاء
-                                  </button>
-                                </div>
-                              )}
-                              {canManage && session.status === 'done' && (
+                              {canManage && session.status !== 'cancelled' && (
                                 <button
                                   onClick={() => cancelSessionAction(plan.id, item.id, session.id)}
                                   disabled={busy}
                                   className="text-danger/70 hover:text-danger disabled:opacity-60"
                                 >
-                                  إلغاء (استرجاع)
+                                  {session.status === 'done' ? 'إلغاء (استرجاع)' : 'إلغاء'}
                                 </button>
                               )}
                             </div>
-
-                            {openSessionId === session.id && (
-                              <div className="mt-2 flex flex-wrap items-end gap-2 rounded-lg border border-ink/10 bg-white p-2">
-                                <div>
-                                  <label className="mb-1 block text-[10px] text-ink/50">السعر</label>
-                                  <input
-                                    type="number"
-                                    value={sessionFormFor(session.id, item.unit_price).price}
-                                    onChange={(e) =>
-                                      setSessionForm({
-                                        ...sessionForm,
-                                        [session.id]: { ...sessionFormFor(session.id, item.unit_price), price: e.target.value },
-                                      })
-                                    }
-                                    className="w-20 rounded-lg border border-ink/10 px-2 py-1 text-xs"
-                                  />
-                                </div>
-                                <div>
-                                  <label className="mb-1 block text-[10px] text-ink/50">خصم</label>
-                                  <div className="flex gap-1">
-                                    <select
-                                      value={sessionFormFor(session.id, item.unit_price).discount_type}
-                                      onChange={(e) =>
-                                        setSessionForm({
-                                          ...sessionForm,
-                                          [session.id]: { ...sessionFormFor(session.id, item.unit_price), discount_type: e.target.value as 'percent' | 'fixed' },
-                                        })
-                                      }
-                                      className="rounded-lg border border-ink/10 px-1 py-1 text-xs text-ink/60"
-                                    >
-                                      <option value="percent">%</option>
-                                      <option value="fixed">₪</option>
-                                    </select>
-                                    <input
-                                      type="number"
-                                      placeholder="0"
-                                      value={sessionFormFor(session.id, item.unit_price).discount_value}
-                                      onChange={(e) =>
-                                        setSessionForm({
-                                          ...sessionForm,
-                                          [session.id]: { ...sessionFormFor(session.id, item.unit_price), discount_value: e.target.value },
-                                        })
-                                      }
-                                      className="w-14 rounded-lg border border-ink/10 px-1 py-1 text-xs"
-                                    />
-                                  </div>
-                                </div>
-                                <label className="flex items-center gap-1 text-[10px] text-ink/60">
-                                  <input
-                                    type="checkbox"
-                                    checked={sessionFormFor(session.id, item.unit_price).pay_now}
-                                    onChange={(e) =>
-                                      setSessionForm({
-                                        ...sessionForm,
-                                        [session.id]: { ...sessionFormFor(session.id, item.unit_price), pay_now: e.target.checked },
-                                      })
-                                    }
-                                  />
-                                  دفع الآن
-                                </label>
-                                {sessionFormFor(session.id, item.unit_price).pay_now && (
-                                  <div>
-                                    <label className="mb-1 block text-[10px] text-ink/50">الصندوق</label>
-                                    <select
-                                      value={sessionFormFor(session.id, item.unit_price).cashbox_id}
-                                      onChange={(e) =>
-                                        setSessionForm({
-                                          ...sessionForm,
-                                          [session.id]: { ...sessionFormFor(session.id, item.unit_price), cashbox_id: e.target.value },
-                                        })
-                                      }
-                                      className="rounded-lg border border-ink/10 px-2 py-1 text-xs"
-                                    >
-                                      {cashboxes.map((c) => (
-                                        <option key={c.id} value={c.id}>{c.name}</option>
-                                      ))}
-                                    </select>
-                                  </div>
-                                )}
-                                <p className="text-[10px] text-accent">
-                                  السعر بعد الخصم: {sessionDiscountedPrice(sessionFormFor(session.id, item.unit_price)).toFixed(2)} ₪
-                                </p>
-                                <button
-                                  onClick={() => completeSession(plan.id, item.id, session.id, item.unit_price)}
-                                  disabled={busy}
-                                  className="rounded-lg bg-accent px-3 py-1 text-xs text-white hover:bg-accent-hover disabled:opacity-60"
-                                >
-                                  تأكيد
-                                </button>
-                              </div>
-                            )}
                           </td>
                         </tr>
                       )))}
@@ -659,7 +566,7 @@ export default function TreatmentPlanPanel({ patientId, isChild = false, pickedT
                     )
                   })}
 
-                  {plan.status === 'draft' && canManage && (
+                  {plan.status !== 'cancelled' && canManage && (
                     <tr className="border-t border-ink/10">
                       <td className="p-1 align-top">
                         <SearchableSelect
@@ -763,6 +670,16 @@ export default function TreatmentPlanPanel({ patientId, isChild = false, pickedT
             </div>
           ))}
         </div>
+      )}
+
+      {recordingForPlanId !== null && (
+        <RecordPlanSessionModal
+          plan={plans.find((p) => p.id === recordingForPlanId)!}
+          patientId={patientId}
+          patientName={patientName}
+          onClose={() => setRecordingForPlanId(null)}
+          onDone={load}
+        />
       )}
     </div>
   )

@@ -66,6 +66,8 @@ class TreatmentPlanService
         float $price,
         ?int $payCashboxId = null,
         ?string $payMethod = null,
+        ?array $toothNumbers = null,
+        ?int $appointmentId = null,
     ): PlanItemSession {
         $item = $session->planItem()->with('treatmentPlan', 'service')->first();
         $plan = $item->treatmentPlan;
@@ -74,7 +76,12 @@ class TreatmentPlanService
         abort_if($session->status === 'done', 422, 'هالجلسة محسوبة مسبقاً.');
         abort_if($session->status === 'cancelled', 422, 'هالجلسة ملغاة.');
 
-        return DB::transaction(function () use ($session, $item, $plan, $price, $payCashboxId, $payMethod) {
+        if ($toothNumbers !== null) {
+            $pool = $item->allTeeth();
+            abort_if(array_diff($toothNumbers, $pool) !== [], 422, 'في سن مختار مو ضمن مجموعة أسنان هالبند بالخطة — عدّل الخطة وضيفه أول.');
+        }
+
+        return DB::transaction(function () use ($session, $item, $plan, $price, $payCashboxId, $payMethod, $toothNumbers, $appointmentId) {
             $invoice = $plan->invoices()->where('status', '!=', 'void')->latest('id')->first();
 
             if (! $invoice) {
@@ -118,13 +125,25 @@ class TreatmentPlanService
                 'occurred_at' => now(),
             ]);
 
-            $session->update(['status' => 'done']);
+            $session->update([
+                'status' => 'done',
+                'tooth_numbers' => $toothNumbers,
+                'appointment_id' => $appointmentId ?? $session->appointment_id,
+            ]);
 
-            $teeth = $item->allTeeth();
+            $teeth = $toothNumbers ?? $item->allTeeth();
 
             if (! empty($teeth)) {
-                $doneCount = $item->sessions()->where('status', 'done')->count();
-                $isLastSession = $doneCount >= $item->sessions_count;
+                // toothNumbers explicitly given (plan-session flow: you record
+                // exactly which teeth from the plan's pool you finished today)
+                // means every one of those teeth is done right now — no
+                // "in_progress until the last of N repeat sessions" ambiguity,
+                // since a subset session IS the record of that tooth's work.
+                // Only the legacy null-toothNumbers path (repeat sessions that
+                // always cover the item's whole pool, e.g. 3x root canal on
+                // the same tooth) still waits for the last session.
+                $isLastSession = $toothNumbers !== null
+                    || $item->sessions()->where('status', 'done')->count() >= $item->sessions_count;
 
                 // One item can cover several teeth worked on together in the
                 // same session (e.g. a whole-arch cleaning) — every tooth
@@ -172,6 +191,89 @@ class TreatmentPlanService
             }
 
             return $session->fresh();
+        });
+    }
+
+    /**
+     * Records one real-world visit under a plan that may cover several of
+     * the plan's services at once (e.g. a cleaning on some teeth + a filling
+     * on another, same appointment) — the plan-level counterpart to the
+     * same-day "اجاني هلق" walk-in flow. Creates one Appointment (status
+     * done, so it behaves everywhere exactly like any other visit — shows on
+     * the calendar, and deleting it cascades to cancel every session it
+     * covers via the existing appointment-delete handling), bills each
+     * chosen line through completeSession(), then collects ONE payment for
+     * the visit's combined total rather than one per line.
+     */
+    public function recordSessionVisit(
+        TreatmentPlan $plan,
+        array $lines,
+        ?int $payCashboxId = null,
+        ?string $payMethod = null,
+    ): Appointment {
+        abort_if($plan->status !== 'approved', 422, 'الخطة لازم تكون معتمدة أولاً.');
+        abort_if(empty($lines), 422, 'لازم تختار خدمة واحدة عالأقل.');
+
+        return DB::transaction(function () use ($plan, $lines, $payCashboxId, $payMethod) {
+            $plan->loadMissing('patient');
+
+            $appointment = Appointment::create([
+                'clinic_id' => $plan->clinic_id,
+                'branch_id' => $plan->patient->branch_id,
+                'patient_id' => $plan->patient_id,
+                'doctor_id' => $plan->doctor_id,
+                'starts_at' => now(),
+                'ends_at' => now()->addMinutes(30),
+                'status' => 'done',
+                'created_via' => 'web',
+            ]);
+
+            $totalPrice = 0;
+
+            foreach ($lines as $line) {
+                $item = $plan->items()->findOrFail($line['item_id']);
+
+                // Reuse a still-pending session slot if the plan has one left,
+                // else create a fresh one on the fly — a plan's sessions_count
+                // is a starting estimate, never a hard cap on how many times
+                // you can actually visit for this service.
+                $session = $item->sessions()->where('status', 'pending')->first();
+                if (! $session) {
+                    $session = PlanItemSession::create([
+                        'clinic_id' => $item->clinic_id,
+                        'plan_item_id' => $item->id,
+                        'session_number' => $item->sessions()->count() + 1,
+                        'status' => 'pending',
+                    ]);
+                }
+
+                $this->completeSession(
+                    $session,
+                    (float) $line['price'],
+                    null,
+                    null,
+                    $line['tooth_numbers'] ?? null,
+                    $appointment->id,
+                );
+
+                $totalPrice += (float) $line['price'];
+            }
+
+            if ($payCashboxId) {
+                $invoice = $plan->invoices()->where('status', '!=', 'void')->latest('id')->first();
+                $cashbox = Cashbox::findOrFail($payCashboxId);
+                $this->paymentService->collect(
+                    patient: $plan->patient,
+                    cashbox: $cashbox,
+                    amount: $totalPrice,
+                    currency: $cashbox->currency,
+                    exchangeRate: 1,
+                    method: $payMethod ?? 'cash',
+                    invoice: $invoice,
+                );
+            }
+
+            return $appointment->fresh();
         });
     }
 
@@ -307,9 +409,14 @@ class TreatmentPlanService
             }
 
             if ($wasDone) {
-                $remainingDone = $item->sessions()->where('status', 'done')->count();
+                // Only revert findings for the teeth THIS session actually covered
+                // (its own subset, if one was recorded) — cancelling one plan
+                // session must not touch findings that a different session of the
+                // same item recorded for other teeth.
+                $teeth = $session->tooth_numbers ?? $item->allTeeth();
+                $otherDoneSessions = $item->sessions()->where('status', 'done')->where('id', '!=', $session->id)->get();
 
-                foreach ($item->allTeeth() as $toothNumber) {
+                foreach ($teeth as $toothNumber) {
                     $finding = ToothFinding::where('patient_id', $plan->patient_id)
                         ->where('tooth_number', $toothNumber)
                         ->where('service_id', $item->service_id)
@@ -319,11 +426,19 @@ class TreatmentPlanService
                         continue;
                     }
 
-                    if ($remainingDone === 0) {
-                        DoctorTransaction::where('tooth_finding_id', $finding->id)->whereNull('settled_at')->delete();
+                    $stillCoveredByAnotherSession = $otherDoneSessions->contains(
+                        fn ($s) => $s->tooth_numbers === null || in_array($toothNumber, $s->tooth_numbers, true)
+                    );
+
+                    if ($stillCoveredByAnotherSession) {
+                        continue;
+                    }
+
+                    DoctorTransaction::where('tooth_finding_id', $finding->id)->whereNull('settled_at')->delete();
+
+                    if ($otherDoneSessions->isEmpty()) {
                         $finding->delete();
-                    } elseif ($finding->status === 'done') {
-                        DoctorTransaction::where('tooth_finding_id', $finding->id)->whereNull('settled_at')->delete();
+                    } else {
                         $finding->update(['status' => 'in_progress']);
                     }
                 }

@@ -167,7 +167,7 @@ export default function VisitHistoryPanel({ patientId, isChild = false, onChange
 
   return (
     <Card className="p-6">
-      <h2 className="mb-3 text-sm font-medium text-muted">سجل الزيارات</h2>
+      <h2 className="mb-3 text-sm font-medium text-muted">سجل الجلسات</h2>
       {visits.length === 0 ? (
         <p className="text-sm text-muted">لا توجد زيارات محسوبة بعد.</p>
       ) : (

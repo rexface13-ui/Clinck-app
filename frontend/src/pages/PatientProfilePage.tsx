@@ -55,6 +55,7 @@ export default function PatientProfilePage() {
   const attachmentInputRef = useRef<HTMLInputElement>(null)
   const [updatingVisit, setUpdatingVisit] = useState(false)
   const [pickingForPlanId, setPickingForPlanId] = useState<number | null>(null)
+  const [activeTab, setActiveTab] = useState('plans')
   const [pickedTooth, setPickedTooth] = useState<{ planId: number; toothNumbers: number[] } | null>(null)
   const [busyToothNumbers, setBusyToothNumbers] = useState<Map<number, string[]>>(new Map())
   const [doctors, setDoctors] = useState<Doctor[]>([])
@@ -305,52 +306,55 @@ export default function PatientProfilePage() {
       )}
 
       <Tabs
+        active={activeTab}
+        onActiveChange={setActiveTab}
         tabs={[
           {
-            key: 'treatment',
-            label: 'العلاج',
+            key: 'plans',
+            label: 'خطط علاجية',
             content: (
-              <div className="grid grid-cols-1 gap-6 2xl:grid-cols-[1fr_1.4fr]">
-                {/* DOM order matters here, not just visual: this app is RTL, so the first grid
-                    child renders on the right. Tooth chart must appear on screen-left, so it's
-                    written second even though it reads first in the page top-to-bottom. Its
-                    column is also wider than the plan's — the chart is the thing that needs
-                    room to be legible/clickable, the plan is just a table. */}
-                <TreatmentPlanPanel
-                  patientId={patient.id}
-                  isChild={patient.is_child}
-                  pickedTooth={pickedTooth}
-                  onToothConsumed={() => setPickedTooth(null)}
-                  onRequestPickTooth={(planId) => setPickingForPlanId((cur) => (cur === planId ? null : planId))}
-                  pickingForPlanId={pickingForPlanId}
-                  onPlansLoaded={handlePlansLoaded}
-                  refreshSignal={plansRefreshSignal}
-                />
-                <div>
-                  <h2 className="mb-3 text-sm font-medium text-ink/70">رسمة الأسنان</h2>
-                  <ToothChart
-                    patientId={patient.id}
-                    isChild={patient.is_child}
-                    toothStates={tooth_states}
-                    toothFindings={tooth_findings}
-                    services={services}
-                    doctors={doctors}
-                    onChanged={load}
-                    pickMode={pickingForPlanId !== null}
-                    onPickTooth={(toothNumbers) => {
-                      if (pickingForPlanId === null) return
-                      setPickedTooth({ planId: pickingForPlanId, toothNumbers })
-                      setPickingForPlanId(null)
-                    }}
-                    busyToothNumbers={busyToothNumbers}
-                  />
-                </div>
-              </div>
+              <TreatmentPlanPanel
+                patientId={patient.id}
+                patientName={patient.full_name}
+                isChild={patient.is_child}
+                pickedTooth={pickedTooth}
+                onToothConsumed={() => setPickedTooth(null)}
+                onRequestPickTooth={(planId) => {
+                  setPickingForPlanId((cur) => (cur === planId ? null : planId))
+                  setActiveTab('chart')
+                }}
+                pickingForPlanId={pickingForPlanId}
+                onPlansLoaded={handlePlansLoaded}
+                refreshSignal={plansRefreshSignal}
+              />
+            ),
+          },
+          {
+            key: 'chart',
+            label: 'رسمة الأسنان',
+            content: (
+              <ToothChart
+                patientId={patient.id}
+                isChild={patient.is_child}
+                toothStates={tooth_states}
+                toothFindings={tooth_findings}
+                services={services}
+                doctors={doctors}
+                onChanged={load}
+                pickMode={pickingForPlanId !== null}
+                onPickTooth={(toothNumbers) => {
+                  if (pickingForPlanId === null) return
+                  setPickedTooth({ planId: pickingForPlanId, toothNumbers })
+                  setPickingForPlanId(null)
+                  setActiveTab('plans')
+                }}
+                busyToothNumbers={busyToothNumbers}
+              />
             ),
           },
           {
             key: 'visits',
-            label: 'سجل الزيارات',
+            label: 'سجل الجلسات',
             content: <VisitHistoryPanel patientId={patient.id} isChild={patient.is_child} onChanged={load} />,
           },
           ...(canViewBilling

@@ -138,6 +138,7 @@ export interface PlanItemSessionRow {
   session_number: number
   status: 'pending' | 'scheduled' | 'done' | 'cancelled'
   appointment_id: number | null
+  tooth_numbers: number[] | null
 }
 
 export interface PlanItem {

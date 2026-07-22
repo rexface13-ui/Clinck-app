@@ -12,6 +12,7 @@ use App\Models\PlanItemSession;
 use App\Models\TreatmentPlan;
 use App\Services\TreatmentPlanService;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class TreatmentPlanController extends Controller
 {
@@ -55,7 +56,9 @@ class TreatmentPlanController extends Controller
     public function addItem(StorePlanItemRequest $request, TreatmentPlan $treatmentPlan)
     {
         $this->authorize('update', $treatmentPlan);
-        abort_unless($treatmentPlan->status === 'draft', 422, 'لا يمكن تعديل خطة معتمدة.');
+        // Allowed for draft AND approved plans — a doctor can decide mid-treatment
+        // that another service is needed without having to start a new plan.
+        abort_if($treatmentPlan->status === 'cancelled', 422, 'ما بينفع تعديل خطة ملغاة.');
 
         $data = $request->validated();
 
@@ -73,6 +76,24 @@ class TreatmentPlanController extends Controller
         ]);
 
         return new PlanItemResource($item->load('service'));
+    }
+
+    public function updateItemTeeth(Request $request, TreatmentPlan $treatmentPlan, PlanItem $item)
+    {
+        $this->authorize('update', $treatmentPlan);
+        abort_unless($item->treatment_plan_id === $treatmentPlan->id, 404);
+
+        $data = $request->validate([
+            'tooth_numbers' => ['required', 'array', 'min:1'],
+            'tooth_numbers.*' => ['integer', Rule::in(\App\Support\Dental\FdiTeeth::validNumbers())],
+        ]);
+
+        $item->update([
+            'tooth_numbers' => $data['tooth_numbers'],
+            'tooth_number' => $data['tooth_numbers'][0],
+        ]);
+
+        return new PlanItemResource($item->fresh()->load('service'));
     }
 
     public function removeItem(TreatmentPlan $treatmentPlan, PlanItem $item)
@@ -155,6 +176,34 @@ class TreatmentPlanController extends Controller
         $service->cancelSession($session);
 
         return new TreatmentPlanResource($treatmentPlan->fresh(['doctor', 'items.service', 'items.sessions']));
+    }
+
+    public function recordSession(Request $request, TreatmentPlan $treatmentPlan, TreatmentPlanService $service)
+    {
+        $this->authorize('update', $treatmentPlan);
+
+        $data = $request->validate([
+            'lines' => ['required', 'array', 'min:1'],
+            'lines.*.item_id' => ['required', 'integer'],
+            'lines.*.tooth_numbers' => ['nullable', 'array', 'min:1'],
+            'lines.*.tooth_numbers.*' => ['integer'],
+            'lines.*.price' => ['required', 'numeric', 'min:0'],
+            'pay_now' => ['sometimes', 'boolean'],
+            'cashbox_id' => ['required_if:pay_now,true', 'integer', 'exists:cashboxes,id'],
+            'method' => ['sometimes', 'string', 'in:cash,card,transfer,check'],
+        ]);
+
+        $appointment = $service->recordSessionVisit(
+            $treatmentPlan,
+            $data['lines'],
+            $request->boolean('pay_now') ? (int) $data['cashbox_id'] : null,
+            $data['method'] ?? null,
+        );
+
+        return response()->json([
+            'appointment_id' => $appointment->id,
+            'plan' => (new TreatmentPlanResource($treatmentPlan->fresh(['doctor', 'items.service', 'items.sessions'])))->toArray($request),
+        ]);
     }
 
     public function updateSession(Request $request, TreatmentPlan $treatmentPlan, PlanItem $item, PlanItemSession $session, TreatmentPlanService $service)
