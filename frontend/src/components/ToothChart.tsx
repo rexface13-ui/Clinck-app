@@ -519,7 +519,7 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
                   disabled={saving}
                   className="flex-1 rounded-lg bg-accent py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60"
                 >
-                  {saving ? 'جارِ الحفظ...' : editingFindingId ? 'تحديث' : singleSelectedTooth ? 'إضافة' : `إضافة لـ${selectedTeeth.length} سن`}
+                  {saving ? 'جارِ الحفظ...' : editingFindingId ? 'تحديث' : singleSelectedTooth ? 'حفظ' : `حفظ لـ${selectedTeeth.length} سن`}
                 </button>
                 {editingFindingId && (
                   <button onClick={resetForm} className="rounded-lg border border-ink/10 px-3 py-2 text-sm text-ink/60 hover:bg-background">
