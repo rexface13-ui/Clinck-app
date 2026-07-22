@@ -112,11 +112,15 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('expense-categories', [ExpenseController::class, 'storeCategory']);
     Route::get('expenses', [ExpenseController::class, 'index']);
     Route::post('expenses', [ExpenseController::class, 'store']);
+    Route::put('expenses/{expense}', [ExpenseController::class, 'update']);
+    Route::delete('expenses/{expense}', [ExpenseController::class, 'destroy']);
 
     Route::get('income-categories', [IncomeController::class, 'categories']);
     Route::post('income-categories', [IncomeController::class, 'storeCategory']);
     Route::get('incomes', [IncomeController::class, 'index']);
     Route::post('incomes', [IncomeController::class, 'store']);
+    Route::put('incomes/{income}', [IncomeController::class, 'update']);
+    Route::delete('incomes/{income}', [IncomeController::class, 'destroy']);
 
     // Suppliers & purchasing (Phase 3)
     Route::get('suppliers', [SupplierController::class, 'index']);

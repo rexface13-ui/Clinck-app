@@ -35,7 +35,9 @@ class IncomeController extends Controller
 
         return Income::with(['category', 'cashbox'])->orderByDesc('received_at')->limit(200)->get()->map(fn ($i) => [
             'id' => $i->id,
+            'income_category_id' => $i->income_category_id,
             'category' => $i->category->name,
+            'cashbox_id' => $i->cashbox_id,
             'cashbox' => $i->cashbox->name,
             'amount' => $i->amount,
             'currency' => $i->currency,
@@ -75,5 +77,51 @@ class IncomeController extends Controller
         });
 
         return $income->load(['category', 'cashbox']);
+    }
+
+    public function update(Request $request, Income $income, CashboxService $cashboxService)
+    {
+        abort_unless($request->user()->can('cash.manage'), 403);
+
+        $data = $request->validate([
+            'income_category_id' => ['required', Rule::exists('income_categories', 'id')],
+            'cashbox_id' => ['required', Rule::exists('cashboxes', 'id')],
+            'amount' => ['required', 'numeric', 'min:0.01'],
+            'description' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $newCashbox = Cashbox::findOrFail($data['cashbox_id']);
+
+        DB::transaction(function () use ($data, $income, $newCashbox, $cashboxService) {
+            $cashboxService->record($income->cashbox, 'adjustment', 'income', $income->id, -(float) $income->amount);
+            // Old and new cashbox may be the same row — refresh so this
+            // second write isn't based on the stale in-memory balance from
+            // before the reversal above.
+            $newCashbox->refresh();
+            $cashboxService->record($newCashbox, 'income_in', 'income', $income->id, $data['amount']);
+
+            $income->update([
+                'income_category_id' => $data['income_category_id'],
+                'cashbox_id' => $newCashbox->id,
+                'amount' => $data['amount'],
+                'currency' => $newCashbox->currency,
+                'amount_ils' => $data['amount'],
+                'description' => $data['description'] ?? null,
+            ]);
+        });
+
+        return $income->fresh(['category', 'cashbox']);
+    }
+
+    public function destroy(Request $request, Income $income, CashboxService $cashboxService)
+    {
+        abort_unless($request->user()->can('cash.manage'), 403);
+
+        DB::transaction(function () use ($income, $cashboxService) {
+            $cashboxService->record($income->cashbox, 'adjustment', 'income', $income->id, -(float) $income->amount);
+            $income->delete();
+        });
+
+        return response()->noContent();
     }
 }

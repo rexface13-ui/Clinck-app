@@ -250,7 +250,10 @@ export interface IncomeCategory {
 
 export interface CashEntry {
   id: number
+  expense_category_id?: number
+  income_category_id?: number
   category: string
+  cashbox_id: number
   cashbox: string
   amount: string
   currency: string
