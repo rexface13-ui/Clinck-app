@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faChevronLeft, faChevronRight, faClock, faUserDoctor } from '@fortawesome/free-solid-svg-icons'
+import { faChevronLeft, faChevronRight, faClock, faUserDoctor, faClockRotateLeft } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { formatDate, formatTime } from '../lib/formatDate'
 import DatePicker from '../components/DatePicker'
@@ -175,7 +175,19 @@ export default function AppointmentsPage() {
 
   return (
     <div>
-      <PageHeader title="المواعيد" subtitle="مواعيد اليوم عبر كل الأطباء، واحجز بأي وقت متاح بغض النظر عن الطبيب" />
+      <PageHeader
+        title="المواعيد"
+        subtitle="مواعيد اليوم عبر كل الأطباء، واحجز بأي وقت متاح بغض النظر عن الطبيب"
+        action={
+          <Link
+            to="/appointments-log"
+            className="flex items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2 text-sm text-ink/70 hover:border-accent hover:text-accent"
+          >
+            <FontAwesomeIcon icon={faClockRotateLeft} />
+            سجل المواعيد
+          </Link>
+        }
+      />
 
       <Card className="mb-6 flex flex-wrap items-center gap-4 p-4">
         <div className="flex flex-wrap gap-2">

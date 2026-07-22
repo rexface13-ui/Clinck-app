@@ -18,7 +18,6 @@ import {
   faGear,
   faGauge,
   faBook,
-  faClockRotateLeft,
 } from '@fortawesome/free-solid-svg-icons'
 import { useAuth } from '../contexts/AuthContext'
 import GlobalSearch from './GlobalSearch'
@@ -45,7 +44,6 @@ const navGroups: NavGroup[] = [
     items: [
       { to: '/patients', label: 'المرضى', icon: faUsers, permission: 'patients.view' },
       { to: '/appointments', label: 'المواعيد', icon: faCalendarDays, permission: 'appointments.view' },
-      { to: '/appointments-log', label: 'سجل المواعيد', icon: faClockRotateLeft, permission: 'appointments.view' },
       { to: '/doctors', label: 'الأطباء', icon: faUserDoctor, permission: 'doctors.view' },
       { to: '/services', label: 'الخدمات', icon: faList, permission: 'services.view' },
     ],

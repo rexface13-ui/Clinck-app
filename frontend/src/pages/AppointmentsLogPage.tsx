@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faMagnifyingGlass } from '@fortawesome/free-solid-svg-icons'
+import { faMagnifyingGlass, faCalendarDays } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { formatDate, formatTime } from '../lib/formatDate'
 import DatePicker from '../components/DatePicker'
@@ -67,7 +68,19 @@ export default function AppointmentsLogPage() {
 
   return (
     <div>
-      <PageHeader title="سجل المواعيد" subtitle="كل المواعيد بكل حالاتها — حضور، إلغاء، عدم حضور" />
+      <PageHeader
+        title="سجل المواعيد"
+        subtitle="كل المواعيد بكل حالاتها — حضور، إلغاء، عدم حضور"
+        action={
+          <Link
+            to="/appointments"
+            className="flex items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2 text-sm text-ink/70 hover:border-accent hover:text-accent"
+          >
+            <FontAwesomeIcon icon={faCalendarDays} />
+            رجوع للمواعيد
+          </Link>
+        }
+      />
 
       <Card className="mb-6 flex flex-wrap items-end gap-4 p-4">
         <div className="w-40">

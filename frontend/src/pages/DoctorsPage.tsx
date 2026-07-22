@@ -26,7 +26,16 @@ export default function DoctorsPage() {
     default_commission_percent: '',
     monthly_salary: '',
   })
-  const [availForm, setAvailForm] = useState<Record<number, { branch_id: number; weekday: number; start_time: string; end_time: string }>>({})
+  const [newDoctorSchedule, setNewDoctorSchedule] = useState({
+    branch_id: branches[0]?.id ?? 1,
+    weekdays: [0, 1, 2, 3, 4] as number[],
+    start_time: '09:00',
+    end_time: '17:00',
+  })
+  const [availForm, setAvailForm] = useState<
+    Record<number, { branch_id: number; weekdays: number[]; start_time: string; end_time: string }>
+  >({})
+  const [addingAvailability, setAddingAvailability] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editForm, setEditForm] = useState({
@@ -47,18 +56,39 @@ export default function DoctorsPage() {
     e.preventDefault()
     setError(null)
     try {
-      await api.post('/doctors', {
+      const res = await api.post('/doctors', {
         full_name: form.full_name,
         contract_type: form.contract_type,
         default_commission_percent: form.default_commission_percent || null,
         monthly_salary: form.monthly_salary || null,
       })
+      const doctorId = res.data.data.id
+      if (newDoctorSchedule.weekdays.length > 0) {
+        await Promise.all(
+          newDoctorSchedule.weekdays.map((weekday) =>
+            api.post(`/doctors/${doctorId}/availability`, {
+              branch_id: newDoctorSchedule.branch_id,
+              weekday,
+              start_time: newDoctorSchedule.start_time,
+              end_time: newDoctorSchedule.end_time,
+            }),
+          ),
+        )
+      }
       setShowForm(false)
       setForm({ full_name: '', contract_type: 'commission', default_commission_percent: '', monthly_salary: '' })
+      setNewDoctorSchedule({ branch_id: branches[0]?.id ?? 1, weekdays: [0, 1, 2, 3, 4], start_time: '09:00', end_time: '17:00' })
       load()
     } catch {
       setError('تحقق من الحقول المطلوبة لهذا النوع من التعاقد.')
     }
+  }
+
+  function toggleNewDoctorWeekday(day: number) {
+    setNewDoctorSchedule((prev) => ({
+      ...prev,
+      weekdays: prev.weekdays.includes(day) ? prev.weekdays.filter((d) => d !== day) : [...prev.weekdays, day],
+    }))
   }
 
   function startEdit(d: Doctor) {
@@ -99,19 +129,36 @@ export default function DoctorsPage() {
     }
   }
 
+  function defaultAvailForm() {
+    return { branch_id: branches[0]?.id ?? 1, weekdays: [] as number[], start_time: '09:00', end_time: '17:00' }
+  }
+
+  function toggleAvailWeekday(doctorId: number, day: number) {
+    const current = availForm[doctorId] ?? defaultAvailForm()
+    const weekdays = current.weekdays.includes(day) ? current.weekdays.filter((d) => d !== day) : [...current.weekdays, day]
+    setAvailForm({ ...availForm, [doctorId]: { ...current, weekdays } })
+  }
+
   async function addAvailability(doctorId: number) {
-    // The form's visible defaults (first branch, Sunday, 09:00-17:00) only
-    // land in `availForm` once the user touches a field — if they click
-    // "إضافة وقت" without changing anything, fall back to the same
-    // defaults the inputs are already displaying instead of doing nothing.
-    const f = availForm[doctorId] ?? {
-      branch_id: branches[0]?.id ?? 1,
-      weekday: 0,
-      start_time: '09:00',
-      end_time: '17:00',
+    const f = availForm[doctorId] ?? defaultAvailForm()
+    if (f.weekdays.length === 0) return
+    setAddingAvailability(doctorId)
+    try {
+      await Promise.all(
+        f.weekdays.map((weekday) =>
+          api.post(`/doctors/${doctorId}/availability`, {
+            branch_id: f.branch_id,
+            weekday,
+            start_time: f.start_time,
+            end_time: f.end_time,
+          }),
+        ),
+      )
+      setAvailForm({ ...availForm, [doctorId]: { ...f, weekdays: [] } })
+      load()
+    } finally {
+      setAddingAvailability(null)
     }
-    await api.post(`/doctors/${doctorId}/availability`, f)
-    load()
   }
 
   async function removeAvailability(doctorId: number, availId: number) {
@@ -178,6 +225,53 @@ export default function DoctorsPage() {
                 )}
               </div>
             )}
+
+            <div className="col-span-2 border-t border-border pt-4">
+              <h4 className="mb-2 text-xs font-medium text-muted">أوقات الدوام (اختياري — تقدر تضيف/تعدّل لاحقاً)</h4>
+              <div className="mb-2 flex flex-wrap gap-2">
+                {WEEKDAYS.map((w, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => toggleNewDoctorWeekday(i)}
+                    className={`rounded-lg border px-3 py-1.5 text-xs transition-colors ${
+                      newDoctorSchedule.weekdays.includes(i)
+                        ? 'border-accent bg-accent text-white'
+                        : 'border-border text-ink/70 hover:border-accent/40'
+                    }`}
+                  >
+                    {w}
+                  </button>
+                ))}
+              </div>
+              <div className="flex flex-wrap items-end gap-2">
+                <select
+                  className="rounded-lg border border-border bg-surface px-2 py-1.5 text-xs focus:border-accent focus:outline-none"
+                  value={newDoctorSchedule.branch_id}
+                  onChange={(e) => setNewDoctorSchedule({ ...newDoctorSchedule, branch_id: Number(e.target.value) })}
+                >
+                  {branches.map((b) => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+                </select>
+                <input
+                  type="time"
+                  className="rounded-lg border border-border bg-surface px-2 py-1.5 text-xs focus:border-accent focus:outline-none"
+                  value={newDoctorSchedule.start_time}
+                  onChange={(e) => setNewDoctorSchedule({ ...newDoctorSchedule, start_time: e.target.value })}
+                />
+                <span className="text-xs text-muted">إلى</span>
+                <input
+                  type="time"
+                  className="rounded-lg border border-border bg-surface px-2 py-1.5 text-xs focus:border-accent focus:outline-none"
+                  value={newDoctorSchedule.end_time}
+                  onChange={(e) => setNewDoctorSchedule({ ...newDoctorSchedule, end_time: e.target.value })}
+                />
+              </div>
+              <p className="mt-1 text-[11px] text-ink/40">
+                نفس الوقت بينطبق على كل الأيام يلي حددتها فوق — إذا بدك وقت مختلف ليوم معيّن، عدّله بعدين من بطاقة الطبيب.
+              </p>
+            </div>
 
             {error && <p className="col-span-2 text-sm text-danger">{error}</p>}
 
@@ -283,48 +377,61 @@ export default function DoctorsPage() {
                   ))}
                 </ul>
                 {can('doctors.manage') && (
-                  <div className="flex flex-wrap items-end gap-2">
-                    <select
-                      className="rounded-lg border border-border bg-surface px-2 py-1 text-xs focus:border-accent focus:outline-none"
-                      value={availForm[d.id]?.branch_id ?? branches[0]?.id ?? ''}
-                      onChange={(e) =>
-                        setAvailForm({ ...availForm, [d.id]: { ...(availForm[d.id] ?? { weekday: 0, start_time: '09:00', end_time: '17:00', branch_id: branches[0]?.id ?? 1 }), branch_id: Number(e.target.value) } })
-                      }
-                    >
-                      {branches.map((b) => (
-                        <option key={b.id} value={b.id}>{b.name}</option>
-                      ))}
-                    </select>
-                    <select
-                      className="rounded-lg border border-border bg-surface px-2 py-1 text-xs focus:border-accent focus:outline-none"
-                      value={availForm[d.id]?.weekday ?? 0}
-                      onChange={(e) =>
-                        setAvailForm({ ...availForm, [d.id]: { ...(availForm[d.id] ?? { branch_id: branches[0]?.id ?? 1, start_time: '09:00', end_time: '17:00' }), weekday: Number(e.target.value) } })
-                      }
-                    >
+                  <div>
+                    <div className="mb-2 flex flex-wrap gap-1.5">
                       {WEEKDAYS.map((w, i) => (
-                        <option key={i} value={i}>{w}</option>
+                        <button
+                          key={i}
+                          type="button"
+                          onClick={() => toggleAvailWeekday(d.id, i)}
+                          className={`rounded-lg border px-2.5 py-1 text-xs transition-colors ${
+                            (availForm[d.id]?.weekdays ?? []).includes(i)
+                              ? 'border-accent bg-accent text-white'
+                              : 'border-border text-ink/70 hover:border-accent/40'
+                          }`}
+                        >
+                          {w}
+                        </button>
                       ))}
-                    </select>
-                    <input
-                      type="time"
-                      className="rounded-lg border border-border bg-surface px-2 py-1 text-xs focus:border-accent focus:outline-none"
-                      value={availForm[d.id]?.start_time ?? '09:00'}
-                      onChange={(e) =>
-                        setAvailForm({ ...availForm, [d.id]: { ...(availForm[d.id] ?? { branch_id: branches[0]?.id ?? 1, weekday: 0, end_time: '17:00' }), start_time: e.target.value } })
-                      }
-                    />
-                    <input
-                      type="time"
-                      className="rounded-lg border border-border bg-surface px-2 py-1 text-xs focus:border-accent focus:outline-none"
-                      value={availForm[d.id]?.end_time ?? '17:00'}
-                      onChange={(e) =>
-                        setAvailForm({ ...availForm, [d.id]: { ...(availForm[d.id] ?? { branch_id: branches[0]?.id ?? 1, weekday: 0, start_time: '09:00' }), end_time: e.target.value } })
-                      }
-                    />
-                    <Button className="px-3 py-1 text-xs" onClick={() => addAvailability(d.id)}>
-                      إضافة وقت
-                    </Button>
+                    </div>
+                    <div className="flex flex-wrap items-end gap-2">
+                      <select
+                        className="rounded-lg border border-border bg-surface px-2 py-1 text-xs focus:border-accent focus:outline-none"
+                        value={availForm[d.id]?.branch_id ?? branches[0]?.id ?? ''}
+                        onChange={(e) =>
+                          setAvailForm({ ...availForm, [d.id]: { ...(availForm[d.id] ?? defaultAvailForm()), branch_id: Number(e.target.value) } })
+                        }
+                      >
+                        {branches.map((b) => (
+                          <option key={b.id} value={b.id}>{b.name}</option>
+                        ))}
+                      </select>
+                      <input
+                        type="time"
+                        className="rounded-lg border border-border bg-surface px-2 py-1 text-xs focus:border-accent focus:outline-none"
+                        value={availForm[d.id]?.start_time ?? '09:00'}
+                        onChange={(e) =>
+                          setAvailForm({ ...availForm, [d.id]: { ...(availForm[d.id] ?? defaultAvailForm()), start_time: e.target.value } })
+                        }
+                      />
+                      <span className="text-xs text-muted">إلى</span>
+                      <input
+                        type="time"
+                        className="rounded-lg border border-border bg-surface px-2 py-1 text-xs focus:border-accent focus:outline-none"
+                        value={availForm[d.id]?.end_time ?? '17:00'}
+                        onChange={(e) =>
+                          setAvailForm({ ...availForm, [d.id]: { ...(availForm[d.id] ?? defaultAvailForm()), end_time: e.target.value } })
+                        }
+                      />
+                      <Button
+                        className="px-3 py-1 text-xs"
+                        onClick={() => addAvailability(d.id)}
+                        disabled={(availForm[d.id]?.weekdays ?? []).length === 0 || addingAvailability === d.id}
+                        loading={addingAvailability === d.id}
+                      >
+                        إضافة الأيام المحددة
+                      </Button>
+                    </div>
                   </div>
                 )}
               </div>
