@@ -13,7 +13,7 @@ class PurchaseInvoice extends Model
 
     protected $fillable = [
         'clinic_id', 'supplier_id', 'branch_id', 'invoice_number',
-        'status', 'total_amount_ils', 'issued_at',
+        'status', 'total_amount_ils', 'issued_at', 'notes',
     ];
 
     protected function casts(): array

@@ -4,14 +4,19 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Cashbox;
+use App\Models\CashboxTransaction;
+use App\Models\CheckModel;
 use App\Models\Item;
+use App\Models\ItemLot;
+use App\Models\ItemPriceHistory;
 use App\Models\ItemSupplierPrice;
 use App\Models\PurchaseInvoice;
 use App\Models\PurchaseInvoiceLine;
+use App\Models\StockMovement;
+use App\Models\SupplierTransaction;
 use App\Services\CashboxService;
 use App\Services\CheckService;
 use App\Services\PurchaseInvoiceService;
-use App\Services\SupplierService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -55,6 +60,26 @@ class PurchaseInvoiceController extends Controller
         abort_unless($request->user()->can('purchasing.view'), 403);
 
         return $purchaseInvoice->load(['supplier', 'branch', 'lines.item', 'lines.itemLot']);
+    }
+
+    /**
+     * Metadata-only edit (invoice number, issue date, notes) — always
+     * allowed regardless of status. Line items are edited via
+     * addLine/removeLine, which stay draft-only.
+     */
+    public function update(Request $request, PurchaseInvoice $purchaseInvoice)
+    {
+        abort_unless($request->user()->can('purchasing.manage'), 403);
+
+        $data = $request->validate([
+            'invoice_number' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'issued_at' => ['sometimes', 'date'],
+            'notes' => ['sometimes', 'nullable', 'string', 'max:2000'],
+        ]);
+
+        $purchaseInvoice->update($data);
+
+        return $purchaseInvoice->fresh(['lines.item', 'lines.itemLot', 'supplier', 'branch']);
     }
 
     public function addLine(Request $request, PurchaseInvoice $purchaseInvoice)
@@ -117,12 +142,17 @@ class PurchaseInvoiceController extends Controller
      * matching how every other check in this app behaves, only reduces the
      * debt once it actually clears (or adds back if it bounces), not at
      * the moment it's handed over.
+     *
+     * The cash payment is posted directly here (not via SupplierService::pay)
+     * so both the supplier_transaction and the cashbox_transaction can be
+     * tagged reference_type=purchase_invoice — that's what lets revert()
+     * find and undo exactly this invoice's payment later, without touching
+     * any other payment made to the same supplier.
      */
     public function confirm(
         Request $request,
         PurchaseInvoice $purchaseInvoice,
         PurchaseInvoiceService $service,
-        SupplierService $supplierService,
         CheckService $checkService,
         CashboxService $cashboxService,
     ) {
@@ -141,16 +171,25 @@ class PurchaseInvoiceController extends Controller
 
         if ($paymentMethod === 'cash') {
             $cashbox = Cashbox::findOrFail($data['cashbox_id']);
-            $supplierService->pay(
-                supplier: $invoice->supplier,
-                cashbox: $cashbox,
-                amount: (float) $invoice->total_amount_ils,
-                currency: $cashbox->currency,
-                exchangeRate: 1,
-                cashboxService: $cashboxService,
-            );
+            abort_if($cashbox->currency !== 'ILS', 422, 'دفع فواتير الشراء نقداً متاح فقط من صندوق شيكل حالياً.');
+
+            DB::transaction(function () use ($invoice, $cashbox, $cashboxService) {
+                $transaction = SupplierTransaction::create([
+                    'clinic_id' => $invoice->clinic_id,
+                    'supplier_id' => $invoice->supplier_id,
+                    'type' => 'payment',
+                    'reference_type' => 'purchase_invoice',
+                    'reference_id' => $invoice->id,
+                    'amount_ils' => -(float) $invoice->total_amount_ils,
+                    'occurred_at' => now(),
+                ]);
+
+                $cashboxService->record($cashbox, 'expense_out', 'purchase_invoice', $invoice->id, -(float) $invoice->total_amount_ils);
+
+                return $transaction;
+            });
         } elseif ($paymentMethod === 'check') {
-            $checkService->receive(
+            $check = $checkService->receive(
                 direction: 'outgoing',
                 partyType: 'supplier',
                 partyId: $invoice->supplier_id,
@@ -160,19 +199,115 @@ class PurchaseInvoiceController extends Controller
                 currency: 'ILS',
                 dueDate: $data['due_date'],
             );
+            $check->update(['purchase_invoice_id' => $invoice->id]);
         }
 
         return $invoice->fresh(['lines.item', 'lines.itemLot', 'supplier', 'branch']);
     }
 
+    /**
+     * Undo everything confirm() (and its payment, if any) did, and put the
+     * invoice back to "draft" — its lines stay as-is and stay editable, so
+     * the normal add/remove-line + confirm flow re-applies the corrected
+     * amounts and payment from scratch. Nothing here can silently leave the
+     * books wrong: an outgoing check that already cleared or bounced blocks
+     * the revert entirely, since undoing it would misrepresent money that
+     * has genuinely already moved.
+     */
+    public function revert(Request $request, PurchaseInvoice $purchaseInvoice)
+    {
+        abort_unless($request->user()->can('purchasing.manage'), 403);
+        abort_unless($purchaseInvoice->status === 'confirmed', 422, 'الفاتورة مسودة أصلاً.');
+
+        $check = CheckModel::where('purchase_invoice_id', $purchaseInvoice->id)->first();
+        abort_if(
+            $check && in_array($check->status, ['cleared', 'bounced'], true),
+            422,
+            'الشيك المرتبط بهاي الفاتورة تحصّل أو رجع فعلياً — عالجه من صفحة الشيكات قبل تعديل الفاتورة.',
+        );
+
+        DB::transaction(function () use ($purchaseInvoice, $check) {
+            $this->reverseConfirmationEffects($purchaseInvoice, $check);
+            $purchaseInvoice->update(['status' => 'draft']);
+        });
+
+        return $purchaseInvoice->fresh(['lines.item', 'lines.itemLot', 'supplier', 'branch']);
+    }
+
     public function destroy(Request $request, PurchaseInvoice $purchaseInvoice)
     {
         abort_unless($request->user()->can('purchasing.manage'), 403);
-        abort_unless($purchaseInvoice->status === 'draft', 422, 'لا يمكن حذف فاتورة مؤكدة.');
 
-        $purchaseInvoice->delete();
+        if ($purchaseInvoice->status === 'confirmed') {
+            $check = CheckModel::where('purchase_invoice_id', $purchaseInvoice->id)->first();
+            abort_if(
+                $check && in_array($check->status, ['cleared', 'bounced'], true),
+                422,
+                'الشيك المرتبط بهاي الفاتورة تحصّل أو رجع فعلياً — عالجه من صفحة الشيكات قبل حذف الفاتورة.',
+            );
+
+            DB::transaction(function () use ($purchaseInvoice, $check) {
+                $this->reverseConfirmationEffects($purchaseInvoice, $check);
+                $purchaseInvoice->delete();
+            });
+        } else {
+            $purchaseInvoice->delete();
+        }
 
         return response()->noContent();
+    }
+
+    /**
+     * Shared by revert() and destroy(): removes every trace confirm() left
+     * behind — the stock movements, the item lots it created (nothing in
+     * this app ever consumes from a lot, so deleting is always safe), the
+     * supplier debt entry, and whatever payment was made (cash reversed via
+     * a cashbox adjustment back in; an unresolved outgoing check simply
+     * cancelled, since it never touched the books until clear/bounce).
+     */
+    private function reverseConfirmationEffects(PurchaseInvoice $invoice, ?CheckModel $check): void
+    {
+        $invoice->load('lines');
+
+        foreach ($invoice->lines as $line) {
+            if ($line->item_lot_id) {
+                ItemLot::where('id', $line->item_lot_id)->delete();
+                $line->update(['item_lot_id' => null]);
+            }
+        }
+
+        StockMovement::where('reference_type', 'purchase_invoice')->where('reference_id', $invoice->id)->delete();
+        ItemPriceHistory::where('purchase_invoice_id', $invoice->id)->delete();
+
+        $paymentTransaction = SupplierTransaction::where('reference_type', 'purchase_invoice')
+            ->where('reference_id', $invoice->id)
+            ->where('type', 'payment')
+            ->first();
+
+        if ($paymentTransaction) {
+            $cashboxTransaction = CashboxTransaction::where('reference_type', 'purchase_invoice')
+                ->where('reference_id', $invoice->id)
+                ->where('type', 'expense_out')
+                ->first();
+
+            if ($cashboxTransaction) {
+                $cashbox = Cashbox::find($cashboxTransaction->cashbox_id);
+                if ($cashbox) {
+                    app(CashboxService::class)->record($cashbox, 'adjustment', 'purchase_invoice', $invoice->id, (float) $invoice->total_amount_ils);
+                }
+            }
+
+            $paymentTransaction->delete();
+        }
+
+        if ($check && $check->status === 'in_wallet') {
+            $check->delete();
+        }
+
+        SupplierTransaction::where('reference_type', 'purchase_invoice')
+            ->where('reference_id', $invoice->id)
+            ->where('type', 'purchase')
+            ->delete();
     }
 
     public function lastPrice(Request $request)

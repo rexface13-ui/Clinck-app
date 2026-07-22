@@ -323,6 +323,7 @@ export interface PurchaseInvoice {
   status: 'draft' | 'confirmed'
   total_amount_ils: string
   issued_at: string
+  notes?: string | null
   lines?: PurchaseInvoiceLine[]
 }
 

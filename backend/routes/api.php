@@ -138,10 +138,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('purchase-invoices', [PurchaseInvoiceController::class, 'store']);
     Route::get('purchase-invoices/last-price', [PurchaseInvoiceController::class, 'lastPrice']);
     Route::get('purchase-invoices/{purchaseInvoice}', [PurchaseInvoiceController::class, 'show']);
+    Route::put('purchase-invoices/{purchaseInvoice}', [PurchaseInvoiceController::class, 'update']);
     Route::delete('purchase-invoices/{purchaseInvoice}', [PurchaseInvoiceController::class, 'destroy']);
     Route::post('purchase-invoices/{purchaseInvoice}/lines', [PurchaseInvoiceController::class, 'addLine']);
     Route::delete('purchase-invoices/{purchaseInvoice}/lines/{line}', [PurchaseInvoiceController::class, 'removeLine']);
     Route::post('purchase-invoices/{purchaseInvoice}/confirm', [PurchaseInvoiceController::class, 'confirm']);
+    Route::post('purchase-invoices/{purchaseInvoice}/revert', [PurchaseInvoiceController::class, 'revert']);
 
     Route::get('stock-movements', [StockMovementController::class, 'index']);
     Route::post('stock-movements', [StockMovementController::class, 'store']);
