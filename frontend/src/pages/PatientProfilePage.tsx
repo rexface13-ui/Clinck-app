@@ -21,6 +21,7 @@ import PatientLedgerPanel from '../components/PatientLedgerPanel'
 import VisitHistoryPanel from '../components/VisitHistoryPanel'
 import DatePicker from '../components/DatePicker'
 import CompleteVisitModal from '../components/CompleteVisitModal'
+import AppointmentDetailModal from '../components/AppointmentDetailModal'
 import { Card, Badge, Button, Tabs } from '../components/ui'
 import { useAuth } from '../contexts/AuthContext'
 import type { PatientProfile, Service, Ledger, Doctor, TreatmentPlan } from '../types'
@@ -62,6 +63,7 @@ export default function PatientProfilePage() {
   const [editError, setEditError] = useState<string | null>(null)
   const [savingEdit, setSavingEdit] = useState(false)
   const [completingVisit, setCompletingVisit] = useState<{ id: number; doctorId: number | null } | null>(null)
+  const [openAppointmentId, setOpenAppointmentId] = useState<number | null>(null)
   const [startingWalkIn, setStartingWalkIn] = useState(false)
   const [plansRefreshSignal, setPlansRefreshSignal] = useState(0)
 
@@ -368,9 +370,11 @@ export default function PatientProfilePage() {
               {appointments.map((a) => (
                 <li key={a.id} className="border-b border-border/70 pb-2 text-sm last:border-0">
                   <div className="flex items-center justify-between">
-                    <span>{a.doctor_name}</span>
-                    <span className="text-muted">{a.starts_at_display}</span>
-                    <span className="text-muted">{STATUS_LABELS[a.status] ?? a.status}</span>
+                    <button onClick={() => setOpenAppointmentId(a.id)} className="flex flex-1 items-center gap-4 text-start hover:text-accent">
+                      <span>{a.doctor_name}</span>
+                      <span className="text-muted">{a.starts_at_display}</span>
+                      <span className="text-muted">{STATUS_LABELS[a.status] ?? a.status}</span>
+                    </button>
                     <div className="flex items-center gap-3">
                       {(a.status === 'scheduled' || a.status === 'confirmed') && (
                         <button
@@ -564,6 +568,13 @@ export default function PatientProfilePage() {
           doctorId={completingVisit.doctorId}
           onClose={() => setCompletingVisit(null)}
           onDone={load}
+        />
+      )}
+      {openAppointmentId && (
+        <AppointmentDetailModal
+          appointmentId={openAppointmentId}
+          onClose={() => setOpenAppointmentId(null)}
+          onChanged={load}
         />
       )}
     </div>

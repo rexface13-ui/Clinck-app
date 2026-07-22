@@ -21,6 +21,8 @@ class AppointmentResource extends JsonResource
             'starts_at_display' => display_datetime($this->starts_at),
             'status' => $this->status,
             'created_via' => $this->created_via,
+            'notes' => $this->notes,
+            'treatment_plan' => $this->whenLoaded('treatmentPlan', fn () => $this->treatmentPlan ? new TreatmentPlanResource($this->treatmentPlan) : null),
         ];
     }
 }

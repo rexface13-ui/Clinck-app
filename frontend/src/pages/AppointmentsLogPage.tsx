@@ -4,6 +4,7 @@ import { faMagnifyingGlass } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { formatDate, formatTime } from '../lib/formatDate'
 import DatePicker from '../components/DatePicker'
+import AppointmentDetailModal from '../components/AppointmentDetailModal'
 import { Card, PageHeader, Select, Badge, Table, Thead, Th, Td, Tr, EmptyRow, TableSkeleton } from '../components/ui'
 import type { BadgeVariant } from '../components/ui'
 import type { Appointment } from '../types'
@@ -41,23 +42,27 @@ export default function AppointmentsLogPage() {
   const [search, setSearch] = useState('')
   const [appointments, setAppointments] = useState<Appointment[]>([])
   const [loading, setLoading] = useState(true)
+  const [openAppointmentId, setOpenAppointmentId] = useState<number | null>(null)
+
+  function loadAppointments() {
+    setLoading(true)
+    api
+      .get('/appointments', {
+        params: {
+          from: `${from}T00:00:00Z`,
+          to: `${to}T23:59:59Z`,
+          status: status === 'all' ? undefined : status,
+          search: search.trim() || undefined,
+        },
+      })
+      .then((res) => setAppointments(res.data.data))
+      .finally(() => setLoading(false))
+  }
 
   useEffect(() => {
-    setLoading(true)
-    const id = setTimeout(() => {
-      api
-        .get('/appointments', {
-          params: {
-            from: `${from}T00:00:00Z`,
-            to: `${to}T23:59:59Z`,
-            status: status === 'all' ? undefined : status,
-            search: search.trim() || undefined,
-          },
-        })
-        .then((res) => setAppointments(res.data.data))
-        .finally(() => setLoading(false))
-    }, 250)
+    const id = setTimeout(loadAppointments, 250)
     return () => clearTimeout(id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [from, to, status, search])
 
   return (
@@ -110,7 +115,7 @@ export default function AppointmentsLogPage() {
                 <EmptyRow colSpan={5}>لا يوجد مواعيد بهذه الفترة/الفلتر</EmptyRow>
               ) : (
                 appointments.map((a) => (
-                  <Tr key={a.id}>
+                  <Tr key={a.id} onClick={() => setOpenAppointmentId(a.id)} className="cursor-pointer">
                     <Td>{formatDate(a.starts_at)}</Td>
                     <Td className="font-mono">{formatTime(a.starts_at)}</Td>
                     <Td>{a.patient_name}</Td>
@@ -125,6 +130,14 @@ export default function AppointmentsLogPage() {
           </Table>
         )}
       </Card>
+
+      {openAppointmentId && (
+        <AppointmentDetailModal
+          appointmentId={openAppointmentId}
+          onClose={() => setOpenAppointmentId(null)}
+          onChanged={loadAppointments}
+        />
+      )}
     </div>
   )
 }

@@ -103,6 +103,8 @@ export interface Appointment {
   starts_at_display: string
   status: 'scheduled' | 'confirmed' | 'done' | 'cancelled' | 'no_show'
   created_via: 'web' | 'bot'
+  notes?: string | null
+  treatment_plan?: TreatmentPlan | null
 }
 
 export interface Attachment {

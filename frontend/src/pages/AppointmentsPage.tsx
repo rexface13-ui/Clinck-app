@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faChevronLeft, faChevronRight, faClock, faUserDoctor, faXmark } from '@fortawesome/free-solid-svg-icons'
+import { faChevronLeft, faChevronRight, faClock, faUserDoctor } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
-import { useAuth } from '../contexts/AuthContext'
 import { formatDate, formatTime } from '../lib/formatDate'
 import DatePicker from '../components/DatePicker'
-import CompleteVisitModal from '../components/CompleteVisitModal'
+import AppointmentDetailModal from '../components/AppointmentDetailModal'
 import { Card, PageHeader, Button, Select, Badge } from '../components/ui'
 import type { BadgeVariant } from '../components/ui'
 import type { Appointment, Branch, Doctor, Patient, Slot } from '../types'
@@ -46,10 +45,9 @@ interface OpenSlot extends Slot {
 }
 
 export default function AppointmentsPage() {
-  const { can } = useAuth()
   const [searchParams] = useSearchParams()
   const preselectedPatient = searchParams.get('patient_id')
-  const [completingVisit, setCompletingVisit] = useState<Appointment | null>(null)
+  const [openAppointmentId, setOpenAppointmentId] = useState<number | null>(null)
 
   const [doctors, setDoctors] = useState<Doctor[]>([])
   const [patients, setPatients] = useState<Patient[]>([])
@@ -142,13 +140,6 @@ export default function AppointmentsPage() {
     }
   }
 
-  async function cancelAppointment(appointmentId: number) {
-    if (!window.confirm('إلغاء هذا الموعد؟')) return
-    await api.put(`/appointments/${appointmentId}`, { status: 'cancelled' })
-    loadAppointments()
-    loadOpenSlots()
-  }
-
   async function bookManual() {
     const mainBranch = branches.find((b) => b.is_main) ?? branches[0]
     if (!patientId || !mainBranch) return
@@ -238,29 +229,16 @@ export default function AppointmentsPage() {
           ) : (
             <div className="divide-y divide-border/70">
               {sortedAppointments.map((a) => (
-                <div key={a.id} className="flex items-center gap-3 px-2 py-2.5 text-sm">
+                <button
+                  key={a.id}
+                  onClick={() => setOpenAppointmentId(a.id)}
+                  className="flex w-full items-center gap-3 px-2 py-2.5 text-start text-sm hover:bg-background"
+                >
                   <span className="w-14 shrink-0 font-mono text-xs text-muted">{formatTime(a.starts_at)}</span>
                   <span className="flex-1 font-medium text-ink">{a.patient_name}</span>
                   <span className="text-xs text-muted">{a.doctor_name ?? 'بدون طبيب محدد'}</span>
                   <Badge variant={STATUS_VARIANTS[a.status]}>{STATUS_LABELS[a.status]}</Badge>
-                  {(a.status === 'scheduled' || a.status === 'confirmed') && can('appointments.manage') && (
-                    <>
-                      <button
-                        onClick={() => setCompletingVisit(a)}
-                        className="rounded-lg bg-accent-soft px-2.5 py-1 text-xs font-medium text-accent hover:bg-accent hover:text-white"
-                      >
-                        تمّت الزيارة
-                      </button>
-                      <button
-                        onClick={() => cancelAppointment(a.id)}
-                        title="إلغاء الموعد"
-                        className="rounded-lg bg-danger-soft px-2 py-1 text-xs font-medium text-danger hover:bg-danger hover:text-white"
-                      >
-                        <FontAwesomeIcon icon={faXmark} />
-                      </button>
-                    </>
-                  )}
-                </div>
+                </button>
               ))}
             </div>
           )}
@@ -384,14 +362,14 @@ export default function AppointmentsPage() {
         </Card>
       </div>
 
-      {completingVisit && (
-        <CompleteVisitModal
-          appointmentId={completingVisit.id}
-          patientId={completingVisit.patient_id}
-          patientName={completingVisit.patient_name ?? ''}
-          doctorId={completingVisit.doctor_id}
-          onClose={() => setCompletingVisit(null)}
-          onDone={loadAppointments}
+      {openAppointmentId && (
+        <AppointmentDetailModal
+          appointmentId={openAppointmentId}
+          onClose={() => setOpenAppointmentId(null)}
+          onChanged={() => {
+            loadAppointments()
+            loadOpenSlots()
+          }}
         />
       )}
     </div>

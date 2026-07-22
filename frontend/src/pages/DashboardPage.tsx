@@ -24,6 +24,7 @@ import { useAuth } from '../contexts/AuthContext'
 import PatientSearchModal from '../components/PatientSearchModal'
 import CompleteVisitModal from '../components/CompleteVisitModal'
 import PatientPaymentModal from '../components/PatientPaymentModal'
+import AppointmentDetailModal from '../components/AppointmentDetailModal'
 import { Card, PageHeader, StatCard, Badge, Button, Table, Thead, Th, Td, Tr, EmptyRow, TableSkeleton, CardSkeleton } from '../components/ui'
 import type { BadgeVariant } from '../components/ui'
 import type { Patient } from '../types'
@@ -146,6 +147,8 @@ export default function DashboardPage() {
   const [selectedCheck, setSelectedCheck] = useState<CheckAlert | null>(null)
   const [invoiceSearch, setInvoiceSearch] = useState('')
   const [searchedInvoices, setSearchedInvoices] = useState<Invoice[] | null>(null)
+  const [appointmentsSearch, setAppointmentsSearch] = useState('')
+  const [openAppointmentId, setOpenAppointmentId] = useState<number | null>(null)
   const quickActions = buildQuickActions(() => setShowPatientSearch(true), () => setShowPaymentSearch(true))
 
   function loadSummary() {
@@ -289,9 +292,27 @@ export default function DashboardPage() {
           onDone={loadSummary}
         />
       )}
+      {openAppointmentId && (
+        <AppointmentDetailModal
+          appointmentId={openAppointmentId}
+          onClose={() => setOpenAppointmentId(null)}
+          onChanged={loadSummary}
+        />
+      )}
 
       <Card className="mb-8">
-        <h2 className="p-6 pb-0 text-sm font-semibold text-ink/80">مواعيد اليوم</h2>
+        <div className="flex flex-wrap items-center justify-between gap-3 p-6 pb-0">
+          <h2 className="text-sm font-semibold text-ink/80">مواعيد اليوم</h2>
+          <div className="relative">
+            <FontAwesomeIcon icon={faMagnifyingGlass} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted" />
+            <input
+              value={appointmentsSearch}
+              onChange={(e) => setAppointmentsSearch(e.target.value)}
+              placeholder="بحث باسم المريض أو الطبيب..."
+              className="w-64 rounded-xl border border-border bg-surface py-2 pe-3 ps-9 text-sm focus:border-accent focus:outline-none"
+            />
+          </div>
+        </div>
         {!data ? (
           <TableSkeleton />
         ) : (
@@ -301,33 +322,29 @@ export default function DashboardPage() {
               <Th>المريض</Th>
               <Th>الطبيب</Th>
               <Th>الحالة</Th>
-              <Th></Th>
             </Thead>
             <tbody>
-              {data.today_appointments.length === 0 ? (
-                <EmptyRow colSpan={5}>لا يوجد مواعيد اليوم</EmptyRow>
-              ) : (
-                data.today_appointments.map((a) => (
-                  <Tr key={a.id}>
+              {(() => {
+                const term = appointmentsSearch.trim().toLowerCase()
+                const filtered = term
+                  ? data.today_appointments.filter(
+                      (a) => a.patient_name?.toLowerCase().includes(term) || a.doctor_name?.toLowerCase().includes(term),
+                    )
+                  : data.today_appointments
+                if (filtered.length === 0) {
+                  return <EmptyRow colSpan={4}>{term ? 'لا توجد نتائج مطابقة' : 'لا يوجد مواعيد اليوم'}</EmptyRow>
+                }
+                return filtered.map((a) => (
+                  <Tr key={a.id} onClick={() => setOpenAppointmentId(a.id)} className="cursor-pointer">
                     <Td className="font-mono">{formatTime(a.starts_at)}</Td>
                     <Td>{a.patient_name}</Td>
                     <Td>{a.doctor_name}</Td>
                     <Td>
                       <Badge variant={statusVariants[a.status] ?? 'neutral'}>{statusLabels[a.status] ?? a.status}</Badge>
                     </Td>
-                    <Td>
-                      {(a.status === 'scheduled' || a.status === 'confirmed') && can('appointments.manage') && (
-                        <button
-                          onClick={() => setCompletingVisit(a)}
-                          className="rounded-lg bg-accent-soft px-2.5 py-1 text-xs font-medium text-accent hover:bg-accent hover:text-white"
-                        >
-                          تمّت الزيارة
-                        </button>
-                      )}
-                    </Td>
                   </Tr>
                 ))
-              )}
+              })()}
             </tbody>
           </Table>
         )}

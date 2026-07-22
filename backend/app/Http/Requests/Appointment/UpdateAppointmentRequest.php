@@ -22,6 +22,7 @@ class UpdateAppointmentRequest extends FormRequest
             'starts_at' => ['sometimes', 'required', 'date'],
             'ends_at' => ['sometimes', 'required', 'date', 'after:starts_at'],
             'status' => ['sometimes', 'required', Rule::in(['scheduled', 'confirmed', 'done', 'cancelled', 'no_show'])],
+            'notes' => ['sometimes', 'nullable', 'string'],
         ];
     }
 

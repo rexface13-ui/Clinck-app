@@ -65,7 +65,7 @@ class AppointmentController extends Controller
     {
         $this->authorize('view', $appointment);
 
-        return new AppointmentResource($appointment->load(['patient', 'doctor']));
+        return new AppointmentResource($appointment->load(['patient', 'doctor', 'treatmentPlan.items.service', 'treatmentPlan.doctor']));
     }
 
     public function update(UpdateAppointmentRequest $request, Appointment $appointment)
