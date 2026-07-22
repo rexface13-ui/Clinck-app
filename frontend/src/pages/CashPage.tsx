@@ -74,7 +74,8 @@ export default function CashPage() {
 
   function openNew() {
     setEditingId(null)
-    setForm({ category_id: '', cashbox_id: '', amount: '', description: '' })
+    const ilsCashbox = (cashboxes ?? []).find((c) => c.currency === 'ILS')
+    setForm({ category_id: '', cashbox_id: ilsCashbox ? String(ilsCashbox.id) : '', amount: '', description: '' })
     setShowForm(true)
   }
 
