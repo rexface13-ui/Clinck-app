@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faTrash, faCheck } from '@fortawesome/free-solid-svg-icons'
+import { faTrash, faCheck, faTooth } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import DatePicker from './DatePicker'
 import { Modal, Button, SearchableSelect } from './ui'
+import { UPPER_PERMANENT, LOWER_PERMANENT, UPPER_PRIMARY, LOWER_PRIMARY } from '../lib/dental'
 import type { Cashbox, Service } from '../types'
 
 interface Props {
@@ -36,6 +37,8 @@ export default function CompleteVisitModal({ appointmentId, patientId, patientNa
   const [checkForm, setCheckForm] = useState({ check_number: '', bank_name: '', due_date: '' })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [isChild, setIsChild] = useState(false)
+  const [pickerOpenIdx, setPickerOpenIdx] = useState<number | null>(null)
 
   useEffect(() => {
     api.get('/services').then((res) => setServices(res.data.data))
@@ -44,7 +47,8 @@ export default function CompleteVisitModal({ appointmentId, patientId, patientNa
       const ils = res.data.find((c: Cashbox) => c.currency === 'ILS')
       if (ils) setCashboxId(String(ils.id))
     })
-  }, [])
+    api.get(`/patients/${patientId}`).then((res) => setIsChild(!!res.data.data.is_child))
+  }, [patientId])
 
   const subtotal = lines.reduce((sum, l) => sum + (Number(l.price) || 0), 0)
   const discountAmount = Math.min(
@@ -70,6 +74,16 @@ export default function CompleteVisitModal({ appointmentId, patientId, patientNa
 
   function updateTeeth(idx: number, tooth_numbers: string) {
     setLines(lines.map((l, i) => (i === idx ? { ...l, tooth_numbers } : l)))
+  }
+
+  function toggleTooth(idx: number, tooth: number) {
+    const line = lines[idx]
+    const current = line.tooth_numbers
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean)
+    const next = current.includes(String(tooth)) ? current.filter((t) => t !== String(tooth)) : [...current, String(tooth)]
+    updateTeeth(idx, next.join(','))
   }
 
   async function submit() {
@@ -194,27 +208,69 @@ export default function CompleteVisitModal({ appointmentId, patientId, patientNa
         {lines.length > 0 && (
           <div className="space-y-2 rounded-lg bg-background p-3">
             {lines.map((l, idx) => (
-              <div key={idx} className="flex items-center gap-2 text-sm">
-                <span className="flex-1">{l.name}</span>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  placeholder="رقم السن (اختياري)"
-                  value={l.tooth_numbers}
-                  onChange={(e) => updateTeeth(idx, e.target.value)}
-                  title="اكتب رقم/أرقام الأسنان (مفصولة بفاصلة) اللي اشتغلتها بهاي الخدمة — بيسجلها بسجل السن كمان"
-                  className="w-28 rounded-lg border border-border px-2 py-1 text-sm"
-                />
-                <input
-                  type="number"
-                  value={l.price}
-                  onChange={(e) => updatePrice(idx, e.target.value)}
-                  className="w-20 rounded-lg border border-border px-2 py-1 text-sm"
-                />
-                <span className="text-xs text-muted">₪</span>
-                <button onClick={() => removeLine(idx)} className="text-danger">
-                  <FontAwesomeIcon icon={faTrash} />
-                </button>
+              <div key={idx}>
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="flex-1">{l.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => setPickerOpenIdx(pickerOpenIdx === idx ? null : idx)}
+                    title="اختر السن/الأسنان اللي اشتغلتها بهاي الخدمة من الرسمة — بيسجلها بسجل السن كمان"
+                    className={`flex items-center gap-1 rounded-lg border px-2 py-1 text-xs ${
+                      l.tooth_numbers ? 'border-accent text-accent' : 'border-border text-muted'
+                    }`}
+                  >
+                    <FontAwesomeIcon icon={faTooth} />
+                    {l.tooth_numbers ? l.tooth_numbers.split(',').join('، ') : 'اختر سن'}
+                  </button>
+                  <input
+                    type="number"
+                    value={l.price}
+                    onChange={(e) => updatePrice(idx, e.target.value)}
+                    className="w-20 rounded-lg border border-border px-2 py-1 text-sm"
+                  />
+                  <span className="text-xs text-muted">₪</span>
+                  <button onClick={() => removeLine(idx)} className="text-danger">
+                    <FontAwesomeIcon icon={faTrash} />
+                  </button>
+                </div>
+
+                {pickerOpenIdx === idx && (
+                  <div className="mt-2 space-y-2 rounded-lg border border-border bg-white p-2">
+                    {[
+                      { label: 'العلوي', upper: true, numbers: isChild ? UPPER_PRIMARY : UPPER_PERMANENT },
+                      { label: 'السفلي', upper: false, numbers: isChild ? LOWER_PRIMARY : LOWER_PERMANENT },
+                    ].map((row) => (
+                      <div key={row.label}>
+                        <p className="mb-1 text-[10px] text-muted">{row.label}</p>
+                        <div className="flex flex-wrap gap-1">
+                          {row.numbers.map((tooth) => {
+                            const selected = l.tooth_numbers
+                              .split(',')
+                              .map((t) => t.trim())
+                              .includes(String(tooth))
+                            return (
+                              <button
+                                key={tooth}
+                                type="button"
+                                onClick={() => toggleTooth(idx, tooth)}
+                                className={`flex size-8 items-center justify-center rounded-md border text-xs font-medium transition-colors ${
+                                  selected ? 'border-accent bg-accent text-white' : 'border-border text-ink/70 hover:bg-background'
+                                }`}
+                              >
+                                {tooth}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                    <div className="flex justify-end">
+                      <button type="button" onClick={() => setPickerOpenIdx(null)} className="text-xs text-accent hover:underline">
+                        تم
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
 
