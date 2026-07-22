@@ -448,7 +448,7 @@ export default function TreatmentPlanPanel({ patientId, isChild = false, pickedT
                 <tbody>
                   {groupItems(plan.items).map((group) => {
                     const isSingle = group.items.length === 1
-                    const isExpanded = isSingle || expandedGroups.has(group.key)
+                    const isExpanded = expandedGroups.has(group.key)
                     const teeth = group.items.flatMap(itemTeeth)
                     const totalPrice = group.items.reduce((sum, i) => sum + Number(i.unit_price) * i.sessions_count, 0)
                     const totalSessions = group.items.reduce((sum, i) => sum + i.sessions_count, 0)
@@ -457,31 +457,27 @@ export default function TreatmentPlanPanel({ patientId, isChild = false, pickedT
 
                     return (
                       <Fragment key={group.key}>
-                        <tr className="border-t border-ink/5">
+                        <tr className="cursor-pointer border-t border-ink/5 hover:bg-background/60" onClick={() => toggleGroup(group.key)}>
                           <td className="p-1">
-                            {!isSingle && (
-                              <button onClick={() => toggleGroup(group.key)} className="ml-1 text-ink/40 hover:text-ink">
-                                <FontAwesomeIcon icon={isExpanded ? faChevronDown : faChevronLeft} />
-                              </button>
-                            )}
+                            <FontAwesomeIcon icon={isExpanded ? faChevronDown : faChevronLeft} className="ml-1 text-ink/40" />
                             {first.service_name}
                           </td>
-                          {/* Collapsed group row deliberately shows only the service name + session count —
-                              teeth/price/interval are per-tooth details that only make sense once expanded. */}
-                          <td className="p-1">{isSingle || isExpanded ? (teeth.length > 0 ? describeTeeth(teeth, isChild) : '—') : ''}</td>
-                          <td className="p-1">{isSingle || isExpanded ? `${totalPrice.toFixed(2)} ${first.currency}` : ''}</td>
+                          {/* Collapsed row deliberately shows only the service name + session count —
+                              teeth/price/interval are per-tooth details that only make sense once expanded (click the row). */}
+                          <td className="p-1">{isExpanded ? (teeth.length > 0 ? describeTeeth(teeth, isChild) : '—') : ''}</td>
+                          <td className="p-1">{isExpanded ? `${totalPrice.toFixed(2)} ${first.currency}` : ''}</td>
                           <td className="p-1">
                             {totalSessions}
                             {plan.status === 'approved' && <span className="text-ink/40"> ({doneSessions} محسوبة)</span>}
                           </td>
                           <td className="p-1 text-ink/60">
-                            {isSingle || isExpanded
+                            {isExpanded
                               ? first.interval_days
                                 ? `كل ${first.interval_days} يوم`
                                 : `افتراضي الخدمة (${services.find((s) => s.id === first.service_id)?.default_interval_days ?? 7} يوم)`
                               : ''}
                           </td>
-                          <td className="p-1">
+                          <td className="p-1" onClick={(e) => e.stopPropagation()}>
                             {plan.status === 'draft' && canManage && (
                               <button
                                 onClick={() => (isSingle ? removeItem(plan.id, first.id) : removeGroup(plan.id, group.items.map((i) => i.id)))}
