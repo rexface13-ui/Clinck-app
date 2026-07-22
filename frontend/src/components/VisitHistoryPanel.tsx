@@ -13,6 +13,12 @@ interface VisitGroup {
   visits: Visit[]
 }
 
+/** All teeth a visit covers — tooth_numbers if the session's item has several, else the single tooth_number, else none. */
+function visitTeeth(v: Visit): number[] {
+  if (v.tooth_numbers && v.tooth_numbers.length > 0) return v.tooth_numbers
+  return v.tooth_number ? [v.tooth_number] : []
+}
+
 /** Visits created together in one "add" action (several teeth picked for the same service in one go) share a batch_id, so they show as one grouped entry with a "press for detail" list instead of a separate row per tooth. */
 function groupVisits(visits: Visit[]): VisitGroup[] {
   const order: string[] = []
@@ -170,7 +176,7 @@ export default function VisitHistoryPanel({ patientId, isChild = false, onChange
             const isSingle = group.visits.length === 1
             const isExpanded = isSingle || expandedGroups.has(group.key)
             const first = group.visits[0]
-            const teeth = group.visits.map((v) => v.tooth_number).filter((n): n is number => n !== null)
+            const teeth = group.visits.flatMap(visitTeeth)
             const totalPrice = group.visits.reduce((sum, v) => sum + Number(v.price), 0)
 
             if (isSingle) {
@@ -232,7 +238,7 @@ export default function VisitHistoryPanel({ patientId, isChild = false, onChange
         >
           <div className="flex items-center gap-2">
             <span className="font-medium text-ink">{v.service_name ?? 'خدمة'}</span>
-            {v.tooth_number && <span className="text-xs text-muted">سن {v.tooth_number}</span>}
+            {visitTeeth(v).length > 0 && <span className="text-xs text-muted">{describeTeeth(visitTeeth(v), isChild)}</span>}
             {!nested && v.doctor_name && <span className="text-xs text-muted">— {v.doctor_name}</span>}
           </div>
           <div className="flex items-center gap-3">

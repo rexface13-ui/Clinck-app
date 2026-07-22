@@ -120,9 +120,12 @@ export default function PatientProfilePage() {
     for (const plan of plans) {
       if (plan.status === 'cancelled') continue
       for (const item of plan.items) {
-        if (!item.tooth_number) continue
+        const teeth = item.tooth_numbers && item.tooth_numbers.length > 0 ? item.tooth_numbers : item.tooth_number ? [item.tooth_number] : []
+        if (teeth.length === 0) continue
         const detail = `${item.service_name ?? 'خدمة'} — خطة ${planStatusLabel[plan.status]}${plan.doctor_name ? ` (${plan.doctor_name})` : ''}`
-        busy.set(item.tooth_number, [...(busy.get(item.tooth_number) ?? []), detail])
+        for (const tooth of teeth) {
+          busy.set(tooth, [...(busy.get(tooth) ?? []), detail])
+        }
       }
     }
     setBusyToothNumbers(busy)

@@ -54,18 +54,22 @@ function sessionDiscountedPrice(f: SessionFormState): number {
   return Math.max(0, base - Math.min(base, discount))
 }
 
-/** One row in the items table: all plan items sharing a batch_id (created together from one "add" action, e.g. picking several teeth for one service) collapse into a single group. */
+/** All teeth an item covers — tooth_numbers if set (one item, several teeth), else the single tooth_number, else none (whole-mouth service). */
+function itemTeeth(item: PlanItem): number[] {
+  if (item.tooth_numbers && item.tooth_numbers.length > 0) return item.tooth_numbers
+  return item.tooth_number ? [item.tooth_number] : []
+}
+
+/** One row in the items table: multi-tooth items already cover all their teeth
+ * on their own (see itemTeeth), so this grouping only matters for legacy
+ * items from before tooth_numbers existed, which are still one-item-per-tooth
+ * — those still collapse into a single group by batch_id (or, lacking that,
+ * same-service-same-minute) so a doctor doesn't wade through a row per tooth. */
 interface ItemGroup {
   key: string
   items: PlanItem[]
 }
 
-/** Items created together get a batch_id (see addItem) and always group. Older
- * items from before that existed have no batch_id — for those, items of the
- * same service created within the same minute still group together, so a
- * doctor scanning an old plan doesn't have to wade through one row per tooth
- * either. Single, standalone items (a different service, or minutes apart)
- * fall back to their own group. */
 function groupItems(items: PlanItem[]): ItemGroup[] {
   const order: string[] = []
   const map = new Map<string, PlanItem[]>()
@@ -166,37 +170,28 @@ export default function TreatmentPlanPanel({ patientId, isChild = false, pickedT
     const f = itemFormFor(planId)
     if (!f.service_id || !f.unit_price) return
     // The tooth field can hold several comma-separated numbers (picked in bulk
-    // from the chart, or typed by hand) — one identical plan item gets created
-    // per tooth. With no tooth number at all (whole-mouth services like a
-    // cleaning), a single item with no tooth is created.
+    // from the chart, or typed by hand) — they all go on ONE item together
+    // (one price, one set of sessions), not one item per tooth. The price
+    // typed here is exactly what gets billed per session, whole — it is
+    // never multiplied or split by how many teeth are picked. Each tooth
+    // still gets its own finding/history entry once a session is completed.
     const teeth = f.tooth_number
       .split(',')
       .map((t) => t.trim())
       .filter(Boolean)
       .map(Number)
-    const toothNumbers = teeth.length > 0 ? teeth : [null]
     const finalPrice = discountedPrice(f)
-    // One tooth doesn't need a batch — it's already a single row. Several teeth
-    // picked in one "add" share a batch_id so they collapse into one group row
-    // instead of listing every tooth separately.
-    const batchId = toothNumbers.length > 1 ? crypto.randomUUID() : null
 
     setBusy(true)
     try {
-      // Fired in parallel, not sequentially — awaiting each POST one at a time
-      // made adding a service to a whole arch (16 teeth) take many seconds.
-      await Promise.all(
-        toothNumbers.map((tooth) =>
-          api.post(`/treatment-plans/${planId}/items`, {
-            service_id: Number(f.service_id),
-            tooth_number: tooth,
-            batch_id: batchId,
-            unit_price: finalPrice,
-            sessions_count: Number(f.sessions_count) || 1,
-            interval_days: f.interval_days ? Number(f.interval_days) : null,
-          }),
-        ),
-      )
+      await api.post(`/treatment-plans/${planId}/items`, {
+        service_id: Number(f.service_id),
+        tooth_number: teeth.length > 0 ? teeth[0] : null,
+        tooth_numbers: teeth.length > 0 ? teeth : null,
+        unit_price: finalPrice,
+        sessions_count: Number(f.sessions_count) || 1,
+        interval_days: f.interval_days ? Number(f.interval_days) : null,
+      })
       setItemForm({ ...itemForm, [planId]: { service_id: '', tooth_number: '', unit_price: '', sessions_count: '1', interval_days: '', discount_type: 'percent', discount_value: '' } })
       load()
     } finally {
@@ -454,7 +449,7 @@ export default function TreatmentPlanPanel({ patientId, isChild = false, pickedT
                   {groupItems(plan.items).map((group) => {
                     const isSingle = group.items.length === 1
                     const isExpanded = isSingle || expandedGroups.has(group.key)
-                    const teeth = group.items.map((i) => i.tooth_number).filter((n): n is number => n !== null)
+                    const teeth = group.items.flatMap(itemTeeth)
                     const totalPrice = group.items.reduce((sum, i) => sum + Number(i.unit_price) * i.sessions_count, 0)
                     const totalSessions = group.items.reduce((sum, i) => sum + i.sessions_count, 0)
                     const doneSessions = group.items.reduce((sum, i) => sum + (i.sessions?.filter((s) => s.status === 'done').length ?? 0), 0)
@@ -510,7 +505,7 @@ export default function TreatmentPlanPanel({ patientId, isChild = false, pickedT
                         {!isSingle && isExpanded && group.items.map((item) => (
                           <tr key={item.id} className="border-t border-ink/5 bg-background/30">
                             <td colSpan={6} className="p-1 ps-6 text-[11px] text-ink/60">
-                              سن {item.tooth_number} — {item.unit_price} {item.currency}
+                              {describeTeeth(itemTeeth(item), isChild) || 'بدون سن'} — {item.unit_price} {item.currency}
                               {plan.status === 'approved' && canManage && (
                                 <button onClick={() => cancelItem(plan.id, item.id)} disabled={busy} className="mr-3 text-danger/70 hover:text-danger disabled:opacity-60">
                                   إلغاء هالسن

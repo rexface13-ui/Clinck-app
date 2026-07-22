@@ -96,7 +96,7 @@ class TreatmentPlanService
                 'invoice_id' => $invoice->id,
                 'plan_item_id' => $item->id,
                 'plan_item_session_id' => $session->id,
-                'description' => $item->service->name.($item->tooth_number ? " (سن {$item->tooth_number})" : '').$sessionLabel,
+                'description' => $item->service->name.($this->teethLabel($item)).$sessionLabel,
                 'amount' => $price,
                 'currency' => $item->currency,
                 'exchange_rate' => 1,
@@ -120,28 +120,39 @@ class TreatmentPlanService
 
             $session->update(['status' => 'done']);
 
-            if ($item->tooth_number) {
+            $teeth = $item->allTeeth();
+
+            if (! empty($teeth)) {
                 $doneCount = $item->sessions()->where('status', 'done')->count();
                 $isLastSession = $doneCount >= $item->sessions_count;
 
-                $finding = ToothFinding::updateOrCreate(
-                    [
-                        'patient_id' => $plan->patient_id,
-                        'tooth_number' => $item->tooth_number,
-                        'service_id' => $item->service_id,
-                    ],
-                    [
-                        'clinic_id' => $item->clinic_id,
-                        'finding_type' => $item->service->name,
-                        'status' => $isLastSession ? 'done' : 'in_progress',
-                        'doctor_id' => $plan->doctor_id,
-                        'plan_item_session_id' => $session->id,
-                        'recorded_at' => now(),
-                    ],
-                );
+                // One item can cover several teeth worked on together in the
+                // same session (e.g. a whole-arch cleaning) — every tooth
+                // still gets its own finding row so the chart/history is
+                // accurate per tooth, but commission is computed only ONCE
+                // for the session (off the first tooth's finding), not once
+                // per tooth — otherwise a single flat-fee cleaning across 16
+                // teeth would pay the doctor commission 16 times over.
+                foreach ($teeth as $i => $toothNumber) {
+                    $finding = ToothFinding::updateOrCreate(
+                        [
+                            'patient_id' => $plan->patient_id,
+                            'tooth_number' => $toothNumber,
+                            'service_id' => $item->service_id,
+                        ],
+                        [
+                            'clinic_id' => $item->clinic_id,
+                            'finding_type' => $item->service->name,
+                            'status' => $isLastSession ? 'done' : 'in_progress',
+                            'doctor_id' => $plan->doctor_id,
+                            'plan_item_session_id' => $session->id,
+                            'recorded_at' => now(),
+                        ],
+                    );
 
-                if ($isLastSession) {
-                    app(CommissionService::class)->computeForFinding($finding);
+                    if ($isLastSession && $i === 0) {
+                        app(CommissionService::class)->computeForFinding($finding);
+                    }
                 }
             }
 
@@ -295,14 +306,18 @@ class TreatmentPlanService
                 }
             }
 
-            if ($wasDone && $item->tooth_number) {
-                $finding = ToothFinding::where('patient_id', $plan->patient_id)
-                    ->where('tooth_number', $item->tooth_number)
-                    ->where('service_id', $item->service_id)
-                    ->first();
+            if ($wasDone) {
+                $remainingDone = $item->sessions()->where('status', 'done')->count();
 
-                if ($finding) {
-                    $remainingDone = $item->sessions()->where('status', 'done')->count();
+                foreach ($item->allTeeth() as $toothNumber) {
+                    $finding = ToothFinding::where('patient_id', $plan->patient_id)
+                        ->where('tooth_number', $toothNumber)
+                        ->where('service_id', $item->service_id)
+                        ->first();
+
+                    if (! $finding) {
+                        continue;
+                    }
 
                     if ($remainingDone === 0) {
                         DoctorTransaction::where('tooth_finding_id', $finding->id)->whereNull('settled_at')->delete();
@@ -441,5 +456,15 @@ class TreatmentPlanService
         $count = Invoice::withoutGlobalScopes()->where('clinic_id', $clinicId)->count();
 
         return sprintf('INV-%06d', $count + 1);
+    }
+
+    protected function teethLabel(PlanItem $item): string
+    {
+        $teeth = $item->allTeeth();
+        if (empty($teeth)) {
+            return '';
+        }
+
+        return count($teeth) === 1 ? " (سن {$teeth[0]})" : ' ('.count($teeth).' سن: '.implode('، ', $teeth).')';
     }
 }

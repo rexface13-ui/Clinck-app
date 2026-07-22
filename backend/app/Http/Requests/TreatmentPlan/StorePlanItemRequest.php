@@ -18,6 +18,8 @@ class StorePlanItemRequest extends FormRequest
         return [
             'service_id' => ['required', Rule::exists('services', 'id')],
             'tooth_number' => ['nullable', 'integer', Rule::in(FdiTeeth::validNumbers())],
+            'tooth_numbers' => ['nullable', 'array', 'min:1'],
+            'tooth_numbers.*' => ['integer', Rule::in(FdiTeeth::validNumbers())],
             'batch_id' => ['nullable', 'string', 'max:36'],
             'surfaces' => ['nullable', 'string', 'regex:/^[MDOIBL]+$/'],
             'unit_price' => ['required', 'numeric', 'min:0'],

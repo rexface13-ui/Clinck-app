@@ -105,6 +105,7 @@ class PatientBillingController extends Controller
                 'date' => display_datetime($line->created_at),
                 'service_name' => $item?->service?->name,
                 'tooth_number' => $item?->tooth_number,
+                'tooth_numbers' => $item?->tooth_numbers,
                 'price' => $line->amount_ils,
                 'note' => $session?->note ?? $line->description,
                 'doctor_name' => $item?->treatmentPlan?->doctor?->full_name,

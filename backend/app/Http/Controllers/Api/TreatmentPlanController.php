@@ -57,7 +57,17 @@ class TreatmentPlanController extends Controller
         $this->authorize('update', $treatmentPlan);
         abort_unless($treatmentPlan->status === 'draft', 422, 'لا يمكن تعديل خطة معتمدة.');
 
-        $item = $treatmentPlan->items()->create($request->validated() + [
+        $data = $request->validated();
+
+        // tooth_number stays populated even for a multi-tooth item (as its
+        // first tooth) so any code that only reads the singular column —
+        // "is this tooth busy on a plan" checks, older data, etc. — still
+        // works without having to know about tooth_numbers.
+        if (! empty($data['tooth_numbers']) && empty($data['tooth_number'])) {
+            $data['tooth_number'] = $data['tooth_numbers'][0];
+        }
+
+        $item = $treatmentPlan->items()->create($data + [
             'currency' => $request->input('currency', 'ILS'),
             'sessions_count' => $request->input('sessions_count', 1),
         ]);

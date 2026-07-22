@@ -187,31 +187,22 @@ export default function CompleteVisitModal({ appointmentId, patientId, patientNa
           .map((t) => t.trim())
           .filter(Boolean)
           .map(Number)
-        // No tooth picked (whole-mouth service like a cleaning with no teeth chosen at
-        // all) -> one item, no tooth. One or more teeth picked -> one item per tooth, so
-        // each gets its own finding/history entry — but the price per item differs by
-        // per_tooth: checked multiplies (extraction: 2 teeth = 2x), unchecked splits the
-        // flat fee evenly across the picked teeth so the total stays the entered price.
-        const toothTargets = teeth.length > 0 ? teeth : [null]
-        const discountedLineTotal = lineTotal(l) * (1 - discountRatio)
-        const perItemPrice = Math.round((discountedLineTotal / toothTargets.length) * 100) / 100
-        // Several teeth for the same line share a batch_id, so the visit
-        // history/plan panel can show them as one grouped entry instead of
-        // one row per tooth. Fired in parallel — sequential awaits made
-        // picking a whole arch take many seconds.
-        const batchId = toothTargets.length > 1 ? crypto.randomUUID() : null
-        const created = await Promise.all(
-          toothTargets.map((tooth) =>
-            api.post(`/treatment-plans/${planId}/items`, {
-              service_id: l.service_id,
-              tooth_number: tooth,
-              batch_id: batchId,
-              unit_price: perItemPrice,
-              sessions_count: 1,
-            }),
-          ),
-        )
-        itemIds.push(...created.map((res) => res.data.data.id))
+        // One item per line, covering all its picked teeth together — one
+        // price, one session, regardless of how many teeth. per_tooth only
+        // changes how that one price is computed (lineTotal already
+        // multiplies by tooth count when per_tooth is checked, or keeps it
+        // flat when unchecked); it never splits the charge across items.
+        // Each tooth still gets its own finding/history entry when the
+        // session is completed below (see completeSession() backend).
+        const linePrice = Math.round(lineTotal(l) * (1 - discountRatio) * 100) / 100
+        const itemRes = await api.post(`/treatment-plans/${planId}/items`, {
+          service_id: l.service_id,
+          tooth_number: teeth.length > 0 ? teeth[0] : null,
+          tooth_numbers: teeth.length > 0 ? teeth : null,
+          unit_price: linePrice,
+          sessions_count: 1,
+        })
+        itemIds.push(itemRes.data.data.id)
       }
 
       // Approving only schedules the (single) session per item — nothing is
@@ -319,7 +310,7 @@ export default function CompleteVisitModal({ appointmentId, patientId, patientNa
                 {l.tooth_numbers.split(',').filter((t) => t.trim()).length > 1 && (
                   <label className="mt-1 flex items-center gap-1.5 text-[11px] text-ink/60">
                     <input type="checkbox" checked={l.per_tooth} onChange={() => togglePerTooth(idx)} className="size-3.5" />
-                    احتساب السعر لكل سن لحاله (بدل ما يبقى سعر ثابت مقسوم على الأسنان)
+                    احتساب السعر لكل سن لحاله (بدل ما يضل سعر ثابت واحد لكل الأسنان مع بعض)
                   </label>
                 )}
 
