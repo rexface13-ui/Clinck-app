@@ -4,7 +4,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faPlus, faWallet } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
-import { Card, PageHeader, Button, Modal, Table, Thead, Th, Td, Tr, EmptyRow, TableSkeleton, CardSkeleton } from '../components/ui'
+import { Card, PageHeader, Button, Modal, Table, Thead, Th, Td, Tr, EmptyRow, TableSkeleton, CardSkeleton, SearchableSelect } from '../components/ui'
 import type { Cashbox, CashEntry, ExpenseCategory, IncomeCategory } from '../types'
 
 type Tab = 'expenses' | 'incomes'
@@ -44,6 +44,14 @@ export default function CashPage() {
   const canManage = can('cash.manage')
   const categories = tab === 'expenses' ? expenseCategories : incomeCategories
   const entries = tab === 'expenses' ? expenses : incomes
+
+  async function createCategory(name: string) {
+    const endpoint = tab === 'expenses' ? '/expense-categories' : '/income-categories'
+    const res = await api.post(endpoint, { name })
+    if (tab === 'expenses') setExpenseCategories((prev) => [...prev, res.data])
+    else setIncomeCategories((prev) => [...prev, res.data])
+    setForm((f) => ({ ...f, category_id: String(res.data.id) }))
+  }
 
   async function submit() {
     if (!form.category_id || !form.cashbox_id || !form.amount) return
@@ -95,13 +103,13 @@ export default function CashPage() {
       <div className="mb-4 flex items-center justify-between">
         <div className="flex gap-2 rounded-xl border border-border bg-surface p-1">
           <button
-            onClick={() => { setTab('expenses'); setShowForm(false) }}
+            onClick={() => { setTab('expenses'); setShowForm(false); setForm((f) => ({ ...f, category_id: '' })) }}
             className={`rounded-lg px-4 py-1.5 text-sm transition-colors ${tab === 'expenses' ? 'bg-accent text-white' : 'text-ink/70 hover:bg-background'}`}
           >
             المصاريف
           </button>
           <button
-            onClick={() => { setTab('incomes'); setShowForm(false) }}
+            onClick={() => { setTab('incomes'); setShowForm(false); setForm((f) => ({ ...f, category_id: '' })) }}
             className={`rounded-lg px-4 py-1.5 text-sm transition-colors ${tab === 'incomes' ? 'bg-accent text-white' : 'text-ink/70 hover:bg-background'}`}
           >
             الوارد
@@ -118,12 +126,14 @@ export default function CashPage() {
       {showForm && (
         <Modal title={tab === 'expenses' ? 'مصروف جديد' : 'وارد جديد'} onClose={() => setShowForm(false)}>
           <div className="space-y-3">
-            <select value={form.category_id} onChange={(e) => setForm({ ...form, category_id: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
-              <option value="">التصنيف...</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
+            <SearchableSelect
+              options={categories.map((c) => ({ value: String(c.id), label: c.name }))}
+              value={form.category_id}
+              onChange={(value) => setForm({ ...form, category_id: value })}
+              placeholder="التصنيف..."
+              onCreateNew={(query) => createCategory(query)}
+              createNewLabel="تصنيف جديد"
+            />
             <select value={form.cashbox_id} onChange={(e) => setForm({ ...form, cashbox_id: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
               <option value="">الصندوق...</option>
               {(cashboxes ?? []).map((c) => (
