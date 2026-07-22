@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faChevronLeft, faChevronRight, faClock, faUserDoctor } from '@fortawesome/free-solid-svg-icons'
+import { faChevronLeft, faChevronRight, faClock, faUserDoctor, faXmark } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import { formatDate, formatTime } from '../lib/formatDate'
@@ -142,6 +142,13 @@ export default function AppointmentsPage() {
     }
   }
 
+  async function cancelAppointment(appointmentId: number) {
+    if (!window.confirm('إلغاء هذا الموعد؟')) return
+    await api.put(`/appointments/${appointmentId}`, { status: 'cancelled' })
+    loadAppointments()
+    loadOpenSlots()
+  }
+
   async function bookManual() {
     const mainBranch = branches.find((b) => b.is_main) ?? branches[0]
     if (!patientId || !mainBranch) return
@@ -235,12 +242,21 @@ export default function AppointmentsPage() {
                   <span className="text-xs text-muted">{a.doctor_name ?? 'بدون طبيب محدد'}</span>
                   <Badge variant={STATUS_VARIANTS[a.status]}>{STATUS_LABELS[a.status]}</Badge>
                   {(a.status === 'scheduled' || a.status === 'confirmed') && can('appointments.manage') && (
-                    <button
-                      onClick={() => setCompletingVisit(a)}
-                      className="rounded-lg bg-accent-soft px-2.5 py-1 text-xs font-medium text-accent hover:bg-accent hover:text-white"
-                    >
-                      تمّت الزيارة
-                    </button>
+                    <>
+                      <button
+                        onClick={() => setCompletingVisit(a)}
+                        className="rounded-lg bg-accent-soft px-2.5 py-1 text-xs font-medium text-accent hover:bg-accent hover:text-white"
+                      >
+                        تمّت الزيارة
+                      </button>
+                      <button
+                        onClick={() => cancelAppointment(a.id)}
+                        title="إلغاء الموعد"
+                        className="rounded-lg bg-danger-soft px-2 py-1 text-xs font-medium text-danger hover:bg-danger hover:text-white"
+                      >
+                        <FontAwesomeIcon icon={faXmark} />
+                      </button>
+                    </>
                   )}
                 </div>
               ))}
