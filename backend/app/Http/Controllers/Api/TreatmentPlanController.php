@@ -20,7 +20,16 @@ class TreatmentPlanController extends Controller
     {
         $this->authorize('viewAny', TreatmentPlan::class);
 
-        $query = TreatmentPlan::with(['doctor', 'items.service'])->orderByDesc('created_at');
+        // Plans with an appointment_id are the auto-generated single-visit
+        // wrapper CompleteVisitModal creates behind the scenes for a
+        // same-day "اجاني هلق" visit or a completed booked appointment —
+        // an implementation detail of how that billing gets recorded, not
+        // a real treatment plan the secretary/doctor made. Those must never
+        // show up in the "خطط علاجية" list, which is only for plans someone
+        // actually created via "خطة جديدة".
+        $query = TreatmentPlan::with(['doctor', 'items.service'])
+            ->whereNull('appointment_id')
+            ->orderByDesc('created_at');
 
         if ($request->filled('patient_id')) {
             $query->where('patient_id', $request->input('patient_id'));
