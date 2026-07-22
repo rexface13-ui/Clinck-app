@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faUsers, faTruck, faMoneyCheckDollar, faArrowLeft } from '@fortawesome/free-solid-svg-icons'
+import { faUsers, faTruck, faMoneyCheckDollar, faArrowLeft, faCoins, faUser } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { PageHeader, Card, Table, Thead, Th, Td, Tr, EmptyRow } from '../components/ui'
+import PatientPaymentModal from '../components/PatientPaymentModal'
 import SuppliersPage from './SuppliersPage'
 import ChecksPage from './ChecksPage'
 
@@ -20,10 +21,13 @@ interface PatientDebt {
 function PatientsDebtTab() {
   const [rows, setRows] = useState<PatientDebt[] | null>(null)
   const [query, setQuery] = useState('')
+  const [payingPatient, setPayingPatient] = useState<PatientDebt | null>(null)
 
-  useEffect(() => {
+  function load() {
     api.get('/debts/patients').then((res) => setRows(res.data))
-  }, [])
+  }
+
+  useEffect(load, [])
 
   const filtered = (rows ?? []).filter((r) => {
     const q = query.trim()
@@ -68,19 +72,37 @@ function PatientsDebtTab() {
                 <Td className="text-muted">{r.phone ?? '—'}</Td>
                 <Td className="font-semibold text-danger">{r.outstanding_ils.toFixed(2)} ₪</Td>
                 <Td>
-                  <Link
-                    to={`/patients/${r.patient_id}?pay=1`}
-                    className="flex items-center gap-1 text-xs text-accent hover:underline"
-                  >
-                    التفاصيل والتحصيل
-                    <FontAwesomeIcon icon={faArrowLeft} />
-                  </Link>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => setPayingPatient(r)}
+                      className="flex items-center gap-1 text-xs font-medium text-accent hover:underline"
+                    >
+                      <FontAwesomeIcon icon={faCoins} />
+                      تحصيل
+                    </button>
+                    <Link to={`/patients/${r.patient_id}`} className="flex items-center gap-1 text-xs text-ink/60 hover:text-accent hover:underline">
+                      <FontAwesomeIcon icon={faUser} />
+                      فتح الملف
+                      <FontAwesomeIcon icon={faArrowLeft} />
+                    </Link>
+                  </div>
                 </Td>
               </Tr>
             ))
           )}
         </tbody>
       </Table>
+
+      {payingPatient && (
+        <PatientPaymentModal
+          patientId={payingPatient.patient_id}
+          patientName={payingPatient.full_name ?? ''}
+          onClose={() => {
+            setPayingPatient(null)
+            load()
+          }}
+        />
+      )}
     </Card>
   )
 }
