@@ -86,6 +86,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('treatment-plans', [TreatmentPlanController::class, 'index']);
     Route::post('treatment-plans', [TreatmentPlanController::class, 'store']);
     Route::get('treatment-plans/{treatmentPlan}', [TreatmentPlanController::class, 'show']);
+    Route::patch('treatment-plans/{treatmentPlan}', [TreatmentPlanController::class, 'update']);
     Route::delete('treatment-plans/{treatmentPlan}', [TreatmentPlanController::class, 'destroy']);
     Route::post('treatment-plans/{treatmentPlan}/items', [TreatmentPlanController::class, 'addItem']);
     Route::patch('treatment-plans/{treatmentPlan}/items/{item}/teeth', [TreatmentPlanController::class, 'updateItemTeeth']);

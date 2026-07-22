@@ -54,6 +54,21 @@ class TreatmentPlanController extends Controller
         return new TreatmentPlanResource($treatmentPlan->load(['doctor', 'items.service', 'items.sessions']));
     }
 
+    public function update(Request $request, TreatmentPlan $treatmentPlan)
+    {
+        $this->authorize('update', $treatmentPlan);
+        abort_if($treatmentPlan->status === 'cancelled', 422, 'ما بينفع تعديل خطة ملغاة.');
+
+        $data = $request->validate([
+            'notes' => ['sometimes', 'nullable', 'string'],
+            'doctor_id' => ['sometimes', 'nullable', 'exists:doctors,id'],
+        ]);
+
+        $treatmentPlan->update($data);
+
+        return new TreatmentPlanResource($treatmentPlan->fresh()->load(['doctor', 'items.service']));
+    }
+
     public function destroy(TreatmentPlan $treatmentPlan)
     {
         $this->authorize('delete', $treatmentPlan);

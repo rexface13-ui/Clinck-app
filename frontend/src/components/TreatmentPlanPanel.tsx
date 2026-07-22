@@ -93,11 +93,14 @@ export default function TreatmentPlanPanel({ patientId, patientName, isChild = f
   const [services, setServices] = useState<Service[]>([])
   const [showNewPlan, setShowNewPlan] = useState(false)
   const [newDoctorId, setNewDoctorId] = useState('')
+  const [newNotes, setNewNotes] = useState('')
   const [itemForm, setItemForm] = useState<Record<number, ItemFormState>>({})
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const [recordingForPlanId, setRecordingForPlanId] = useState<number | null>(null)
   const [editingTeethItemId, setEditingTeethItemId] = useState<number | null>(null)
   const [editTeethValue, setEditTeethValue] = useState('')
+  const [editingNotesPlanId, setEditingNotesPlanId] = useState<number | null>(null)
+  const [editNotesValue, setEditNotesValue] = useState('')
   const [busy, setBusy] = useState(false)
 
   function toggleGroup(key: string) {
@@ -138,9 +141,10 @@ export default function TreatmentPlanPanel({ patientId, patientName, isChild = f
   async function createPlan() {
     setBusy(true)
     try {
-      await api.post('/treatment-plans', { patient_id: patientId, doctor_id: newDoctorId ? Number(newDoctorId) : null })
+      await api.post('/treatment-plans', { patient_id: patientId, doctor_id: newDoctorId ? Number(newDoctorId) : null, notes: newNotes || null })
       setShowNewPlan(false)
       setNewDoctorId('')
+      setNewNotes('')
       load()
     } finally {
       setBusy(false)
@@ -220,6 +224,22 @@ export default function TreatmentPlanPanel({ patientId, patientName, isChild = f
     try {
       await api.patch(`/treatment-plans/${planId}/items/${itemId}/teeth`, { tooth_numbers: teeth })
       setEditingTeethItemId(null)
+      load()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function startEditNotes(plan: TreatmentPlan) {
+    setEditingNotesPlanId(plan.id)
+    setEditNotesValue(plan.notes ?? '')
+  }
+
+  async function saveNotesEdit(planId: number) {
+    setBusy(true)
+    try {
+      await api.patch(`/treatment-plans/${planId}`, { notes: editNotesValue || null })
+      setEditingNotesPlanId(null)
       load()
     } finally {
       setBusy(false)
@@ -323,8 +343,8 @@ export default function TreatmentPlanPanel({ patientId, patientName, isChild = f
       </p>
 
       {showNewPlan && (
-        <div className="mb-4 flex items-end gap-2 rounded-lg bg-background p-3">
-          <div className="flex-1">
+        <div className="mb-4 space-y-2 rounded-lg bg-background p-3">
+          <div>
             <label className="mb-1 block text-xs text-ink/60">الطبيب المعالج (اختياري)</label>
             <select
               value={newDoctorId}
@@ -337,9 +357,21 @@ export default function TreatmentPlanPanel({ patientId, patientName, isChild = f
               ))}
             </select>
           </div>
-          <button onClick={createPlan} disabled={busy} className="rounded-lg bg-accent px-3 py-1.5 text-xs text-white hover:bg-accent-hover disabled:opacity-60">
-            إنشاء
-          </button>
+          <div>
+            <label className="mb-1 block text-xs text-ink/60">ملاحظات الخطة (اختياري)</label>
+            <textarea
+              value={newNotes}
+              onChange={(e) => setNewNotes(e.target.value)}
+              rows={2}
+              placeholder="شو الخطة العلاجية، وشو الهدف منها..."
+              className="w-full rounded-lg border border-ink/10 px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
+            />
+          </div>
+          <div className="flex justify-end">
+            <button onClick={createPlan} disabled={busy} className="rounded-lg bg-accent px-3 py-1.5 text-xs text-white hover:bg-accent-hover disabled:opacity-60">
+              إنشاء
+            </button>
+          </div>
         </div>
       )}
 
@@ -359,6 +391,37 @@ export default function TreatmentPlanPanel({ patientId, patientName, isChild = f
                   >
                     {STATUS_LABELS[plan.status]}
                   </span>
+                  {plan.status !== 'cancelled' && editingNotesPlanId !== plan.id && (
+                    <>
+                      {plan.notes ? (
+                        <span className="mr-2 text-xs text-ink/50">{plan.notes}</span>
+                      ) : (
+                        canManage && <span className="mr-2 text-xs text-ink/30">بدون ملاحظات</span>
+                      )}
+                      {canManage && (
+                        <button onClick={() => startEditNotes(plan)} className="mr-2 text-ink/40 hover:text-accent">
+                          <FontAwesomeIcon icon={faPen} />
+                        </button>
+                      )}
+                    </>
+                  )}
+                  {editingNotesPlanId === plan.id && (
+                    <div className="mt-2 flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={editNotesValue}
+                        onChange={(e) => setEditNotesValue(e.target.value)}
+                        className="flex-1 rounded-lg border border-ink/10 px-2 py-1 text-xs"
+                        placeholder="ملاحظات الخطة..."
+                      />
+                      <button onClick={() => saveNotesEdit(plan.id)} disabled={busy} className="rounded-lg bg-accent px-2 py-1 text-xs text-white hover:bg-accent-hover disabled:opacity-60">
+                        حفظ
+                      </button>
+                      <button onClick={() => setEditingNotesPlanId(null)} className="text-xs text-ink/50 hover:underline">
+                        إلغاء
+                      </button>
+                    </div>
+                  )}
                 </div>
                 {canManage && plan.status === 'draft' && (
                   <div className="flex items-center gap-2">
