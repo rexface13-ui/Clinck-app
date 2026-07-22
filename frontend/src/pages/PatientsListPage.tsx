@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faPlus, faUser, faBolt } from '@fortawesome/free-solid-svg-icons'
+import { faPlus, faUser, faBolt, faMagnifyingGlass } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import DatePicker from '../components/DatePicker'
@@ -27,6 +27,7 @@ export default function PatientsListPage() {
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(() => searchParams.get('new') === '1')
   const [submitting, setSubmitting] = useState(false)
+  const [search, setSearch] = useState('')
 
   useEffect(() => {
     if (searchParams.get('new') === '1') {
@@ -54,15 +55,19 @@ export default function PatientsListPage() {
   })
   const [error, setError] = useState<string | null>(null)
 
-  function loadPatients() {
+  function loadPatients(searchTerm?: string) {
     setLoading(true)
     api
-      .get('/patients')
+      .get('/patients', { params: searchTerm ? { search: searchTerm } : undefined })
       .then((res) => setPatients(res.data.data))
       .finally(() => setLoading(false))
   }
 
-  useEffect(loadPatients, [])
+  useEffect(() => {
+    const id = setTimeout(() => loadPatients(search.trim() || undefined), 250)
+    return () => clearTimeout(id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search])
   useEffect(() => {
     api.get('/doctors').then((res) => setDoctors(res.data.data))
   }, [])
@@ -130,6 +135,16 @@ export default function PatientsListPage() {
           )
         }
       />
+
+      <div className="relative mb-4 w-full sm:w-80">
+        <FontAwesomeIcon icon={faMagnifyingGlass} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted" />
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="بحث بالاسم أو رقم الهاتف..."
+          className="w-full rounded-xl border border-border bg-surface py-2.5 pe-3 ps-9 text-sm focus:border-accent focus:outline-none"
+        />
+      </div>
 
       {showForm && (
         <Modal title="مريض جديد" onClose={() => setShowForm(false)} width="w-[640px]">

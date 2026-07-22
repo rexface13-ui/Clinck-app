@@ -291,6 +291,38 @@ export default function CompleteVisitModal({ appointmentId, patientId, patientNa
 
                 {pickerOpenIdx === idx && (
                   <div className="mt-2 space-y-2 rounded-lg border border-border bg-white p-2">
+                    <div className="flex flex-wrap gap-1">
+                      <button
+                        type="button"
+                        onClick={() => updateTeeth(idx, pickerTeeth.map((t) => t.number).join(','))}
+                        className="rounded-lg border border-border px-2 py-1 text-[11px] text-ink/70 hover:border-accent hover:text-accent"
+                      >
+                        تحديد الكل
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateTeeth(idx, (isChild ? UPPER_PRIMARY : UPPER_PERMANENT).join(','))}
+                        className="rounded-lg border border-border px-2 py-1 text-[11px] text-ink/70 hover:border-accent hover:text-accent"
+                      >
+                        النصف العلوي
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateTeeth(idx, (isChild ? LOWER_PRIMARY : LOWER_PERMANENT).join(','))}
+                        className="rounded-lg border border-border px-2 py-1 text-[11px] text-ink/70 hover:border-accent hover:text-accent"
+                      >
+                        النصف السفلي
+                      </button>
+                      {l.tooth_numbers && (
+                        <button
+                          type="button"
+                          onClick={() => updateTeeth(idx, '')}
+                          className="rounded-lg border border-danger/20 px-2 py-1 text-[11px] text-danger/70 hover:border-danger hover:text-danger"
+                        >
+                          مسح التحديد
+                        </button>
+                      )}
+                    </div>
                     <svg viewBox={`0 0 ${VIEWBOX.width} ${VIEWBOX.height}`} className="w-full" style={{ maxWidth: 380 }}>
                       <line
                         x1={40}

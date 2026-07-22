@@ -3,11 +3,8 @@ import { Link, useNavigate } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import {
   faCalendarCheck,
-  faSackDollar,
-  faWallet,
   faTriangleExclamation,
   faMoneyCheckDollar,
-  faUserDoctor,
   faFileInvoiceDollar,
   faEye,
   faEyeSlash,
@@ -18,6 +15,7 @@ import {
   faBoxesStacked,
   faDatabase,
   faCoins,
+  faMagnifyingGlass,
 } from '@fortawesome/free-solid-svg-icons'
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core'
 import { api } from '../lib/api'
@@ -68,14 +66,12 @@ interface Invoice {
   issued_at: string
 }
 
-interface TopDoctor {
-  doctor_name: string | null
-  total_ils: number
-}
-
 interface CheckAlert {
   id: number
+  direction: 'incoming' | 'outgoing'
   check_number: string
+  bank_name: string | null
+  party_name: string | null
   amount: number
   currency: string
   due_date: string
@@ -91,15 +87,11 @@ interface ExpiringLot {
 interface Summary {
   kpis: {
     today_appointments: number
-    month_revenue_ils: number | null
     outstanding_balance_ils: number | null
-    unsettled_commissions_ils: number | null
-    cashboxes_total: number | null
     checks_due_soon: number | null
   }
   today_appointments: Appointment[]
   recent_invoices: Invoice[]
-  top_doctors: TopDoctor[]
   alerts: {
     checks_due: CheckAlert[]
     expiring_lots: ExpiringLot[]
@@ -152,6 +144,9 @@ export default function DashboardPage() {
   const [showPatientSearch, setShowPatientSearch] = useState(false)
   const [showPaymentSearch, setShowPaymentSearch] = useState(false)
   const [completingVisit, setCompletingVisit] = useState<Appointment | null>(null)
+  const [selectedCheck, setSelectedCheck] = useState<CheckAlert | null>(null)
+  const [invoiceSearch, setInvoiceSearch] = useState('')
+  const [searchedInvoices, setSearchedInvoices] = useState<Invoice[] | null>(null)
   const quickActions = buildQuickActions(() => setShowPatientSearch(true), () => setShowPaymentSearch(true))
 
   function loadSummary() {
@@ -190,12 +185,26 @@ export default function DashboardPage() {
     return () => clearInterval(id)
   }, [])
 
+  useEffect(() => {
+    const trimmed = invoiceSearch.trim()
+    if (trimmed.length < 2) {
+      setSearchedInvoices(null)
+      return
+    }
+    const id = setTimeout(() => {
+      api.get<Invoice[]>('/invoices', { params: { search: trimmed } }).then((res) => setSearchedInvoices(res.data))
+    }, 250)
+    return () => clearTimeout(id)
+  }, [invoiceSearch])
+
   function toggleHideMoney() {
     setHideMoney((prev) => {
       localStorage.setItem('dashboard.hideMoney', prev ? '0' : '1')
       return !prev
     })
   }
+
+  const invoicesToShow = searchedInvoices ?? data?.recent_invoices ?? []
 
   return (
     <div>
@@ -269,158 +278,171 @@ export default function DashboardPage() {
         />
       )}
 
+      <Card className="mb-8">
+        <h2 className="p-6 pb-0 text-sm font-semibold text-ink/80">مواعيد اليوم</h2>
+        {!data ? (
+          <TableSkeleton />
+        ) : (
+          <Table>
+            <Thead>
+              <Th>الوقت</Th>
+              <Th>المريض</Th>
+              <Th>الطبيب</Th>
+              <Th>الحالة</Th>
+              <Th></Th>
+            </Thead>
+            <tbody>
+              {data.today_appointments.length === 0 ? (
+                <EmptyRow colSpan={5}>لا يوجد مواعيد اليوم</EmptyRow>
+              ) : (
+                data.today_appointments.map((a) => (
+                  <Tr key={a.id}>
+                    <Td className="font-mono">{a.time}</Td>
+                    <Td>{a.patient_name}</Td>
+                    <Td>{a.doctor_name}</Td>
+                    <Td>
+                      <Badge variant={statusVariants[a.status] ?? 'neutral'}>{statusLabels[a.status] ?? a.status}</Badge>
+                    </Td>
+                    <Td>
+                      {(a.status === 'scheduled' || a.status === 'confirmed') && can('appointments.manage') && (
+                        <button
+                          onClick={() => setCompletingVisit(a)}
+                          className="rounded-lg bg-accent-soft px-2.5 py-1 text-xs font-medium text-accent hover:bg-accent hover:text-white"
+                        >
+                          تمّت الزيارة
+                        </button>
+                      )}
+                    </Td>
+                  </Tr>
+                ))
+              )}
+            </tbody>
+          </Table>
+        )}
+      </Card>
+
       {!data ? (
-        <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-3">
-          {Array.from({ length: 6 }).map((_, i) => (
+        <div className="mb-8 grid grid-cols-1 gap-4 lg:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, i) => (
             <CardSkeleton key={i} />
           ))}
         </div>
       ) : (
-        <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <StatCard icon={faCalendarCheck} label="مواعيد اليوم" value={String(data.kpis.today_appointments)} />
-          {data.kpis.month_revenue_ils !== null && (
-            <StatCard icon={faSackDollar} label="إيرادات الشهر" value={`${money(data.kpis.month_revenue_ils)} ₪`} masked={hideMoney} />
-          )}
-          {data.kpis.outstanding_balance_ils !== null && (
-            <StatCard
-              icon={faFileInvoiceDollar}
-              label="أرصدة المرضى المستحقة"
-              value={`${money(data.kpis.outstanding_balance_ils)} ₪`}
-              tone="danger"
-              masked={hideMoney}
-            />
-          )}
-          {data.kpis.unsettled_commissions_ils !== null && (
-            <StatCard
-              icon={faUserDoctor}
-              label="عمولات غير مسواة"
-              value={`${money(data.kpis.unsettled_commissions_ils)} ₪`}
-              tone="danger"
-              masked={hideMoney}
-            />
-          )}
-          {data.kpis.cashboxes_total !== null && (
-            <StatCard icon={faWallet} label="رصيد الصناديق" value={`${money(data.kpis.cashboxes_total)} ₪`} masked={hideMoney} />
-          )}
-          {data.kpis.checks_due_soon !== null && (
-            <StatCard icon={faMoneyCheckDollar} label="شيكات مستحقة قريباً" value={String(data.kpis.checks_due_soon)} tone="danger" />
-          )}
+        <div className="mb-8 grid grid-cols-1 gap-5 lg:grid-cols-3">
+          <div className="flex flex-col gap-3 lg:col-span-1">
+            <StatCard icon={faCalendarCheck} label="مواعيد اليوم" value={String(data.kpis.today_appointments)} />
+            {data.kpis.outstanding_balance_ils !== null && (
+              <Link to="/debts">
+                <StatCard
+                  icon={faFileInvoiceDollar}
+                  label="أرصدة المرضى المستحقة"
+                  value={`${money(data.kpis.outstanding_balance_ils)} ₪`}
+                  tone="danger"
+                  masked={hideMoney}
+                />
+              </Link>
+            )}
+            {data.kpis.checks_due_soon !== null && (
+              <Link to="/checks">
+                <StatCard icon={faMoneyCheckDollar} label="شيكات مستحقة قريباً" value={String(data.kpis.checks_due_soon)} tone="danger" />
+              </Link>
+            )}
+          </div>
+
+          <Card className="p-6 lg:col-span-2">
+            <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-ink/80">
+              <FontAwesomeIcon icon={faTriangleExclamation} className="text-danger" />
+              شيكات مستحقة خلال 7 أيام
+            </h2>
+            {data.alerts.checks_due.length === 0 ? (
+              <p className="py-4 text-sm text-muted">لا يوجد شيكات مستحقة قريباً</p>
+            ) : (
+              <ul className="space-y-3 text-sm">
+                {data.alerts.checks_due.map((c) => (
+                  <li key={c.id}>
+                    <button
+                      onClick={() => setSelectedCheck(c)}
+                      className="flex w-full items-center justify-between gap-2 rounded-lg border-b border-border/70 pb-2 text-start last:border-0 hover:text-accent"
+                    >
+                      <span className="flex items-center gap-2 text-ink/80">
+                        <Badge variant={c.direction === 'incoming' ? 'success' : 'warning'}>
+                          {c.direction === 'incoming' ? 'لي' : 'عليّ'}
+                        </Badge>
+                        {c.check_number}
+                        {c.party_name && <span className="text-muted">— {c.party_name}</span>}
+                      </span>
+                      <span className="text-muted">
+                        {hideMoney ? '••••' : `${money(c.amount)} ${c.currency}`} — {formatDate(c.due_date)}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
         </div>
       )}
 
-      <div className="mb-8 grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <Card className="p-6">
-          <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-ink/80">
-            <FontAwesomeIcon icon={faTriangleExclamation} className="text-danger" />
-            شيكات مستحقة خلال 7 أيام
-          </h2>
-          {!data ? (
-            <TableSkeleton rows={3} cols={2} />
-          ) : data.alerts.checks_due.length === 0 ? (
-            <p className="py-4 text-sm text-muted">لا يوجد شيكات مستحقة قريباً</p>
-          ) : (
-            <ul className="space-y-3 text-sm">
-              {data.alerts.checks_due.map((c) => (
-                <li key={c.id} className="flex items-center justify-between border-b border-border/70 pb-2 last:border-0">
-                  <span className="text-ink/80">{c.check_number}</span>
-                  <span className="text-muted">
-                    {hideMoney ? '••••' : `${money(c.amount)} ${c.currency}`} — {formatDate(c.due_date)}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
+      {selectedCheck && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={() => setSelectedCheck(null)}>
+          <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="mb-3 text-sm font-semibold text-ink">تفاصيل الشيك</h3>
+            <dl className="space-y-2 text-sm">
+              <div className="flex justify-between"><dt className="text-muted">الاتجاه</dt><dd>{selectedCheck.direction === 'incoming' ? 'لي (وارد)' : 'عليّ (صادر)'}</dd></div>
+              <div className="flex justify-between"><dt className="text-muted">رقم الشيك</dt><dd>{selectedCheck.check_number}</dd></div>
+              {selectedCheck.bank_name && <div className="flex justify-between"><dt className="text-muted">البنك</dt><dd>{selectedCheck.bank_name}</dd></div>}
+              {selectedCheck.party_name && <div className="flex justify-between"><dt className="text-muted">الطرف</dt><dd>{selectedCheck.party_name}</dd></div>}
+              <div className="flex justify-between"><dt className="text-muted">المبلغ</dt><dd>{money(selectedCheck.amount)} {selectedCheck.currency}</dd></div>
+              <div className="flex justify-between"><dt className="text-muted">تاريخ الاستحقاق</dt><dd>{formatDate(selectedCheck.due_date)}</dd></div>
+            </dl>
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setSelectedCheck(null)} className="rounded-lg px-3 py-1.5 text-sm text-muted hover:bg-background">
+                إغلاق
+              </button>
+              <Link to="/checks" className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-hover">
+                فتح صفحة الشيكات
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
 
-        <Card className="p-6">
-          <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-ink/80">
-            <FontAwesomeIcon icon={faTriangleExclamation} className="text-danger" />
-            أصناف قاربت على الانتهاء
-          </h2>
-          {!data ? (
-            <TableSkeleton rows={3} cols={2} />
-          ) : data.alerts.expiring_lots.length === 0 ? (
-            <p className="py-4 text-sm text-muted">لا يوجد أصناف قاربت على الانتهاء</p>
-          ) : (
-            <ul className="space-y-3 text-sm">
-              {data.alerts.expiring_lots.map((l, idx) => (
-                <li key={idx} className="flex items-center justify-between border-b border-border/70 pb-2 last:border-0">
-                  <span className="text-ink/80">
-                    {l.item_name} <span className="text-muted">({l.lot_number})</span>
-                  </span>
-                  <span className="text-muted">{formatDate(l.expiry_date)}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
-      </div>
+      <Card className="mb-8 p-6">
+        <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-ink/80">
+          <FontAwesomeIcon icon={faTriangleExclamation} className="text-danger" />
+          أصناف قاربت على الانتهاء
+        </h2>
+        {!data ? (
+          <TableSkeleton rows={3} cols={2} />
+        ) : data.alerts.expiring_lots.length === 0 ? (
+          <p className="py-4 text-sm text-muted">لا يوجد أصناف قاربت على الانتهاء</p>
+        ) : (
+          <ul className="space-y-3 text-sm">
+            {data.alerts.expiring_lots.map((l, idx) => (
+              <li key={idx} className="flex items-center justify-between border-b border-border/70 pb-2 last:border-0">
+                <span className="text-ink/80">
+                  {l.item_name} <span className="text-muted">({l.lot_number})</span>
+                </span>
+                <span className="text-muted">{formatDate(l.expiry_date)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
 
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <h2 className="p-6 pb-0 text-sm font-semibold text-ink/80">مواعيد اليوم</h2>
-          {!data ? (
-            <TableSkeleton />
-          ) : (
-            <Table>
-              <Thead>
-                <Th>الوقت</Th>
-                <Th>المريض</Th>
-                <Th>الطبيب</Th>
-                <Th>الحالة</Th>
-                <Th></Th>
-              </Thead>
-              <tbody>
-                {data.today_appointments.length === 0 ? (
-                  <EmptyRow colSpan={5}>لا يوجد مواعيد اليوم</EmptyRow>
-                ) : (
-                  data.today_appointments.map((a) => (
-                    <Tr key={a.id}>
-                      <Td className="font-mono">{a.time}</Td>
-                      <Td>{a.patient_name}</Td>
-                      <Td>{a.doctor_name}</Td>
-                      <Td>
-                        <Badge variant={statusVariants[a.status] ?? 'neutral'}>{statusLabels[a.status] ?? a.status}</Badge>
-                      </Td>
-                      <Td>
-                        {(a.status === 'scheduled' || a.status === 'confirmed') && can('appointments.manage') && (
-                          <button
-                            onClick={() => setCompletingVisit(a)}
-                            className="rounded-lg bg-accent-soft px-2.5 py-1 text-xs font-medium text-accent hover:bg-accent hover:text-white"
-                          >
-                            تمّت الزيارة
-                          </button>
-                        )}
-                      </Td>
-                    </Tr>
-                  ))
-                )}
-              </tbody>
-            </Table>
-          )}
-        </Card>
-
-        <Card className="p-6">
-          <h2 className="mb-4 text-sm font-semibold text-ink/80">أعلى الأطباء (هذا الشهر)</h2>
-          {!data ? (
-            <TableSkeleton rows={4} cols={2} />
-          ) : data.top_doctors.length === 0 ? (
-            <p className="py-4 text-sm text-muted">لا توجد بيانات بعد</p>
-          ) : (
-            <ul className="space-y-3 text-sm">
-              {data.top_doctors.map((d, idx) => (
-                <li key={idx} className="flex items-center justify-between border-b border-border/70 pb-2 last:border-0">
-                  <span className="text-ink/80">{d.doctor_name}</span>
-                  <span className="text-muted">{hideMoney ? '••••' : `${money(d.total_ils)} ₪`}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
-      </div>
-
-      <Card className="mt-4">
-        <h2 className="p-6 pb-0 text-sm font-semibold text-ink/80">آخر الفواتير</h2>
+      <Card>
+        <div className="flex flex-wrap items-center justify-between gap-3 p-6 pb-0">
+          <h2 className="text-sm font-semibold text-ink/80">آخر الفواتير</h2>
+          <div className="relative">
+            <FontAwesomeIcon icon={faMagnifyingGlass} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted" />
+            <input
+              value={invoiceSearch}
+              onChange={(e) => setInvoiceSearch(e.target.value)}
+              placeholder="بحث باسم المريض أو الخدمة أو رقم الفاتورة..."
+              className="w-72 rounded-xl border border-border bg-surface py-2 pe-3 ps-9 text-sm focus:border-accent focus:outline-none"
+            />
+          </div>
+        </div>
         {!data ? (
           <TableSkeleton />
         ) : (
@@ -433,10 +455,10 @@ export default function DashboardPage() {
               <Th>التاريخ</Th>
             </Thead>
             <tbody>
-              {data.recent_invoices.length === 0 ? (
-                <EmptyRow colSpan={5}>لا توجد فواتير بعد</EmptyRow>
+              {invoicesToShow.length === 0 ? (
+                <EmptyRow colSpan={5}>{searchedInvoices ? 'لا توجد نتائج مطابقة' : 'لا توجد فواتير بعد'}</EmptyRow>
               ) : (
-                data.recent_invoices.map((inv) => (
+                invoicesToShow.map((inv) => (
                   <Tr key={inv.id}>
                     <Td>{inv.invoice_number}</Td>
                     <Td>{inv.patient_name}</Td>

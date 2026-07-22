@@ -88,10 +88,7 @@ export default function PatientSearchModal({ onClose, mode = 'visit', onStartVis
         <ul className="max-h-72 space-y-1 overflow-y-auto">
           {results.map((p) => (
             <li key={p.id} className="flex items-center gap-2 rounded-xl border border-transparent px-3 py-2.5 transition-colors hover:border-accent hover:bg-accent-soft">
-              <button
-                onClick={() => goToPatient(p.id)}
-                className="flex flex-1 items-center gap-3 text-start text-sm"
-              >
+              <span className="flex flex-1 items-center gap-3 text-start text-sm">
                 <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-accent">
                   <FontAwesomeIcon icon={faUser} />
                 </span>
@@ -99,7 +96,7 @@ export default function PatientSearchModal({ onClose, mode = 'visit', onStartVis
                   <span className="block font-medium text-ink">{p.full_name}</span>
                   <span className="block text-xs text-muted">{p.code}{p.phone ? ` · ${p.phone}` : ''}</span>
                 </span>
-              </button>
+              </span>
               <button
                 onClick={() => startVisit(p)}
                 title="تسجيل زيارة الآن"

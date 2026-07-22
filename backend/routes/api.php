@@ -38,6 +38,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/bootstrap', BootstrapController::class);
 
     Route::get('dashboard/summary', [DashboardController::class, 'summary']);
+    Route::get('invoices', [DashboardController::class, 'invoices']);
 
     Route::get('debts/patients', [DebtController::class, 'patients']);
 

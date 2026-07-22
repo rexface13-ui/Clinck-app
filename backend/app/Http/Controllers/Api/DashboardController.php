@@ -18,6 +18,37 @@ use Illuminate\Support\Facades\DB;
 
 class DashboardController extends Controller
 {
+    public function invoices(Request $request)
+    {
+        abort_unless($request->user()->can('billing.view'), 403);
+
+        $search = trim((string) $request->query('search', ''));
+
+        $query = Invoice::with('patient:id,full_name')
+            ->orderByDesc('issued_at')
+            ->limit(20);
+
+        if ($search !== '') {
+            $query->where(function ($q) use ($search) {
+                $q->whereHas('patient', fn ($p) => $p->where('full_name', 'like', "%{$search}%"))
+                    ->orWhereHas('lines', fn ($l) => $l->where('description', 'like', "%{$search}%"))
+                    ->orWhere('invoice_number', 'like', "%{$search}%");
+            });
+        }
+
+        return response()->json(
+            $query->get(['id', 'patient_id', 'invoice_number', 'status', 'total_amount_ils', 'issued_at'])
+                ->map(fn (Invoice $i) => [
+                    'id' => $i->id,
+                    'invoice_number' => $i->invoice_number,
+                    'patient_name' => $i->patient?->full_name,
+                    'status' => $i->status,
+                    'total_amount_ils' => (float) $i->total_amount_ils,
+                    'issued_at' => $i->issued_at,
+                ]),
+        );
+    }
+
     public function summary(Request $request)
     {
         $user = $request->user();
@@ -111,11 +142,22 @@ class DashboardController extends Controller
                     'total_ils' => (float) $row->total,
                 ]) : [],
             'alerts' => [
-                'checks_due' => $canViewChecks ? CheckModel::where('status', 'in_wallet')
+                'checks_due' => $canViewChecks ? CheckModel::with('party')
+                    ->where('status', 'in_wallet')
                     ->whereBetween('due_date', [Carbon::today($timezone), Carbon::today($timezone)->addDays(7)])
                     ->orderBy('due_date')
                     ->limit(5)
-                    ->get(['id', 'check_number', 'amount', 'currency', 'due_date']) : [],
+                    ->get(['id', 'direction', 'party_type', 'party_id', 'check_number', 'bank_name', 'amount', 'currency', 'due_date'])
+                    ->map(fn (CheckModel $c) => [
+                        'id' => $c->id,
+                        'direction' => $c->direction,
+                        'check_number' => $c->check_number,
+                        'bank_name' => $c->bank_name,
+                        'party_name' => $c->party?->full_name ?? $c->party?->name,
+                        'amount' => (float) $c->amount,
+                        'currency' => $c->currency,
+                        'due_date' => $c->due_date,
+                    ]) : [],
                 'expiring_lots' => $canViewInventory ? ItemLot::with('item:id,name')
                     ->whereNotNull('expiry_date')
                     ->whereBetween('expiry_date', [Carbon::today($timezone), Carbon::today($timezone)->addDays(30)])
