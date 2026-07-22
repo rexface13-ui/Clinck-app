@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faCheck, faXmark, faFileInvoiceDollar } from '@fortawesome/free-solid-svg-icons'
+import { faCheck, faXmark, faFileInvoiceDollar, faUser } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import { formatDate, formatTime } from '../lib/formatDate'
@@ -99,9 +99,7 @@ export default function AppointmentDetailModal({ appointmentId, onClose, onChang
         <div className="space-y-4">
           <div className="flex items-start justify-between">
             <div>
-              <Link to={`/patients/${appointment.patient_id}`} onClick={onClose} className="text-lg font-semibold text-ink hover:text-accent">
-                {appointment.patient_name}
-              </Link>
+              <p className="text-lg font-semibold text-ink">{appointment.patient_name}</p>
               <p className="mt-1 text-sm text-muted">{appointment.doctor_name ?? 'بدون طبيب محدد'}</p>
               <p className="mt-1 text-sm text-muted">
                 {formatDate(appointment.starts_at)} — {formatTime(appointment.starts_at)}
@@ -109,6 +107,15 @@ export default function AppointmentDetailModal({ appointmentId, onClose, onChang
             </div>
             <Badge variant={STATUS_VARIANTS[appointment.status]}>{STATUS_LABELS[appointment.status]}</Badge>
           </div>
+
+          <Link
+            to={`/patients/${appointment.patient_id}`}
+            onClick={onClose}
+            className="flex w-full items-center justify-center gap-2 rounded-lg bg-accent-soft py-2 text-sm font-medium text-accent hover:bg-accent hover:text-white"
+          >
+            <FontAwesomeIcon icon={faUser} />
+            فتح ملف المريض
+          </Link>
 
           {plan && (
             <div className="rounded-lg bg-background p-3">

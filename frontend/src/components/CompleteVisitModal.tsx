@@ -76,7 +76,7 @@ export default function CompleteVisitModal({ appointmentId, patientId, patientNa
   const [cashboxes, setCashboxes] = useState<Cashbox[]>([])
   const [lines, setLines] = useState<Line[]>([])
   const [addServiceId, setAddServiceId] = useState('')
-  const [discountType, setDiscountType] = useState<'percent' | 'fixed'>('percent')
+  const [discountType, setDiscountType] = useState<'percent' | 'fixed'>('fixed')
   const [discountValue, setDiscountValue] = useState('')
   const [payMode, setPayMode] = useState<'now' | 'check' | 'defer'>('now')
   const [cashboxId, setCashboxId] = useState('')
