@@ -14,9 +14,11 @@ interface Props {
   onStartVisit?: (patient: Patient) => void
   /** 'visit' mode only: jump to the appointments page with this patient preselected, to just pick a time. */
   onBookAppointment?: (patient: Patient) => void
+  /** 'pay' mode only: open the payment/ledger popup for this patient right here, instead of navigating to their profile. */
+  onSelectForPayment?: (patient: Patient) => void
 }
 
-export default function PatientSearchModal({ onClose, mode = 'visit', onStartVisit, onBookAppointment }: Props) {
+export default function PatientSearchModal({ onClose, mode = 'visit', onStartVisit, onBookAppointment, onSelectForPayment }: Props) {
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<Patient[] | null>(null)
@@ -43,9 +45,9 @@ export default function PatientSearchModal({ onClose, mode = 'visit', onStartVis
     return () => clearTimeout(id)
   }, [query])
 
-  function goToPatient(id: number) {
+  function selectForPayment(patient: Patient) {
     onClose()
-    navigate(mode === 'pay' ? `/patients/${id}?pay=1` : `/patients/${id}`)
+    onSelectForPayment?.(patient)
   }
 
   function startVisit(patient: Patient) {
@@ -123,7 +125,7 @@ export default function PatientSearchModal({ onClose, mode = 'visit', onStartVis
           {results.map((p) => (
             <li key={p.id}>
               <button
-                onClick={() => goToPatient(p.id)}
+                onClick={() => selectForPayment(p)}
                 className="flex w-full items-center gap-3 rounded-xl border border-transparent px-3 py-2.5 text-start text-sm transition-colors hover:border-accent hover:bg-accent-soft"
               >
                 <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-accent">

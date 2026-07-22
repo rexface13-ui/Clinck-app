@@ -113,7 +113,12 @@ class DashboardController extends Controller
                     'id' => $a->id,
                     'patient_id' => $a->patient_id,
                     'doctor_id' => $a->doctor_id,
-                    'time' => $a->starts_at->format('H:i'),
+                    // Raw ISO — the frontend converts to the display timezone via
+                    // lib/formatDate.ts, same as everywhere else. Pre-formatting
+                    // "H:i" here used the app's storage timezone (UTC) instead of
+                    // the clinic's display timezone, so it disagreed with the
+                    // appointments page whenever those differ.
+                    'starts_at' => $a->starts_at->toIso8601String(),
                     'patient_name' => $a->patient?->full_name,
                     'doctor_name' => $a->doctor?->full_name,
                     'status' => $a->status,

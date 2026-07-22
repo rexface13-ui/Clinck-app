@@ -25,7 +25,16 @@ const TYPE_VARIANTS: Record<string, BadgeVariant> = {
 
 type Tab = 'cash' | 'check'
 
-export default function PatientLedgerPanel({ patientId, refreshSignal }: { patientId: number; refreshSignal?: number }) {
+export default function PatientLedgerPanel({
+  patientId,
+  refreshSignal,
+  autoOpenPayment = false,
+}: {
+  patientId: number
+  refreshSignal?: number
+  /** Skip the "pay=1" query-param dance and just open the payment form immediately — used when this panel is embedded in a popup rather than a routed page. */
+  autoOpenPayment?: boolean
+}) {
   const { can } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
   const canCollectCash = can('billing.manage')
@@ -34,7 +43,7 @@ export default function PatientLedgerPanel({ patientId, refreshSignal }: { patie
   const [ledger, setLedger] = useState<Ledger | null>(null)
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [cashboxes, setCashboxes] = useState<Cashbox[]>([])
-  const [showForm, setShowForm] = useState(() => searchParams.get('pay') === '1')
+  const [showForm, setShowForm] = useState(() => autoOpenPayment || searchParams.get('pay') === '1')
   const [tab, setTab] = useState<Tab>(canCollectCash ? 'cash' : 'check')
 
   const [cashForm, setCashForm] = useState({ invoice_id: '', cashbox_id: '', amount: '', method: 'cash' as 'cash' | 'card' | 'transfer' })

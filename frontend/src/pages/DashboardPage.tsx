@@ -19,9 +19,11 @@ import {
 } from '@fortawesome/free-solid-svg-icons'
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core'
 import { api } from '../lib/api'
+import { formatDate, formatTime } from '../lib/formatDate'
 import { useAuth } from '../contexts/AuthContext'
 import PatientSearchModal from '../components/PatientSearchModal'
 import CompleteVisitModal from '../components/CompleteVisitModal'
+import PatientPaymentModal from '../components/PatientPaymentModal'
 import { Card, PageHeader, StatCard, Badge, Button, Table, Thead, Th, Td, Tr, EmptyRow, TableSkeleton, CardSkeleton } from '../components/ui'
 import type { BadgeVariant } from '../components/ui'
 import type { Patient } from '../types'
@@ -51,7 +53,7 @@ interface Appointment {
   id: number
   patient_id: number
   doctor_id: number | null
-  time: string
+  starts_at: string
   patient_name: string | null
   doctor_name: string | null
   status: string
@@ -127,11 +129,7 @@ function money(value: number | null) {
   return new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(value)
 }
 
-function formatDate(value: string) {
-  return new Date(value).toLocaleDateString('en-GB')
-}
-
-function formatTime(value: Date) {
+function formatClock(value: Date) {
   return value.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })
 }
 
@@ -144,6 +142,7 @@ export default function DashboardPage() {
   const [showPatientSearch, setShowPatientSearch] = useState(false)
   const [showPaymentSearch, setShowPaymentSearch] = useState(false)
   const [completingVisit, setCompletingVisit] = useState<Appointment | null>(null)
+  const [payingPatient, setPayingPatient] = useState<Patient | null>(null)
   const [selectedCheck, setSelectedCheck] = useState<CheckAlert | null>(null)
   const [invoiceSearch, setInvoiceSearch] = useState('')
   const [searchedInvoices, setSearchedInvoices] = useState<Invoice[] | null>(null)
@@ -167,7 +166,7 @@ export default function DashboardPage() {
       id: res.data.data.id,
       patient_id: patient.id,
       doctor_id: null,
-      time: '',
+      starts_at: now.toISOString(),
       patient_name: patient.full_name,
       doctor_name: null,
       status: 'scheduled',
@@ -219,7 +218,7 @@ export default function DashboardPage() {
             </Button>
             <div className="flex items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2 font-mono text-sm text-muted">
               <FontAwesomeIcon icon={faClock} className="text-accent" />
-              {formatTime(now)}
+              {formatClock(now)}
             </div>
           </div>
         }
@@ -266,7 +265,20 @@ export default function DashboardPage() {
           onBookAppointment={bookAppointmentForPatient}
         />
       )}
-      {showPaymentSearch && <PatientSearchModal mode="pay" onClose={() => setShowPaymentSearch(false)} />}
+      {showPaymentSearch && (
+        <PatientSearchModal
+          mode="pay"
+          onClose={() => setShowPaymentSearch(false)}
+          onSelectForPayment={setPayingPatient}
+        />
+      )}
+      {payingPatient && (
+        <PatientPaymentModal
+          patientId={payingPatient.id}
+          patientName={payingPatient.full_name}
+          onClose={() => setPayingPatient(null)}
+        />
+      )}
       {completingVisit && (
         <CompleteVisitModal
           appointmentId={completingVisit.id}
@@ -297,7 +309,7 @@ export default function DashboardPage() {
               ) : (
                 data.today_appointments.map((a) => (
                   <Tr key={a.id}>
-                    <Td className="font-mono">{a.time}</Td>
+                    <Td className="font-mono">{formatTime(a.starts_at)}</Td>
                     <Td>{a.patient_name}</Td>
                     <Td>{a.doctor_name}</Td>
                     <Td>
