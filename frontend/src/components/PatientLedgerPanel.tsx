@@ -61,7 +61,11 @@ export default function PatientLedgerPanel({
 
   useEffect(() => {
     load()
-    api.get('/cashboxes').then((res) => setCashboxes(res.data))
+    api.get('/cashboxes').then((res) => {
+      setCashboxes(res.data)
+      const ils = res.data.find((c: Cashbox) => c.currency === 'ILS')
+      if (ils) setCashForm((f) => ({ ...f, cashbox_id: String(ils.id) }))
+    })
   }, [patientId])
 
   useEffect(() => {
