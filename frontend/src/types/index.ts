@@ -363,16 +363,26 @@ export interface CheckItem {
 }
 
 export interface CommissionStatement {
-  doctor: { id: number; full_name: string }
+  doctor: { id: number; full_name: string; contract_type: Doctor['contract_type'] }
   month: string
-  total_ils: number
-  settled: boolean
+  commission_total_ils: number
+  salary_due_ils: number
+  total_due_ils: number
+  paid_ils: number
+  remaining_ils: number
   transactions: {
     id: number
-    type: string
     amount_ils: string
     patient_name: string | null
     tooth_number: number | null
-    settled_at: string | null
+    service_name: string | null
+    finding_type: string | null
+    recorded_at: string | null
+  }[]
+  payouts: {
+    id: number
+    amount_ils: string
+    notes: string | null
+    paid_at: string | null
   }[]
 }

@@ -12,7 +12,7 @@ class DoctorTransaction extends Model
 
     protected $fillable = [
         'clinic_id', 'doctor_id', 'tooth_finding_id', 'type',
-        'amount_ils', 'period_month', 'settled_at',
+        'amount_ils', 'period_month', 'settled_at', 'notes',
     ];
 
     protected function casts(): array

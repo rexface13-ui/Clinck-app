@@ -52,7 +52,7 @@ const navGroups: NavGroup[] = [
     label: 'المالية',
     items: [
       { to: '/cash', label: 'الصناديق والمصاريف', icon: faWallet, permission: 'cash.view' },
-      { to: '/commissions', label: 'عمولات الأطباء', icon: faSackDollar, permission: 'commissions.view' },
+      { to: '/commissions', label: 'الرواتب والعمولات', icon: faSackDollar, permission: 'commissions.view' },
       { to: '/checks', label: 'الشيكات', icon: faMoneyCheckDollar, permission: 'checks.view' },
       { to: '/debts', label: 'دفتر الديون', icon: faBook, permission: null },
     ],

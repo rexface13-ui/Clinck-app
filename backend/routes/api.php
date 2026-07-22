@@ -54,7 +54,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('doctors/{doctor}/commissions/{commission}', [DoctorServiceCommissionController::class, 'destroy']);
     Route::get('doctors/{doctor}/slots', [DoctorSlotController::class, 'index']);
     Route::get('doctors/{doctor}/commission-statement', [DoctorCommissionController::class, 'index']);
-    Route::post('doctors/{doctor}/commission-statement/settle', [DoctorCommissionController::class, 'settle']);
+    Route::post('doctors/{doctor}/commission-statement/pay', [DoctorCommissionController::class, 'pay']);
 
     Route::apiResource('service-categories', ServiceCategoryController::class)->except(['show']);
     Route::apiResource('services', ServiceController::class);
