@@ -326,11 +326,12 @@ export default function DashboardPage() {
             <tbody>
               {(() => {
                 const term = appointmentsSearch.trim().toLowerCase()
+                const active = data.today_appointments.filter((a) => a.status !== 'cancelled')
                 const filtered = term
-                  ? data.today_appointments.filter(
+                  ? active.filter(
                       (a) => a.patient_name?.toLowerCase().includes(term) || a.doctor_name?.toLowerCase().includes(term),
                     )
-                  : data.today_appointments
+                  : active
                 if (filtered.length === 0) {
                   return <EmptyRow colSpan={4}>{term ? 'لا توجد نتائج مطابقة' : 'لا يوجد مواعيد اليوم'}</EmptyRow>
                 }
