@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import {
   faCalendarCheck,
@@ -26,6 +26,7 @@ import PatientSearchModal from '../components/PatientSearchModal'
 import CompleteVisitModal from '../components/CompleteVisitModal'
 import { Card, PageHeader, StatCard, Badge, Button, Table, Thead, Th, Td, Tr, EmptyRow, TableSkeleton, CardSkeleton } from '../components/ui'
 import type { BadgeVariant } from '../components/ui'
+import type { Patient } from '../types'
 
 interface QuickAction {
   to?: string
@@ -144,6 +145,7 @@ function formatTime(value: Date) {
 
 export default function DashboardPage() {
   const { can } = useAuth()
+  const navigate = useNavigate()
   const [data, setData] = useState<Summary | null>(null)
   const [now, setNow] = useState(new Date())
   const [hideMoney, setHideMoney] = useState(() => localStorage.getItem('dashboard.hideMoney') === '1')
@@ -154,6 +156,31 @@ export default function DashboardPage() {
 
   function loadSummary() {
     api.get<Summary>('/dashboard/summary').then((res) => setData(res.data))
+  }
+
+  async function startVisitForPatient(patient: Patient) {
+    const now = new Date()
+    const ends = new Date(now.getTime() + 30 * 60000)
+    const res = await api.post('/appointments', {
+      branch_id: patient.branch_id,
+      patient_id: patient.id,
+      doctor_id: null,
+      starts_at: now.toISOString(),
+      ends_at: ends.toISOString(),
+    })
+    setCompletingVisit({
+      id: res.data.data.id,
+      patient_id: patient.id,
+      doctor_id: null,
+      time: '',
+      patient_name: patient.full_name,
+      doctor_name: null,
+      status: 'scheduled',
+    })
+  }
+
+  function bookAppointmentForPatient(patient: Patient) {
+    navigate(`/appointments?patient_id=${patient.id}`)
   }
 
   useEffect(loadSummary, [])
@@ -223,7 +250,13 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {showPatientSearch && <PatientSearchModal onClose={() => setShowPatientSearch(false)} />}
+      {showPatientSearch && (
+        <PatientSearchModal
+          onClose={() => setShowPatientSearch(false)}
+          onStartVisit={startVisitForPatient}
+          onBookAppointment={bookAppointmentForPatient}
+        />
+      )}
       {showPaymentSearch && <PatientSearchModal mode="pay" onClose={() => setShowPaymentSearch(false)} />}
       {completingVisit && (
         <CompleteVisitModal
