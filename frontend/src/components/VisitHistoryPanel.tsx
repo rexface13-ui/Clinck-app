@@ -18,7 +18,11 @@ function groupVisits(visits: Visit[]): VisitGroup[] {
   const order: string[] = []
   const map = new Map<string, Visit[]>()
   for (const v of visits) {
-    const key = v.batch_id ?? `single-${v.session_id ?? v.invoice_id}-${v.date}`
+    // Same fallback as TreatmentPlanPanel's groupItems: visits from before
+    // batch_id existed still group if they're the same service within the
+    // same minute, instead of listing every tooth as its own entry.
+    const minuteBucket = Math.floor(new Date(v.created_at).getTime() / 60000)
+    const key = v.batch_id ?? `legacy-${v.service_name}-${minuteBucket}`
     if (!map.has(key)) {
       map.set(key, [])
       order.push(key)

@@ -151,6 +151,7 @@ export interface PlanItem {
   currency: string
   sessions_count: number
   interval_days: number | null
+  created_at: string
   sessions?: PlanItemSessionRow[]
 }
 
@@ -221,6 +222,7 @@ export interface Visit {
   item_id: number
   plan_id: number
   batch_id: string | null
+  created_at: string
   date: string
   service_name: string | null
   tooth_number: number | null

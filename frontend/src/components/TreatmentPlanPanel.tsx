@@ -60,11 +60,18 @@ interface ItemGroup {
   items: PlanItem[]
 }
 
+/** Items created together get a batch_id (see addItem) and always group. Older
+ * items from before that existed have no batch_id — for those, items of the
+ * same service created within the same minute still group together, so a
+ * doctor scanning an old plan doesn't have to wade through one row per tooth
+ * either. Single, standalone items (a different service, or minutes apart)
+ * fall back to their own group. */
 function groupItems(items: PlanItem[]): ItemGroup[] {
   const order: string[] = []
   const map = new Map<string, PlanItem[]>()
   for (const item of items) {
-    const key = item.batch_id ?? `single-${item.id}`
+    const minuteBucket = Math.floor(new Date(item.created_at).getTime() / 60000)
+    const key = item.batch_id ?? `legacy-${item.service_id}-${item.interval_days ?? 'd'}-${minuteBucket}`
     if (!map.has(key)) {
       map.set(key, [])
       order.push(key)
