@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faPlus, faMoneyCheckDollar, faCamera, faImage } from '@fortawesome/free-solid-svg-icons'
+import { faPlus, faMoneyCheckDollar, faCamera, faImage, faMagnifyingGlass } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import DatePicker from '../components/DatePicker'
@@ -44,6 +44,7 @@ export default function ChecksPage() {
   const [clearTarget, setClearTarget] = useState<CheckItem | null>(null)
   const [clearCashbox, setClearCashbox] = useState('')
   const [busy, setBusy] = useState(false)
+  const [search, setSearch] = useState('')
 
   function loadAll() {
     api.get('/checks', { params: { direction } }).then((res) => setChecks(res.data))
@@ -194,6 +195,16 @@ export default function ChecksPage() {
         </Modal>
       )}
 
+      <div className="relative mb-4 w-full sm:w-80">
+        <FontAwesomeIcon icon={faMagnifyingGlass} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted" />
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="بحث برقم الشيك أو اسم الطرف أو البنك..."
+          className="w-full rounded-xl border border-border bg-surface py-2.5 pe-3 ps-9 text-sm focus:border-accent focus:outline-none"
+        />
+      </div>
+
       <Card>
         {!checks ? (
           <TableSkeleton />
@@ -209,10 +220,20 @@ export default function ChecksPage() {
               {canManage && <Th></Th>}
             </Thead>
             <tbody>
-              {checks.length === 0 ? (
-                <EmptyRow colSpan={7}>لا توجد شيكات.</EmptyRow>
-              ) : (
-                checks.map((c) => (
+              {(() => {
+                const q = search.trim().toLowerCase()
+                const filtered = q
+                  ? checks.filter(
+                      (c) =>
+                        c.check_number.toLowerCase().includes(q) ||
+                        (c.bank_name ?? '').toLowerCase().includes(q) ||
+                        partyName(c).toLowerCase().includes(q),
+                    )
+                  : checks
+                if (filtered.length === 0) {
+                  return <EmptyRow colSpan={7}>{q ? 'لا توجد نتائج مطابقة.' : 'لا توجد شيكات.'}</EmptyRow>
+                }
+                return filtered.map((c) => (
                   <Tr key={c.id}>
                     <Td className="flex items-center gap-2">
                       <FontAwesomeIcon icon={faMoneyCheckDollar} className="text-ink/30" />
@@ -257,7 +278,7 @@ export default function ChecksPage() {
                     )}
                   </Tr>
                 ))
-              )}
+              })()}
             </tbody>
           </Table>
         )}

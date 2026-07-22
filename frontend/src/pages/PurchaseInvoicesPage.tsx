@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faPlus, faCheck, faTrash, faFileInvoiceDollar } from '@fortawesome/free-solid-svg-icons'
+import { faPlus, faCheck, faTrash, faFileInvoiceDollar, faMagnifyingGlass } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import DatePicker from '../components/DatePicker'
@@ -29,6 +29,7 @@ export default function PurchaseInvoicesPage() {
   const [creatingSupplier, setCreatingSupplier] = useState(false)
   const [lineForm, setLineForm] = useState({ item_id: '', quantity: '', unit_price: '', currency: 'ILS', lot_number: '', expiry_date: '' })
   const [busy, setBusy] = useState(false)
+  const [search, setSearch] = useState('')
 
   function loadAll() {
     api.get('/suppliers').then((res) => setSuppliers(res.data))
@@ -213,11 +214,26 @@ export default function PurchaseInvoicesPage() {
             </Modal>
           )}
 
+          <div className="relative mb-3">
+            <FontAwesomeIcon icon={faMagnifyingGlass} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="بحث باسم المورد أو رقم الفاتورة..."
+              className="w-full rounded-xl border border-border bg-surface py-2.5 pe-3 ps-9 text-sm focus:border-accent focus:outline-none"
+            />
+          </div>
+
           <Card>
-            {invoices.length === 0 ? (
-              <p className="p-6 text-center text-sm text-muted">لا توجد فواتير.</p>
-            ) : (
-              invoices.map((inv) => (
+            {(() => {
+              const q = search.trim().toLowerCase()
+              const filtered = q
+                ? invoices.filter((inv) => (inv.supplier?.name ?? '').toLowerCase().includes(q) || (inv.invoice_number ?? '').toLowerCase().includes(q))
+                : invoices
+              if (filtered.length === 0) {
+                return <p className="p-6 text-center text-sm text-muted">{q ? 'لا توجد نتائج مطابقة.' : 'لا توجد فواتير.'}</p>
+              }
+              return filtered.map((inv) => (
                 <button
                   key={inv.id}
                   onClick={() => openInvoice(inv)}
@@ -233,7 +249,7 @@ export default function PurchaseInvoicesPage() {
                   <Badge variant={STATUS_VARIANTS[inv.status]}>{STATUS_LABELS[inv.status]}</Badge>
                 </button>
               ))
-            )}
+            })()}
           </Card>
         </div>
 

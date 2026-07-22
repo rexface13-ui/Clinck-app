@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faPlus, faBoxesStacked, faPen } from '@fortawesome/free-solid-svg-icons'
+import { faPlus, faBoxesStacked, faPen, faMagnifyingGlass } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import { Card, PageHeader, Button, Modal, Table, Thead, Th, Td, Tr, EmptyRow, TableSkeleton } from '../components/ui'
@@ -25,6 +25,7 @@ export default function ItemsPage() {
   const [categoryName, setCategoryName] = useState('')
   const [form, setForm] = useState({ item_category_id: '', name: '', type: 'simple_stock' as Item['type'], unit: 'piece' })
   const [busy, setBusy] = useState(false)
+  const [search, setSearch] = useState('')
 
   function loadAll() {
     api.get('/item-categories').then((res) => setCategories(res.data))
@@ -147,6 +148,16 @@ export default function ItemsPage() {
         </Modal>
       )}
 
+      <div className="relative mb-4 w-full sm:w-80">
+        <FontAwesomeIcon icon={faMagnifyingGlass} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted" />
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="بحث باسم الصنف أو التصنيف..."
+          className="w-full rounded-xl border border-border bg-surface py-2.5 pe-3 ps-9 text-sm focus:border-accent focus:outline-none"
+        />
+      </div>
+
       <Card>
         {!items ? (
           <TableSkeleton />
@@ -160,10 +171,15 @@ export default function ItemsPage() {
               <Th></Th>
             </Thead>
             <tbody>
-              {items.length === 0 ? (
-                <EmptyRow colSpan={5}>لا توجد أصناف.</EmptyRow>
-              ) : (
-                items.map((i) => (
+              {(() => {
+                const q = search.trim().toLowerCase()
+                const filtered = q
+                  ? items.filter((i) => i.name.toLowerCase().includes(q) || (i.category?.name ?? '').toLowerCase().includes(q))
+                  : items
+                if (filtered.length === 0) {
+                  return <EmptyRow colSpan={5}>{q ? 'لا توجد نتائج مطابقة.' : 'لا توجد أصناف.'}</EmptyRow>
+                }
+                return filtered.map((i) => (
                   <Tr key={i.id}>
                     <Td className="flex items-center gap-2">
                       <FontAwesomeIcon icon={faBoxesStacked} className="text-ink/30" />
@@ -181,7 +197,7 @@ export default function ItemsPage() {
                     </Td>
                   </Tr>
                 ))
-              )}
+              })()}
             </tbody>
           </Table>
         )}

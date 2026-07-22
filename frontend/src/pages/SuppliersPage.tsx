@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faPlus, faTruck, faPen } from '@fortawesome/free-solid-svg-icons'
+import { faPlus, faTruck, faPen, faMagnifyingGlass } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import { Card, PageHeader, Button, Table, Thead, Th, Td, Tr, EmptyRow, SearchableSelect } from '../components/ui'
@@ -26,8 +26,14 @@ export default function SuppliersPage() {
   const [busy, setBusy] = useState(false)
   const [editing, setEditing] = useState(false)
   const [editForm, setEditForm] = useState({ name: '', phone: '' })
+  const [search, setSearch] = useState('')
 
   const canManage = can('suppliers.manage')
+  const filteredSuppliers = suppliers.filter((s) => {
+    const q = search.trim().toLowerCase()
+    if (!q) return true
+    return s.name.toLowerCase().includes(q) || (s.phone ?? '').toLowerCase().includes(q)
+  })
 
   function loadSuppliers() {
     api.get('/suppliers').then((res) => setSuppliers(res.data))
@@ -114,11 +120,21 @@ export default function SuppliersPage() {
             </Card>
           )}
 
+          <div className="relative mb-3">
+            <FontAwesomeIcon icon={faMagnifyingGlass} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="بحث بالاسم أو الهاتف..."
+              className="w-full rounded-xl border border-border bg-surface py-2.5 pe-3 ps-9 text-sm focus:border-accent focus:outline-none"
+            />
+          </div>
+
           <Card>
-            {suppliers.length === 0 ? (
-              <p className="p-6 text-center text-sm text-muted">لا يوجد موردون.</p>
+            {filteredSuppliers.length === 0 ? (
+              <p className="p-6 text-center text-sm text-muted">{search ? 'لا توجد نتائج مطابقة.' : 'لا يوجد موردون.'}</p>
             ) : (
-              suppliers.map((s) => (
+              filteredSuppliers.map((s) => (
                 <button
                   key={s.id}
                   onClick={() => loadLedger(s)}
