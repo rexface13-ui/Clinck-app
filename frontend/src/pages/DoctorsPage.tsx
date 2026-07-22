@@ -55,12 +55,14 @@ export default function DoctorsPage() {
   async function handleCreate(e: FormEvent) {
     e.preventDefault()
     setError(null)
+    const createNeedsSalary = form.contract_type === 'salary' || form.contract_type === 'salary_commission'
+    const createNeedsCommission = form.contract_type !== 'salary'
     try {
       const res = await api.post('/doctors', {
         full_name: form.full_name,
         contract_type: form.contract_type,
-        default_commission_percent: form.default_commission_percent || null,
-        monthly_salary: form.monthly_salary || null,
+        default_commission_percent: createNeedsCommission ? form.default_commission_percent || null : null,
+        monthly_salary: createNeedsSalary ? form.monthly_salary || null : null,
       })
       const doctorId = res.data.data.id
       if (newDoctorSchedule.weekdays.length > 0) {
@@ -104,12 +106,19 @@ export default function DoctorsPage() {
 
   async function saveEdit(doctorId: number) {
     setEditError(null)
+    // A field left over in local state from before switching contract type
+    // (e.g. a commission % that was set while type was "commission", still
+    // sitting there after switching to "salary") must not be sent as-is —
+    // only fields that actually apply to the *new* contract type get saved,
+    // everything else is explicitly nulled out so it doesn't silently persist.
+    const editNeedsSalary = editForm.contract_type === 'salary' || editForm.contract_type === 'salary_commission'
+    const editNeedsCommission = editForm.contract_type !== 'salary'
     try {
       await api.put(`/doctors/${doctorId}`, {
         full_name: editForm.full_name,
         contract_type: editForm.contract_type,
-        default_commission_percent: editForm.default_commission_percent || null,
-        monthly_salary: editForm.monthly_salary || null,
+        default_commission_percent: editNeedsCommission ? editForm.default_commission_percent || null : null,
+        monthly_salary: editNeedsSalary ? editForm.monthly_salary || null : null,
       })
       setEditingId(null)
       load()
