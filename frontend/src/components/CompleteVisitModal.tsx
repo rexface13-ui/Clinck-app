@@ -1,10 +1,25 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faTrash, faCheck, faTooth } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import DatePicker from './DatePicker'
 import { Modal, Button, SearchableSelect } from './ui'
-import { UPPER_PERMANENT, LOWER_PERMANENT, UPPER_PRIMARY, LOWER_PRIMARY } from '../lib/dental'
+import {
+  UPPER_PERMANENT,
+  LOWER_PERMANENT,
+  UPPER_PRIMARY,
+  LOWER_PRIMARY,
+  UPPER_ARCH,
+  LOWER_ARCH,
+  VIEWBOX,
+  archPosition,
+  primaryCanonicalIndex,
+  toothCrownPath,
+  toothShapeType,
+  toothSize,
+  cuspPositions,
+  type ArchConfig,
+} from '../lib/dental'
 import type { Cashbox, Service } from '../types'
 
 interface Props {
@@ -22,6 +37,38 @@ interface Line {
   price: string
   /** Optional, comma-separated (e.g. "16" or "16,17") — one per tooth this line applies to. */
   tooth_numbers: string
+}
+
+interface LaidOutTooth {
+  number: number
+  x: number
+  y: number
+  rotationDeg: number
+  crownPath: string
+  cusps: { x: number; y: number; r: number }[]
+  labelX: number
+  labelY: number
+}
+
+/** Mirrors ToothChart's layout so this mini picker draws the same tooth shapes and the same (correct) primary-tooth slots as the main chart. */
+function layoutArch(permanentNumbers: number[], primaryNumbers: number[], isChild: boolean, arch: ArchConfig): LaidOutTooth[] {
+  const list = isChild ? primaryNumbers : permanentNumbers
+  return list.map((number, i) => {
+    const isPrimary = number >= 51
+    const pos = isPrimary ? archPosition(primaryCanonicalIndex(number), 16, arch) : archPosition(i, list.length, arch)
+    const type = toothShapeType(number, isPrimary)
+    const { w, h } = toothSize(type, isPrimary)
+    return {
+      number,
+      x: pos.x,
+      y: pos.y,
+      rotationDeg: pos.rotationDeg,
+      crownPath: toothCrownPath(type, w, h),
+      cusps: cuspPositions(type, w, h),
+      labelX: pos.labelX,
+      labelY: pos.labelY,
+    }
+  })
 }
 
 export default function CompleteVisitModal({ appointmentId, patientId, patientName, doctorId, onClose, onDone }: Props) {
@@ -49,6 +96,14 @@ export default function CompleteVisitModal({ appointmentId, patientId, patientNa
     })
     api.get(`/patients/${patientId}`).then((res) => setIsChild(!!res.data.data.is_child))
   }, [patientId])
+
+  const pickerTeeth = useMemo(
+    () => [
+      ...layoutArch(UPPER_PERMANENT, UPPER_PRIMARY, isChild, UPPER_ARCH),
+      ...layoutArch(LOWER_PERMANENT, LOWER_PRIMARY, isChild, LOWER_ARCH),
+    ],
+    [isChild],
+  )
 
   const subtotal = lines.reduce((sum, l) => sum + (Number(l.price) || 0), 0)
   const discountAmount = Math.min(
@@ -236,34 +291,46 @@ export default function CompleteVisitModal({ appointmentId, patientId, patientNa
 
                 {pickerOpenIdx === idx && (
                   <div className="mt-2 space-y-2 rounded-lg border border-border bg-white p-2">
-                    {[
-                      { label: 'العلوي', upper: true, numbers: isChild ? UPPER_PRIMARY : UPPER_PERMANENT },
-                      { label: 'السفلي', upper: false, numbers: isChild ? LOWER_PRIMARY : LOWER_PERMANENT },
-                    ].map((row) => (
-                      <div key={row.label}>
-                        <p className="mb-1 text-[10px] text-muted">{row.label}</p>
-                        <div className="flex flex-wrap gap-1">
-                          {row.numbers.map((tooth) => {
-                            const selected = l.tooth_numbers
-                              .split(',')
-                              .map((t) => t.trim())
-                              .includes(String(tooth))
-                            return (
-                              <button
-                                key={tooth}
-                                type="button"
-                                onClick={() => toggleTooth(idx, tooth)}
-                                className={`flex size-8 items-center justify-center rounded-md border text-xs font-medium transition-colors ${
-                                  selected ? 'border-accent bg-accent text-white' : 'border-border text-ink/70 hover:bg-background'
-                                }`}
-                              >
-                                {tooth}
-                              </button>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    ))}
+                    <svg viewBox={`0 0 ${VIEWBOX.width} ${VIEWBOX.height}`} className="w-full" style={{ maxWidth: 380 }}>
+                      <line
+                        x1={40}
+                        y1={VIEWBOX.height / 2}
+                        x2={VIEWBOX.width - 40}
+                        y2={VIEWBOX.height / 2}
+                        stroke="#e2e8f0"
+                        strokeDasharray="4 4"
+                      />
+                      <line x1={UPPER_ARCH.cx} y1={20} x2={UPPER_ARCH.cx} y2={VIEWBOX.height - 20} stroke="#e2e8f0" strokeDasharray="4 4" />
+                      {pickerTeeth.map((t) => {
+                        const selected = l.tooth_numbers.split(',').map((v) => v.trim()).includes(String(t.number))
+                        return (
+                          <g key={t.number} onClick={() => toggleTooth(idx, t.number)} className="cursor-pointer">
+                            <g transform={`translate(${t.x},${t.y}) rotate(${t.rotationDeg})`}>
+                              <path
+                                d={t.crownPath}
+                                fill={selected ? 'var(--color-accent)' : '#fff8f0'}
+                                stroke={selected ? 'var(--color-accent)' : '#c9b8a8'}
+                                strokeWidth={selected ? 2.5 : 1.2}
+                              />
+                              {t.cusps.map((c, i) => (
+                                <circle key={i} cx={c.x} cy={c.y} r={c.r} fill="#00000010" />
+                              ))}
+                            </g>
+                            <text
+                              x={t.labelX}
+                              y={t.labelY}
+                              textAnchor="middle"
+                              dominantBaseline="middle"
+                              fontSize="10"
+                              fill="var(--color-ink)"
+                              className="select-none"
+                            >
+                              {t.number}
+                            </text>
+                          </g>
+                        )
+                      })}
+                    </svg>
                     <div className="flex justify-end">
                       <button type="button" onClick={() => setPickerOpenIdx(null)} className="text-xs text-accent hover:underline">
                         تم
