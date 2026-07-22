@@ -55,7 +55,7 @@ export default function PatientProfilePage() {
   const attachmentInputRef = useRef<HTMLInputElement>(null)
   const [updatingVisit, setUpdatingVisit] = useState(false)
   const [pickingForPlanId, setPickingForPlanId] = useState<number | null>(null)
-  const [activeTab, setActiveTab] = useState('plans')
+  const [activeTab, setActiveTab] = useState('overview')
   const [pickedTooth, setPickedTooth] = useState<{ planId: number; toothNumbers: number[] } | null>(null)
   const [busyToothNumbers, setBusyToothNumbers] = useState<Map<number, string[]>>(new Map())
   const [doctors, setDoctors] = useState<Doctor[]>([])
@@ -219,6 +219,12 @@ export default function PatientProfilePage() {
   const { patient, tooth_states, tooth_findings, appointments, notes, attachments } = profile
   const todayAppointment = appointments.find((a) => isToday(a.starts_at) && (a.status === 'scheduled' || a.status === 'confirmed'))
   const hasDebt = !!ledger && ledger.outstanding_ils > 0
+  const nextAppointment = appointments
+    .filter((a) => (a.status === 'scheduled' || a.status === 'confirmed') && new Date(a.starts_at).getTime() >= Date.now())
+    .sort((a, b) => new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime())[0]
+  const lastDoneAppointment = appointments
+    .filter((a) => a.status === 'done')
+    .sort((a, b) => new Date(b.starts_at).getTime() - new Date(a.starts_at).getTime())[0]
 
   return (
     <div>
@@ -310,6 +316,101 @@ export default function PatientProfilePage() {
         onActiveChange={setActiveTab}
         tabs={[
           {
+            key: 'overview',
+            label: 'نظرة عامة',
+            content: (
+              <div className="grid grid-cols-1 gap-6 2xl:grid-cols-[1fr_1.4fr]">
+                <div className="space-y-4">
+                  <Card className="p-5">
+                    <h2 className="mb-3 text-sm font-medium text-ink/70">معلومات المريض</h2>
+                    <dl className="space-y-2 text-sm">
+                      <div className="flex items-center justify-between">
+                        <dt className="text-muted">الكود</dt>
+                        <dd className="text-ink">{patient.code}</dd>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <dt className="text-muted">الجنس</dt>
+                        <dd className="text-ink">{patient.gender === 'male' ? 'ذكر' : 'أنثى'}{patient.is_child && <Badge variant="accent">طفل</Badge>}</dd>
+                      </div>
+                      {patient.birth_date && (
+                        <div className="flex items-center justify-between">
+                          <dt className="text-muted">تاريخ الميلاد</dt>
+                          <dd className="text-ink">{patient.birth_date}</dd>
+                        </div>
+                      )}
+                      {patient.phone && (
+                        <div className="flex items-center justify-between">
+                          <dt className="text-muted">الهاتف</dt>
+                          <dd className="text-ink">{patient.phone}</dd>
+                        </div>
+                      )}
+                      {patient.guardian_name && (
+                        <div className="flex items-center justify-between">
+                          <dt className="text-muted">ولي الأمر</dt>
+                          <dd className="text-ink">{patient.guardian_name}{patient.guardian_phone ? ` (${patient.guardian_phone})` : ''}</dd>
+                        </div>
+                      )}
+                    </dl>
+                    {patient.medical_alerts.length > 0 && (
+                      <div className="mt-3 rounded-lg bg-danger-soft px-3 py-2 text-xs text-danger">
+                        {patient.medical_alerts.join('، ')}
+                      </div>
+                    )}
+                  </Card>
+
+                  <Card className="space-y-2 p-5">
+                    <h2 className="mb-1 text-sm font-medium text-ink/70">لمحة سريعة</h2>
+                    {canViewBilling && ledger && (
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted">الرصيد المستحق</span>
+                        <span className={`font-semibold ${ledger.outstanding_ils > 0 ? 'text-danger' : 'text-success'}`}>
+                          {ledger.outstanding_ils.toFixed(2)} ₪
+                        </span>
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted">الموعد القادم</span>
+                      <span className="text-ink">{nextAppointment ? nextAppointment.starts_at_display : '—'}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted">آخر زيارة</span>
+                      <span className="text-ink">{lastDoneAppointment ? lastDoneAppointment.starts_at_display : '—'}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted">الملاحظات</span>
+                      <span className="text-ink">{notes.length}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted">المرفقات</span>
+                      <span className="text-ink">{attachments.length}</span>
+                    </div>
+                  </Card>
+                </div>
+
+                <div>
+                  <h2 className="mb-3 text-sm font-medium text-ink/70">رسمة الأسنان — اضغط سن لتشوف سجل الشغل عليه</h2>
+                  <ToothChart
+                    patientId={patient.id}
+                    isChild={patient.is_child}
+                    toothStates={tooth_states}
+                    toothFindings={tooth_findings}
+                    services={services}
+                    doctors={doctors}
+                    onChanged={load}
+                    pickMode={pickingForPlanId !== null}
+                    onPickTooth={(toothNumbers) => {
+                      if (pickingForPlanId === null) return
+                      setPickedTooth({ planId: pickingForPlanId, toothNumbers })
+                      setPickingForPlanId(null)
+                      setActiveTab('plans')
+                    }}
+                    busyToothNumbers={busyToothNumbers}
+                  />
+                </div>
+              </div>
+            ),
+          },
+          {
             key: 'plans',
             label: 'خطط علاجية',
             content: (
@@ -321,34 +422,11 @@ export default function PatientProfilePage() {
                 onToothConsumed={() => setPickedTooth(null)}
                 onRequestPickTooth={(planId) => {
                   setPickingForPlanId((cur) => (cur === planId ? null : planId))
-                  setActiveTab('chart')
+                  setActiveTab('overview')
                 }}
                 pickingForPlanId={pickingForPlanId}
                 onPlansLoaded={handlePlansLoaded}
                 refreshSignal={plansRefreshSignal}
-              />
-            ),
-          },
-          {
-            key: 'chart',
-            label: 'رسمة الأسنان',
-            content: (
-              <ToothChart
-                patientId={patient.id}
-                isChild={patient.is_child}
-                toothStates={tooth_states}
-                toothFindings={tooth_findings}
-                services={services}
-                doctors={doctors}
-                onChanged={load}
-                pickMode={pickingForPlanId !== null}
-                onPickTooth={(toothNumbers) => {
-                  if (pickingForPlanId === null) return
-                  setPickedTooth({ planId: pickingForPlanId, toothNumbers })
-                  setPickingForPlanId(null)
-                  setActiveTab('plans')
-                }}
-                busyToothNumbers={busyToothNumbers}
               />
             ),
           },

@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faTrash, faSave, faMoneyBill, faChevronDown, faChevronLeft } from '@fortawesome/free-solid-svg-icons'
+import { faTrash, faSave, faMoneyBill, faChevronDown, faChevronLeft, faTooth } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import { Card, Badge, SearchableSelect } from './ui'
 import type { BadgeVariant } from './ui'
 import { describeTeeth } from '../lib/dental'
+import MiniToothDiagram from './MiniToothDiagram'
 import type { Cashbox, Visit } from '../types'
 
 interface VisitGroup {
@@ -61,6 +62,11 @@ export default function VisitHistoryPanel({ patientId, isChild = false, onChange
   const [cashboxes, setCashboxes] = useState<Cashbox[]>([])
   const [openId, setOpenId] = useState<number | null>(null)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
+  const [diagramFor, setDiagramFor] = useState<string | null>(null)
+
+  function toggleDiagram(key: string) {
+    setDiagramFor((prev) => (prev === key ? null : key))
+  }
 
   function toggleGroup(key: string) {
     setExpandedGroups((prev) => {
@@ -184,15 +190,26 @@ export default function VisitHistoryPanel({ patientId, isChild = false, onChange
             }
 
             return (
-              <div key={group.key} className="rounded-lg border border-ink/10">
-                <button
+              <div key={group.key} className="relative rounded-lg border border-ink/10">
+                <div
                   onClick={() => toggleGroup(group.key)}
-                  className="flex w-full items-center justify-between px-3 py-2 text-sm hover:bg-background"
+                  className="flex w-full cursor-pointer items-center justify-between px-3 py-2 text-sm hover:bg-background"
                 >
                   <div className="flex items-center gap-2">
                     <FontAwesomeIcon icon={isExpanded ? faChevronDown : faChevronLeft} className="text-ink/40" />
                     <span className="font-medium text-ink">{first.service_name ?? 'خدمة'}</span>
-                    <span className="text-xs text-muted">{describeTeeth(teeth, isChild)}</span>
+                    {teeth.length > 0 && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          toggleDiagram(group.key)
+                        }}
+                        className={`flex items-center gap-1 rounded-lg border px-1.5 py-0.5 text-xs ${diagramFor === group.key ? 'border-accent text-accent' : 'border-ink/10 text-muted hover:border-accent hover:text-accent'}`}
+                      >
+                        <FontAwesomeIcon icon={faTooth} />
+                        {describeTeeth(teeth, isChild)}
+                      </button>
+                    )}
                     {first.doctor_name && <span className="text-xs text-muted">— {first.doctor_name}</span>}
                   </div>
                   <div className="flex items-center gap-3">
@@ -200,7 +217,13 @@ export default function VisitHistoryPanel({ patientId, isChild = false, onChange
                     <Badge variant={INVOICE_STATUS_VARIANTS[first.invoice_status]}>{INVOICE_STATUS_LABELS[first.invoice_status]}</Badge>
                     <span className="text-xs text-muted">{first.date}</span>
                   </div>
-                </button>
+                </div>
+
+                {diagramFor === group.key && (
+                  <div className="absolute right-3 top-full z-20 mt-1 rounded-xl border border-ink/10 bg-white p-3 shadow-lg">
+                    <MiniToothDiagram teeth={teeth} isChild={isChild} />
+                  </div>
+                )}
 
                 {isExpanded && (
                   <div className="space-y-1 border-t border-ink/10 p-2">
@@ -230,15 +253,28 @@ export default function VisitHistoryPanel({ patientId, isChild = false, onChange
   )
 
   function VisitRow({ v, nested = false }: { v: Visit; nested?: boolean }) {
+    const teeth = visitTeeth(v)
+    const diagramKey = `visit-${v.session_id ?? `${v.item_id}-${v.tooth_number}`}`
     return (
-      <div className={nested ? 'rounded-lg bg-background/60' : 'rounded-lg border border-ink/10'}>
-        <button
+      <div className={`relative ${nested ? 'rounded-lg bg-background/60' : 'rounded-lg border border-ink/10'}`}>
+        <div
           onClick={() => open(v)}
-          className="flex w-full items-center justify-between px-3 py-2 text-sm hover:bg-background"
+          className="flex w-full cursor-pointer items-center justify-between px-3 py-2 text-sm hover:bg-background"
         >
           <div className="flex items-center gap-2">
             <span className="font-medium text-ink">{v.service_name ?? 'خدمة'}</span>
-            {visitTeeth(v).length > 0 && <span className="text-xs text-muted">{describeTeeth(visitTeeth(v), isChild)}</span>}
+            {teeth.length > 0 && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  toggleDiagram(diagramKey)
+                }}
+                className={`flex items-center gap-1 rounded-lg border px-1.5 py-0.5 text-xs ${diagramFor === diagramKey ? 'border-accent text-accent' : 'border-ink/10 text-muted hover:border-accent hover:text-accent'}`}
+              >
+                <FontAwesomeIcon icon={faTooth} />
+                {describeTeeth(teeth, isChild)}
+              </button>
+            )}
             {!nested && v.doctor_name && <span className="text-xs text-muted">— {v.doctor_name}</span>}
           </div>
           <div className="flex items-center gap-3">
@@ -246,7 +282,13 @@ export default function VisitHistoryPanel({ patientId, isChild = false, onChange
             {!nested && <Badge variant={INVOICE_STATUS_VARIANTS[v.invoice_status]}>{INVOICE_STATUS_LABELS[v.invoice_status]}</Badge>}
             <span className="text-xs text-muted">{v.date}</span>
           </div>
-        </button>
+        </div>
+
+        {diagramFor === diagramKey && (
+          <div className="absolute right-3 top-full z-20 mt-1 rounded-xl border border-ink/10 bg-white p-3 shadow-lg">
+            <MiniToothDiagram teeth={teeth} isChild={isChild} />
+          </div>
+        )}
 
         {openId === v.session_id && (
                 <div className="space-y-3 border-t border-ink/10 p-3">
