@@ -19,8 +19,7 @@ class AppointmentController extends Controller
     {
         $this->authorize('viewAny', Appointment::class);
 
-        $query = Appointment::with(['patient:id,full_name', 'doctor:id,full_name'])
-            ->orderBy('starts_at');
+        $query = Appointment::with(['patient:id,full_name', 'doctor:id,full_name']);
 
         if ($request->filled('doctor_id')) {
             $query->where('doctor_id', $request->input('doctor_id'));
@@ -38,7 +37,16 @@ class AppointmentController extends Controller
             $query->where('starts_at', '<=', $request->input('to'));
         }
 
-        return AppointmentResource::collection($query->get());
+        if ($request->filled('status')) {
+            $query->where('status', $request->input('status'));
+        }
+
+        if ($request->filled('search')) {
+            $search = $request->input('search');
+            $query->whereHas('patient', fn ($p) => $p->where('full_name', 'like', "%{$search}%"));
+        }
+
+        return AppointmentResource::collection($query->orderByDesc('starts_at')->get());
     }
 
     public function store(StoreAppointmentRequest $request)

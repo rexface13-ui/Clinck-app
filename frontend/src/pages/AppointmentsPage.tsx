@@ -175,8 +175,10 @@ export default function AppointmentsPage() {
     }
   }
 
+  // Cancelled appointments don't need to keep occupying the day view once
+  // they're cancelled — they still exist and are visible in "سجل المواعيد".
   const sortedAppointments = useMemo(
-    () => [...dayAppointments].sort((a, b) => a.starts_at.localeCompare(b.starts_at)),
+    () => dayAppointments.filter((a) => a.status !== 'cancelled').sort((a, b) => a.starts_at.localeCompare(b.starts_at)),
     [dayAppointments],
   )
 

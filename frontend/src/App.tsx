@@ -9,6 +9,7 @@ import DoctorsPage from './pages/DoctorsPage'
 import ServicesPage from './pages/ServicesPage'
 import UsersPage from './pages/UsersPage'
 import AppointmentsPage from './pages/AppointmentsPage'
+import AppointmentsLogPage from './pages/AppointmentsLogPage'
 import BackupPage from './pages/BackupPage'
 import CashPage from './pages/CashPage'
 import CommissionsPage from './pages/CommissionsPage'
@@ -79,6 +80,14 @@ function App() {
               element={
                 <ProtectedRoute permission="appointments.view">
                   <AppointmentsPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/appointments-log"
+              element={
+                <ProtectedRoute permission="appointments.view">
+                  <AppointmentsLogPage />
                 </ProtectedRoute>
               }
             />
