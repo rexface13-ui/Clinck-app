@@ -80,10 +80,15 @@ class PatientBillingController extends Controller
     {
         $this->requireBillingView($request);
 
+        // Sourced from the patient's invoice lines directly (not just lines
+        // that carry a plan_item_session_id) — a handful of older charges
+        // predate the per-session billing redesign and were never linked to
+        // a session, and silently dropping those left real, debt-generating
+        // charges invisible here even though they show up fine in the
+        // ledger/outstanding balance. Every line that ever charged this
+        // patient belongs in their visit history, session-linked or not.
         $lines = InvoiceLine::with(['planItemSession.planItem.service', 'planItemSession.planItem.treatmentPlan.doctor', 'invoice'])
-            ->whereHas('planItemSession', function ($q) use ($patient) {
-                $q->whereHas('planItem.treatmentPlan', fn ($q2) => $q2->where('patient_id', $patient->id));
-            })
+            ->whereHas('invoice', fn ($q) => $q->where('patient_id', $patient->id))
             ->orderByDesc('created_at')
             ->get();
 
@@ -99,7 +104,7 @@ class PatientBillingController extends Controller
                 'service_name' => $item?->service?->name,
                 'tooth_number' => $item?->tooth_number,
                 'price' => $line->amount_ils,
-                'note' => $session?->note,
+                'note' => $session?->note ?? $line->description,
                 'doctor_name' => $item?->treatmentPlan?->doctor?->full_name,
                 'invoice_id' => $line->invoice_id,
                 'invoice_status' => $line->invoice?->status,

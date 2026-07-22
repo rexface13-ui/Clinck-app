@@ -134,7 +134,11 @@ export default function VisitHistoryPanel({ patientId, onChanged }: { patientId:
 
               {openId === v.session_id && (
                 <div className="space-y-3 border-t border-ink/10 p-3">
-                  {canManage ? (
+                  {!v.session_id ? (
+                    <p className="text-xs text-ink/50">
+                      {v.note || 'زيارة قديمة مسجّلة قبل ربط الزيارات بالجلسات — غير قابلة للتعديل، بس تقدر تحصّل دفعتها تحت.'}
+                    </p>
+                  ) : canManage ? (
                     <>
                       <div className="flex items-end gap-2">
                         <div>
