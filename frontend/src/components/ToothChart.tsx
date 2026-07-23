@@ -111,9 +111,14 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
 
   const activeFindingByTooth = useMemo(() => {
     const map = new Map<number, ToothFinding>()
-    // findings are ordered newest-first from the API; keep the first (latest) per tooth
+    // A tooth's color reflects the latest actual clinical work on it (a
+    // finding tied to a service), never a free-text note (general note, or
+    // "busy at another clinic") — otherwise jotting down an unrelated note
+    // after the real work is done would hijack the tooth's displayed status.
+    // Findings are ordered newest-first from the API; keep the first
+    // (latest) service-linked one per tooth.
     toothFindings.forEach((f) => {
-      if (!map.has(f.tooth_number)) map.set(f.tooth_number, f)
+      if (f.service_id && !map.has(f.tooth_number)) map.set(f.tooth_number, f)
     })
     return map
   }, [toothFindings])
