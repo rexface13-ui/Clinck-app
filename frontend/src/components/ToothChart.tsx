@@ -393,17 +393,6 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
 
           {!pickMode && canManage && (
             <>
-              <label className="mb-1 block text-xs text-ink/60">الحالة</label>
-              <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value as typeof status)}
-                className="mb-3 w-full rounded-lg border border-ink/10 px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
-              >
-                <option value="planned">مخطط</option>
-                <option value="in_progress">قيد التنفيذ</option>
-                <option value="done">منجز</option>
-              </select>
-
               <label className="mb-3 flex items-center gap-2 text-xs text-ink/70">
                 <input type="checkbox" checked={markMissing} onChange={(e) => setMarkMissing(e.target.checked)} className="size-3.5" />
                 هذا السن مفقود (خلع، سقوط، أو غير موجود من الأساس) — بيصير مستثنى من "تحديد الكل/النصف" لاحقاً

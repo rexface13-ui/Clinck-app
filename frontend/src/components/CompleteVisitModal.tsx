@@ -391,12 +391,8 @@ export default function CompleteVisitModal({ appointmentId, patientId, patientNa
                         const fill = selected ? (pending ? '#fef3c7' : 'var(--color-accent)') : '#fff8f0'
                         const stroke = selected ? (pending ? '#d97706' : 'var(--color-accent)') : '#c9b8a8'
                         return (
-                          <g
-                            key={t.number}
-                            onClick={() => cycleTooth(idx, t.number)}
-                            className="cursor-pointer"
-                            title={!selected ? 'مو مشمول بهاي الزيارة' : pending ? 'استمرار — لسا محتاج جلسة تانية' : 'خلص اليوم'}
-                          >
+                          <g key={t.number} onClick={() => cycleTooth(idx, t.number)} className="cursor-pointer">
+                            <title>{!selected ? 'مو مشمول بهاي الزيارة' : pending ? 'استمرار — لسا محتاج جلسة تانية' : 'خلص اليوم'}</title>
                             <g transform={`translate(${t.x},${t.y}) rotate(${t.rotationDeg})`}>
                               <path
                                 d={t.crownPath}
