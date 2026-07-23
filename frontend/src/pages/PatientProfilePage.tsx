@@ -490,7 +490,15 @@ export default function PatientProfilePage() {
           {
             key: 'visits',
             label: 'سجل الجلسات',
-            content: <VisitHistoryPanel patientId={patient.id} patientName={patient.full_name} isChild={patient.is_child} onChanged={load} />,
+            content: (
+              <VisitHistoryPanel
+                patientId={patient.id}
+                patientName={patient.full_name}
+                isChild={patient.is_child}
+                medicalAlerts={patient.medical_alerts}
+                onChanged={load}
+              />
+            ),
           },
           ...(canViewBilling
             ? [

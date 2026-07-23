@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faPaperPlane, faLink, faLinkSlash, faBuilding, faImage, faTrash } from '@fortawesome/free-solid-svg-icons'
+import { faPaperPlane, faLink, faLinkSlash, faBuilding, faImage, faTrash, faSliders, faBell } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import { Card, PageHeader, Button, Input } from '../components/ui'
@@ -105,6 +105,153 @@ function ClinicProfileCard() {
   )
 }
 
+function GeneralSettingsCard() {
+  const { data, can, refresh } = useAuth()
+  const [form, setForm] = useState({ default_appointment_duration: '30', base_currency: 'ILS', invoice_footer_note: '' })
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+
+  useEffect(() => {
+    if (!data) return
+    setForm({
+      default_appointment_duration: String((data.settings.default_appointment_duration as number) ?? 30),
+      base_currency: (data.settings.base_currency as string) ?? 'ILS',
+      invoice_footer_note: (data.settings.invoice_footer_note as string) ?? '',
+    })
+  }, [data])
+
+  async function save() {
+    setSaving(true)
+    setSaved(false)
+    try {
+      await api.put('/settings', { values: { ...form, default_appointment_duration: Number(form.default_appointment_duration) } })
+      await refresh()
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (!can('settings.manage')) return null
+
+  return (
+    <Card className="max-w-lg p-6">
+      <h2 className="mb-1 flex items-center gap-2 text-sm font-medium text-ink/70">
+        <FontAwesomeIcon icon={faSliders} className="text-accent" />
+        إعدادات عامة
+      </h2>
+      <p className="mb-4 text-xs text-muted">قيم افتراضية تُستخدم بالمواعيد والفواتير والطباعة.</p>
+
+      <div className="space-y-3">
+        <div>
+          <label className="mb-1 block text-sm text-muted">مدة الموعد الافتراضية (بالدقايق)</label>
+          <input
+            type="number"
+            min={5}
+            max={240}
+            value={form.default_appointment_duration}
+            onChange={(e) => setForm({ ...form, default_appointment_duration: e.target.value })}
+            className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none"
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-sm text-muted">العملة الافتراضية</label>
+          <select
+            value={form.base_currency}
+            onChange={(e) => setForm({ ...form, base_currency: e.target.value })}
+            className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none"
+          >
+            <option value="ILS">شيكل (ILS)</option>
+            <option value="USD">دولار (USD)</option>
+            <option value="JOD">دينار (JOD)</option>
+          </select>
+        </div>
+        <Input
+          label="ملاحظة تذييل الطباعة (اختياري)"
+          value={form.invoice_footer_note}
+          onChange={(e) => setForm({ ...form, invoice_footer_note: e.target.value })}
+        />
+      </div>
+
+      <div className="mt-4 flex items-center gap-3">
+        <Button onClick={save} loading={saving}>
+          {saving ? 'جارِ الحفظ...' : 'حفظ'}
+        </Button>
+        {saved && <span className="text-sm text-success">انحفظت ✓</span>}
+      </div>
+    </Card>
+  )
+}
+
+function RemindersSettingsCard() {
+  const { data, can, refresh } = useAuth()
+  const [form, setForm] = useState({ reminder_appointments_enabled: true, reminder_checks_enabled: true, reminder_lab_enabled: true })
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+
+  useEffect(() => {
+    if (!data) return
+    setForm({
+      reminder_appointments_enabled: (data.settings.reminder_appointments_enabled as boolean) ?? true,
+      reminder_checks_enabled: (data.settings.reminder_checks_enabled as boolean) ?? true,
+      reminder_lab_enabled: (data.settings.reminder_lab_enabled as boolean) ?? true,
+    })
+  }, [data])
+
+  async function save() {
+    setSaving(true)
+    setSaved(false)
+    try {
+      await api.put('/settings', { values: form })
+      await refresh()
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (!can('settings.manage')) return null
+
+  const rows: [keyof typeof form, string][] = [
+    ['reminder_appointments_enabled', 'تذكير المواعيد اليومي للأطباء'],
+    ['reminder_checks_enabled', 'تذكير الشيكات المستحقة قريباً'],
+    ['reminder_lab_enabled', 'تذكير حالات المخبر المتأخرة'],
+  ]
+
+  return (
+    <Card className="max-w-lg p-6">
+      <h2 className="mb-1 flex items-center gap-2 text-sm font-medium text-ink/70">
+        <FontAwesomeIcon icon={faBell} className="text-accent" />
+        تذكيرات تيليغرام
+      </h2>
+      <p className="mb-4 text-xs text-muted">فعّل أو عطّل كل نوع تذكير يومي يُرسل عبر البوت.</p>
+
+      <div className="space-y-2">
+        {rows.map(([key, label]) => (
+          <label key={key} className="flex items-center justify-between rounded-xl border border-border px-3 py-2 text-sm">
+            {label}
+            <input
+              type="checkbox"
+              checked={form[key]}
+              onChange={(e) => setForm({ ...form, [key]: e.target.checked })}
+              className="size-4 accent-accent"
+            />
+          </label>
+        ))}
+      </div>
+
+      <div className="mt-4 flex items-center gap-3">
+        <Button onClick={save} loading={saving}>
+          {saving ? 'جارِ الحفظ...' : 'حفظ'}
+        </Button>
+        {saved && <span className="text-sm text-success">انحفظت ✓</span>}
+      </div>
+    </Card>
+  )
+}
+
 export default function SettingsPage() {
   const [status, setStatus] = useState<TelegramLinkStatus | null>(null)
   const [busy, setBusy] = useState(false)
@@ -139,8 +286,10 @@ export default function SettingsPage() {
     <div>
       <PageHeader title="الإعدادات" subtitle="تفضيلات الحساب والتنبيهات" />
 
-      <div className="mb-6">
+      <div className="mb-6 space-y-6">
         <ClinicProfileCard />
+        <GeneralSettingsCard />
+        <RemindersSettingsCard />
       </div>
 
       <Card className="max-w-lg p-6">

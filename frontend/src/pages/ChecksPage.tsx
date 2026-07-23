@@ -27,8 +27,9 @@ const STATUS_VARIANTS: Record<CheckItem['status'], BadgeVariant> = {
 }
 
 export default function ChecksPage() {
-  const { can } = useAuth()
+  const { can, data } = useAuth()
   const canManage = can('checks.manage')
+  const defaultCurrency = (data?.settings.base_currency as string) ?? 'ILS'
   const [searchParams, setSearchParams] = useSearchParams()
   const [direction, setDirection] = useState<Direction>('incoming')
   const [checks, setChecks] = useState<CheckItem[] | null>(null)
@@ -37,6 +38,7 @@ export default function ChecksPage() {
   const [cashboxes, setCashboxes] = useState<Cashbox[]>([])
   const [showForm, setShowForm] = useState(() => searchParams.get('new') === '1')
   const [form, setForm] = useState({ party_id: '', check_number: '', bank_name: '', amount: '', currency: 'ILS', due_date: '' })
+  useEffect(() => setForm((f) => ({ ...f, currency: defaultCurrency })), [defaultCurrency])
   const [image, setImage] = useState<File | null>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
   const [endorseTarget, setEndorseTarget] = useState<CheckItem | null>(null)

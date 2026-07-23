@@ -22,6 +22,7 @@ use App\Http\Controllers\Api\LabCaseController;
 use App\Http\Controllers\Api\PatientAttachmentController;
 use App\Http\Controllers\Api\PatientBillingController;
 use App\Http\Controllers\Api\PatientController;
+use App\Http\Controllers\Api\PrescriptionController;
 use App\Http\Controllers\Api\PatientNoteController;
 use App\Http\Controllers\Api\PurchaseInvoiceController;
 use App\Http\Controllers\Api\ReportController;
@@ -157,6 +158,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('lab-cases', [LabCaseController::class, 'store']);
     Route::put('lab-cases/{labCase}', [LabCaseController::class, 'update']);
     Route::delete('lab-cases/{labCase}', [LabCaseController::class, 'destroy']);
+
+    Route::get('prescriptions', [PrescriptionController::class, 'index']);
+    Route::post('prescriptions', [PrescriptionController::class, 'store']);
 
     Route::get('stock-movements', [StockMovementController::class, 'index']);
     Route::post('stock-movements', [StockMovementController::class, 'store']);

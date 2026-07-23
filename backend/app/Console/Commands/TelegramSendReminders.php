@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Models\Appointment;
 use App\Models\CheckModel;
 use App\Models\LabCase;
+use App\Models\Setting;
 use App\Models\TelegramLink;
 use App\Services\TelegramService;
 use App\Support\Tenancy\CurrentClinic;
@@ -27,9 +28,21 @@ class TelegramSendReminders extends Command
 
         CurrentClinic::set((int) config('dentaflow.local_clinic_id'));
 
-        $this->sendAppointmentReminders($telegram);
-        $this->sendCheckReminders($telegram);
-        $this->sendLabCaseReminders($telegram);
+        $enabled = Setting::whereIn('key', ['reminder_appointments_enabled', 'reminder_checks_enabled', 'reminder_lab_enabled'])
+            ->get()
+            ->keyBy('key');
+
+        $isEnabled = fn (string $key) => ! $enabled->has($key) || $enabled->get($key)->value !== false;
+
+        if ($isEnabled('reminder_appointments_enabled')) {
+            $this->sendAppointmentReminders($telegram);
+        }
+        if ($isEnabled('reminder_checks_enabled')) {
+            $this->sendCheckReminders($telegram);
+        }
+        if ($isEnabled('reminder_lab_enabled')) {
+            $this->sendLabCaseReminders($telegram);
+        }
 
         return self::SUCCESS;
     }

@@ -355,6 +355,16 @@ export interface LabCase {
   is_overdue: boolean
 }
 
+export interface Prescription {
+  id: number
+  patient_id: number
+  doctor_id: number | null
+  doctor_name: string | null
+  medications: string
+  notes: string | null
+  created_at: string
+}
+
 export interface StockMovement {
   id: number
   branch_id: number

@@ -17,6 +17,8 @@ class SettingController extends Controller
      */
     protected const ALLOWED_KEYS = [
         'clinic_name', 'clinic_phone', 'clinic_address', 'clinic_logo',
+        'default_appointment_duration', 'base_currency', 'invoice_footer_note',
+        'reminder_appointments_enabled', 'reminder_checks_enabled', 'reminder_lab_enabled',
     ];
 
     public function update(Request $request)

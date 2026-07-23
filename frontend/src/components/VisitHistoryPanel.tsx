@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faTrash, faSave, faMoneyBill, faChevronDown, faChevronLeft, faTooth, faPrint } from '@fortawesome/free-solid-svg-icons'
+import { faTrash, faSave, faMoneyBill, faChevronDown, faChevronLeft, faTooth, faPrint, faTriangleExclamation, faFileMedical } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import { formatDate } from '../lib/formatDate'
@@ -10,7 +10,7 @@ import { Card, Badge, SearchableSelect } from './ui'
 import type { BadgeVariant } from './ui'
 import { describeTeeth } from '../lib/dental'
 import MiniToothDiagram from './MiniToothDiagram'
-import type { Cashbox, Visit } from '../types'
+import type { Cashbox, Prescription, Visit } from '../types'
 
 interface VisitGroup {
   key: string
@@ -56,13 +56,26 @@ const INVOICE_STATUS_VARIANTS: Record<string, BadgeVariant> = {
   void: 'neutral',
 }
 
-export default function VisitHistoryPanel({ patientId, patientName, isChild = false, onChanged }: { patientId: number; patientName?: string; isChild?: boolean; onChanged?: () => void }) {
+export default function VisitHistoryPanel({
+  patientId,
+  patientName,
+  isChild = false,
+  medicalAlerts = [],
+  onChanged,
+}: {
+  patientId: number
+  patientName?: string
+  isChild?: boolean
+  medicalAlerts?: string[]
+  onChanged?: () => void
+}) {
   const { can } = useAuth()
   const canManage = can('treatment_plans.manage')
   const canCollect = can('billing.manage')
   const clinic = useClinicProfile()
   const [prescribingFor, setPrescribingFor] = useState<number | null>(null)
   const [medsText, setMedsText] = useState<Record<number, string>>({})
+  const [prescriptionsVersion, setPrescriptionsVersion] = useState(0)
 
   function printPrescriptionFor(v: Visit) {
     const meds = medsText[v.session_id] ?? ''
@@ -78,10 +91,13 @@ export default function VisitHistoryPanel({ patientId, patientName, isChild = fa
       <div class="signature"><div>توقيع الطبيب</div></div>
     `
     printDocument('وصفة طبية', body, clinic)
+    api.post('/prescriptions', { patient_id: patientId, plan_item_session_id: v.session_id, medications: meds }).then(() => setPrescriptionsVersion((n) => n + 1))
     setPrescribingFor(null)
   }
 
   const [visits, setVisits] = useState<Visit[]>([])
+  const [prescriptions, setPrescriptions] = useState<Prescription[]>([])
+  const [showPrescriptions, setShowPrescriptions] = useState(false)
   const [cashboxes, setCashboxes] = useState<Cashbox[]>([])
   const [openId, setOpenId] = useState<number | null>(null)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
@@ -113,6 +129,10 @@ export default function VisitHistoryPanel({ patientId, patientName, isChild = fa
     load()
     api.get('/cashboxes').then((res) => setCashboxes(res.data))
   }, [patientId])
+
+  useEffect(() => {
+    api.get('/prescriptions', { params: { patient_id: patientId } }).then((res) => setPrescriptions(res.data.data))
+  }, [patientId, prescriptionsVersion])
 
   function open(v: Visit) {
     if (openId === v.session_id) {
@@ -195,6 +215,34 @@ export default function VisitHistoryPanel({ patientId, patientName, isChild = fa
   }
 
   return (
+    <div>
+      {prescriptions.length > 0 && (
+        <Card className="mb-4 p-6">
+          <button
+            onClick={() => setShowPrescriptions((v) => !v)}
+            className="flex w-full items-center justify-between text-sm font-medium text-muted"
+          >
+            <span className="flex items-center gap-2">
+              <FontAwesomeIcon icon={faFileMedical} className="text-accent" />
+              سجل الوصفات ({prescriptions.length})
+            </span>
+            <FontAwesomeIcon icon={showPrescriptions ? faChevronDown : faChevronLeft} className="text-ink/40" />
+          </button>
+          {showPrescriptions && (
+            <div className="mt-3 space-y-2">
+              {prescriptions.map((p) => (
+                <div key={p.id} className="rounded-lg border border-ink/10 p-3 text-sm">
+                  <div className="mb-1 flex items-center justify-between text-xs text-muted">
+                    <span>{p.created_at}</span>
+                    {p.doctor_name && <span>{p.doctor_name}</span>}
+                  </div>
+                  <p className="whitespace-pre-wrap text-ink">{p.medications}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      )}
     <Card className="p-6">
       <h2 className="mb-3 text-sm font-medium text-muted">سجل الجلسات</h2>
       {visits.length === 0 ? (
@@ -273,6 +321,7 @@ export default function VisitHistoryPanel({ patientId, patientName, isChild = fa
         </div>
       )}
     </Card>
+    </div>
   )
 
   function VisitRow({ v, nested = false }: { v: Visit; nested?: boolean }) {
@@ -365,6 +414,12 @@ export default function VisitHistoryPanel({ patientId, patientName, isChild = fa
                   <div className="border-t border-ink/5 pt-2">
                     {prescribingFor === v.session_id ? (
                       <div className="space-y-2">
+                        {medicalAlerts.length > 0 && (
+                          <div className="flex items-start gap-2 rounded-lg bg-danger-soft px-3 py-2 text-xs text-danger">
+                            <FontAwesomeIcon icon={faTriangleExclamation} className="mt-0.5" />
+                            <span>تنبيه حساسية: {medicalAlerts.join('، ')}</span>
+                          </div>
+                        )}
                         <textarea
                           value={medsText[v.session_id] ?? ''}
                           onChange={(e) => setMedsText({ ...medsText, [v.session_id]: e.target.value })}

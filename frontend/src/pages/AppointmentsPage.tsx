@@ -103,7 +103,7 @@ export default function AppointmentsPage() {
     Promise.all(
       candidates.map(({ doctor, branchId }) =>
         api
-          .get(`/doctors/${doctor.id}/slots`, { params: { branch_id: branchId, date, duration: 30 } })
+          .get(`/doctors/${doctor.id}/slots`, { params: { branch_id: branchId, date } })
           .then((res) => (res.data.slots as Slot[]).map((s) => ({ ...s, doctorId: doctor.id, doctorName: doctor.full_name, branchId }))),
       ),
     )

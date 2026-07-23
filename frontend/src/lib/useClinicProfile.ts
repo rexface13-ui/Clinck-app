@@ -7,5 +7,6 @@ export function useClinicProfile() {
     phone: (data?.settings.clinic_phone as string) ?? '',
     address: (data?.settings.clinic_address as string) ?? '',
     logo: (data?.settings.clinic_logo as string) ?? '',
+    footerNote: (data?.settings.invoice_footer_note as string) ?? '',
   }
 }

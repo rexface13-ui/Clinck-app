@@ -3,6 +3,7 @@ interface ClinicProfile {
   phone: string
   address: string
   logo: string
+  footerNote?: string
 }
 
 /**
@@ -42,6 +43,7 @@ export function printDocument(title: string, bodyHtml: string, clinic: ClinicPro
   .total-row td { font-weight: bold; }
   .signature { margin-top: 60px; display: flex; justify-content: space-between; font-size: 13px; }
   .signature div { border-top: 1px solid #999; padding-top: 6px; width: 200px; text-align: center; }
+  .footer-note { margin-top: 24px; padding-top: 12px; border-top: 1px solid #ddd; font-size: 12px; color: #666; text-align: center; }
   @media print { body { padding: 0 24px; } }
 </style>
 </head>
@@ -55,6 +57,7 @@ export function printDocument(title: string, bodyHtml: string, clinic: ClinicPro
   </div>
   <h2 class="doc-title">${escapeHtml(title)}</h2>
   ${bodyHtml}
+  ${clinic.footerNote ? `<div class="footer-note">${escapeHtml(clinic.footerNote)}</div>` : ''}
 </body>
 </html>`)
   doc.close()

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Appointment;
 use App\Models\Doctor;
+use App\Models\Setting;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 
@@ -27,7 +28,8 @@ class DoctorSlotController extends Controller
         ]);
 
         $timezone = config('dentaflow.display_timezone');
-        $duration = (int) ($data['duration'] ?? 30);
+        $defaultDuration = (int) (Setting::where('key', 'default_appointment_duration')->first()?->value ?? 30);
+        $duration = (int) ($data['duration'] ?? $defaultDuration);
         $date = Carbon::parse($data['date'], $timezone)->startOfDay();
         $weekday = $date->dayOfWeek; // 0 = Sunday ... 6 = Saturday
 
