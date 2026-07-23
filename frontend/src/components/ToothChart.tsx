@@ -8,7 +8,6 @@ import {
   LOWER_PERMANENT,
   LOWER_PRIMARY,
   STATUS_COLOR,
-  SURFACES,
   UPPER_ARCH,
   UPPER_PERMANENT,
   UPPER_PRIMARY,
@@ -85,8 +84,6 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
   const { can } = useAuth()
   const [selectedTeeth, setSelectedTeeth] = useState<number[]>([])
   const [multiSelect, setMultiSelect] = useState(false)
-  const [surfaces, setSurfaces] = useState<string[]>([])
-  const [findingType, setFindingType] = useState('caries')
   const [status, setStatus] = useState<'planned' | 'in_progress' | 'done'>('planned')
   const [markMissing, setMarkMissing] = useState(false)
   const [performedExternally, setPerformedExternally] = useState(false)
@@ -143,8 +140,6 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
   }
 
   function resetForm() {
-    setSurfaces([])
-    setFindingType('caries')
     setStatus('planned')
     setMarkMissing(false)
     setPerformedExternally(false)
@@ -167,8 +162,6 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
 
   function editFinding(f: ToothFinding) {
     setSelectedTeeth([f.tooth_number])
-    setSurfaces(f.surfaces ? f.surfaces.split('') : [])
-    setFindingType(f.finding_type)
     setStatus(f.status)
     setMarkMissing(f.marks_missing)
     setPerformedExternally(f.performed_externally)
@@ -210,10 +203,6 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
     setSelectedTeeth([])
   }
 
-  function toggleSurface(s: string) {
-    setSurfaces((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]))
-  }
-
   async function saveFinding() {
     if (selectedTeeth.length === 0) return
     setSaving(true)
@@ -229,10 +218,10 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
           plan_item_session_id: linkedSessionId || null,
         })
       } else {
+        const findingType = serviceId ? services.find((s) => String(s.id) === serviceId)?.name ?? 'ملاحظة' : 'ملاحظة'
         for (const tooth of selectedTeeth) {
           await api.post(`/patients/${patientId}/chart/findings`, {
             tooth_number: tooth,
-            surfaces: surfaces.length ? surfaces.join('') : null,
             finding_type: findingType,
             status,
             marks_missing: markMissing,
@@ -409,30 +398,6 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
 
           {!pickMode && canManage && (
             <>
-              <label className="mb-1 block text-xs text-ink/60">السطوح</label>
-              <div className="mb-3 flex flex-wrap gap-1">
-                {SURFACES.map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => toggleSurface(s)}
-                    className={`rounded-lg border px-2 py-1 text-xs ${
-                      surfaces.includes(s) ? 'border-accent bg-accent text-white' : 'border-ink/10 text-ink/70'
-                    }`}
-                  >
-                    {s}
-                  </button>
-                ))}
-              </div>
-
-              <label className="mb-1 block text-xs text-ink/60">نوع التشخيص/الإجراء</label>
-              <input
-                value={findingType}
-                onChange={(e) => setFindingType(e.target.value)}
-                className="mb-3 w-full rounded-lg border border-ink/10 px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
-                placeholder="caries, filling, extraction..."
-              />
-
               <label className="mb-1 block text-xs text-ink/60">الحالة</label>
               <select
                 value={status}
