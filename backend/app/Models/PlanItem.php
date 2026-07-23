@@ -45,4 +45,26 @@ class PlanItem extends Model
 
         return $this->tooth_number ? [$this->tooth_number] : [];
     }
+
+    /** Teeth from this item's pool already fully finished (a 'done' finding for this service) — permanently off-limits to future sessions. */
+    public function doneTeeth(): array
+    {
+        $pool = $this->allTeeth();
+        if (empty($pool)) {
+            return [];
+        }
+
+        return ToothFinding::where('patient_id', $this->treatmentPlan->patient_id)
+            ->where('service_id', $this->service_id)
+            ->whereIn('tooth_number', $pool)
+            ->where('status', 'done')
+            ->pluck('tooth_number')
+            ->all();
+    }
+
+    /** Teeth still workable — the pool minus whatever's already fully done. What a new session should offer/pre-select. */
+    public function remainingTeeth(): array
+    {
+        return array_values(array_diff($this->allTeeth(), $this->doneTeeth()));
+    }
 }

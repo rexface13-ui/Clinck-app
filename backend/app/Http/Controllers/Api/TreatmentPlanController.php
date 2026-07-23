@@ -211,6 +211,8 @@ class TreatmentPlanController extends Controller
             'lines.*.item_id' => ['required', 'integer'],
             'lines.*.tooth_numbers' => ['nullable', 'array', 'min:1'],
             'lines.*.tooth_numbers.*' => ['integer'],
+            'lines.*.pending_teeth' => ['nullable', 'array'],
+            'lines.*.pending_teeth.*' => ['integer'],
             'lines.*.price' => ['required', 'numeric', 'min:0'],
             'pay_now' => ['sometimes', 'boolean'],
             'cashbox_id' => ['required_if:pay_now,true', 'integer', 'exists:cashboxes,id'],

@@ -17,11 +17,15 @@ interface Props {
 interface Line {
   item_id: number
   service_name: string
-  /** The item's whole tooth pool (from the plan) — what's selectable for this line. */
+  /** This item's still-workable teeth (already-finished teeth are excluded entirely — can't be touched again). */
   pool: number[]
-  /** Which of the pool's teeth were actually done this visit — a subset, or all of it. */
+  /** Which of the pool's teeth are part of this visit at all — a subset, or all of it. */
   selectedTeeth: number[]
+  /** Of selectedTeeth, which are actually finished today (vs. touched but still continuing next time). */
+  doneTeeth: number[]
   price: string
+  /** The item's normal price — restored automatically if a fully-postponed line (price zeroed) gets a tooth marked done again. */
+  defaultPrice: string
 }
 
 export default function RecordPlanSessionModal({ plan, patientId, patientName, onClose, onDone }: Props) {
@@ -46,6 +50,7 @@ export default function RecordPlanSessionModal({ plan, patientId, patientName, o
   }, [])
 
   function poolFor(item: PlanItem): number[] {
+    if (item.remaining_teeth) return item.remaining_teeth
     return item.tooth_numbers && item.tooth_numbers.length > 0 ? item.tooth_numbers : item.tooth_number ? [item.tooth_number] : []
   }
 
@@ -55,9 +60,12 @@ export default function RecordPlanSessionModal({ plan, patientId, patientName, o
     const item = plan.items.find((i) => i.id === Number(itemId))
     if (!item) return
     const pool = poolFor(item)
+    // Default: every remaining tooth is part of today's visit and marked
+    // finished (the common case — most visits close out what they touch).
+    // Staff flips a tooth to "continuing" if it still needs another visit.
     setLines([
       ...lines,
-      { item_id: item.id, service_name: item.service_name ?? 'خدمة', pool, selectedTeeth: pool, price: item.unit_price },
+      { item_id: item.id, service_name: item.service_name ?? 'خدمة', pool, selectedTeeth: pool, doneTeeth: pool, price: item.unit_price, defaultPrice: item.unit_price },
     ])
     setAddItemId('')
   }
@@ -70,13 +78,29 @@ export default function RecordPlanSessionModal({ plan, patientId, patientName, o
     setLines(lines.map((l, i) => (i === idx ? { ...l, price } : l)))
   }
 
-  function toggleTooth(idx: number, tooth: number) {
+  /** Cycles a tooth chip: not touched → touched + done today → touched + still continuing → not touched. */
+  function cycleTooth(idx: number, tooth: number) {
     setLines(
-      lines.map((l, i) =>
-        i === idx
-          ? { ...l, selectedTeeth: l.selectedTeeth.includes(tooth) ? l.selectedTeeth.filter((t) => t !== tooth) : [...l.selectedTeeth, tooth] }
-          : l,
-      ),
+      lines.map((l, i) => {
+        if (i !== idx) return l
+        const touched = l.selectedTeeth.includes(tooth)
+        const done = l.doneTeeth.includes(tooth)
+        const next: Line = !touched
+          ? { ...l, selectedTeeth: [...l.selectedTeeth, tooth], doneTeeth: [...l.doneTeeth, tooth] }
+          : done
+            ? { ...l, doneTeeth: l.doneTeeth.filter((t) => t !== tooth) }
+            : { ...l, selectedTeeth: l.selectedTeeth.filter((t) => t !== tooth), doneTeeth: l.doneTeeth.filter((t) => t !== tooth) }
+
+        // Nothing finished this visit for this line — don't bill it, unless
+        // the secretary already typed a custom amount. Restore the normal
+        // price automatically once a tooth is marked done again.
+        if (next.doneTeeth.length === 0 && (l.price === l.defaultPrice || l.price === '')) {
+          next.price = '0'
+        } else if (next.doneTeeth.length > 0 && l.doneTeeth.length === 0 && (l.price === '0' || l.price === '')) {
+          next.price = next.defaultPrice
+        }
+        return next
+      }),
     )
   }
 
@@ -114,6 +138,7 @@ export default function RecordPlanSessionModal({ plan, patientId, patientName, o
         lines: lines.map((l) => ({
           item_id: l.item_id,
           tooth_numbers: l.pool.length > 0 ? l.selectedTeeth : null,
+          pending_teeth: l.pool.length > 0 ? l.selectedTeeth.filter((t) => !l.doneTeeth.includes(t)) : null,
           price: Math.round((Number(l.price) || 0) * (1 - discountRatio) * 100) / 100,
         })),
         pay_now: payMode === 'now',
@@ -181,20 +206,34 @@ export default function RecordPlanSessionModal({ plan, patientId, patientName, o
                   </button>
                 </div>
                 {l.pool.length > 0 && (
-                  <div className="flex flex-wrap gap-1">
-                    {l.pool.map((tooth) => (
-                      <button
-                        key={tooth}
-                        type="button"
-                        onClick={() => toggleTooth(idx, tooth)}
-                        className={`rounded-lg border px-2 py-1 text-xs ${
-                          l.selectedTeeth.includes(tooth) ? 'border-accent bg-accent text-white' : 'border-border text-ink/60'
-                        }`}
-                      >
-                        {tooth}
-                      </button>
-                    ))}
-                  </div>
+                  <>
+                    <div className="flex flex-wrap gap-1">
+                      {l.pool.map((tooth) => {
+                        const touched = l.selectedTeeth.includes(tooth)
+                        const done = l.doneTeeth.includes(tooth)
+                        return (
+                          <button
+                            key={tooth}
+                            type="button"
+                            onClick={() => cycleTooth(idx, tooth)}
+                            title={!touched ? 'مو مشمول بهاي الزيارة' : done ? 'خلص اليوم' : 'استمرار — لسا محتاج جلسة تانية'}
+                            className={`rounded-lg border px-2 py-1 text-xs ${
+                              touched
+                                ? done
+                                  ? 'border-success bg-success text-white'
+                                  : 'border-amber-500 bg-amber-100 text-amber-800'
+                                : 'border-border text-ink/60'
+                            }`}
+                          >
+                            {tooth}
+                          </button>
+                        )
+                      })}
+                    </div>
+                    <p className="text-[11px] text-ink/40">
+                      أخضر = خلص اليوم، أصفر = لسا مستمر (رح يرجع يظهر تلقائياً بالجلسة الجاية)، رمادي = مو مشمول بهاي الزيارة
+                    </p>
+                  </>
                 )}
               </div>
             ))}

@@ -15,6 +15,7 @@ class PlanItemResource extends JsonResource
             'service_name' => $this->whenLoaded('service', fn () => $this->service?->name),
             'tooth_number' => $this->tooth_number,
             'tooth_numbers' => $this->tooth_numbers,
+            'remaining_teeth' => $this->remainingTeeth(),
             'batch_id' => $this->batch_id,
             'surfaces' => $this->surfaces,
             'unit_price' => $this->unit_price,

@@ -147,6 +147,8 @@ export interface PlanItem {
   service_name: string | null
   tooth_number: number | null
   tooth_numbers: number[] | null
+  /** Teeth from this item's pool not yet fully finished — what a new session should offer. */
+  remaining_teeth: number[]
   batch_id: string | null
   surfaces: string | null
   unit_price: string

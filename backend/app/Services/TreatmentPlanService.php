@@ -68,6 +68,7 @@ class TreatmentPlanService
         ?string $payMethod = null,
         ?array $toothNumbers = null,
         ?int $appointmentId = null,
+        ?array $pendingTeeth = null,
     ): PlanItemSession {
         $item = $session->planItem()->with('treatmentPlan', 'service')->first();
         $plan = $item->treatmentPlan;
@@ -76,59 +77,69 @@ class TreatmentPlanService
         abort_if($session->status === 'done', 422, 'هالجلسة محسوبة مسبقاً.');
         abort_if($session->status === 'cancelled', 422, 'هالجلسة ملغاة.');
 
+        $pendingTeeth = array_values(array_intersect($pendingTeeth ?? [], $toothNumbers ?? []));
+
         if ($toothNumbers !== null) {
             $pool = $item->allTeeth();
             abort_if(array_diff($toothNumbers, $pool) !== [], 422, 'في سن مختار مو ضمن مجموعة أسنان هالبند بالخطة — عدّل الخطة وضيفه أول.');
 
-            $alreadyDone = $item->sessions()->where('status', 'done')->where('id', '!=', $session->id)
-                ->get()->flatMap(fn ($s) => $s->tooth_numbers ?? [])->unique()->values()->all();
-            $repeated = array_intersect($toothNumbers, $alreadyDone);
+            // A tooth that already has a 'done' finding for this service is
+            // permanently finished — can't be touched again. A tooth still
+            // 'in_progress' (postponed from an earlier visit) is fair game;
+            // that's exactly the continuation this session may be closing out.
+            $repeated = array_intersect($toothNumbers, $item->doneTeeth());
             abort_if($repeated !== [], 422, 'هالسن اتحسب مسبقاً بجلسة تانية: '.implode('، ', $repeated));
         }
 
-        return DB::transaction(function () use ($session, $item, $plan, $price, $payCashboxId, $payMethod, $toothNumbers, $appointmentId) {
-            $invoice = $plan->invoices()->where('status', '!=', 'void')->latest('id')->first();
-
-            if (! $invoice) {
-                $invoice = Invoice::create([
-                    'clinic_id' => $plan->clinic_id,
-                    'patient_id' => $plan->patient_id,
-                    'treatment_plan_id' => $plan->id,
-                    'invoice_number' => $this->nextInvoiceNumber($plan->clinic_id),
-                    'status' => 'unpaid',
-                    'total_amount_ils' => 0,
-                    'issued_at' => now(),
-                ]);
-            }
-
+        return DB::transaction(function () use ($session, $item, $plan, $price, $payCashboxId, $payMethod, $toothNumbers, $appointmentId, $pendingTeeth) {
             $sessionLabel = $item->sessions_count > 1 ? " — جلسة {$session->session_number}/{$item->sessions_count}" : '';
 
-            InvoiceLine::create([
-                'clinic_id' => $plan->clinic_id,
-                'invoice_id' => $invoice->id,
-                'plan_item_id' => $item->id,
-                'plan_item_session_id' => $session->id,
-                'description' => $item->service->name.($this->teethLabel($toothNumbers ?? $item->allTeeth())).$sessionLabel,
-                'amount' => $price,
-                'currency' => $item->currency,
-                'exchange_rate' => 1,
-                'amount_ils' => $price,
-            ]);
+            // No work actually billed this visit (pure postponement, "أجّل
+            // كمان مرة") — don't create an invoice line or patient charge at
+            // all, just record the visit/session and each tooth's progress.
+            $invoice = null;
+            if ($price > 0) {
+                $invoice = $plan->invoices()->where('status', '!=', 'void')->latest('id')->first();
 
-            $invoice->update(['total_amount_ils' => $invoice->total_amount_ils + $price]);
+                if (! $invoice) {
+                    $invoice = Invoice::create([
+                        'clinic_id' => $plan->clinic_id,
+                        'patient_id' => $plan->patient_id,
+                        'treatment_plan_id' => $plan->id,
+                        'invoice_number' => $this->nextInvoiceNumber($plan->clinic_id),
+                        'status' => 'unpaid',
+                        'total_amount_ils' => 0,
+                        'issued_at' => now(),
+                    ]);
+                }
 
-            PatientTransaction::create([
-                'clinic_id' => $plan->clinic_id,
-                'patient_id' => $plan->patient_id,
-                'type' => 'charge',
-                'reference_type' => 'invoice',
-                'reference_id' => $invoice->id,
-                'amount' => $price,
-                'currency' => 'ILS',
-                'exchange_rate' => 1,
-                'amount_ils' => $price,
-                'occurred_at' => now(),
-            ]);
+                InvoiceLine::create([
+                    'clinic_id' => $plan->clinic_id,
+                    'invoice_id' => $invoice->id,
+                    'plan_item_id' => $item->id,
+                    'plan_item_session_id' => $session->id,
+                    'description' => $item->service->name.($this->teethLabel($toothNumbers ?? $item->allTeeth())).$sessionLabel,
+                    'amount' => $price,
+                    'currency' => $item->currency,
+                    'exchange_rate' => 1,
+                    'amount_ils' => $price,
+                ]);
+
+                $invoice->update(['total_amount_ils' => $invoice->total_amount_ils + $price]);
+
+                PatientTransaction::create([
+                    'clinic_id' => $plan->clinic_id,
+                    'patient_id' => $plan->patient_id,
+                    'type' => 'charge',
+                    'reference_type' => 'invoice',
+                    'reference_id' => $invoice->id,
+                    'amount' => $price,
+                    'currency' => 'ILS',
+                    'exchange_rate' => 1,
+                    'amount_ils' => $price,
+                    'occurred_at' => now(),
+                ]);
+            }
 
             $session->update([
                 'status' => 'done',
@@ -139,25 +150,19 @@ class TreatmentPlanService
             $teeth = $toothNumbers ?? $item->allTeeth();
 
             if (! empty($teeth)) {
-                // toothNumbers explicitly given (plan-session flow: you record
-                // exactly which teeth from the plan's pool you finished today)
-                // means every one of those teeth is done right now — no
-                // "in_progress until the last of N repeat sessions" ambiguity,
-                // since a subset session IS the record of that tooth's work.
-                // Only the legacy null-toothNumbers path (repeat sessions that
-                // always cover the item's whole pool, e.g. 3x root canal on
-                // the same tooth) still waits for the last session.
-                $isLastSession = $toothNumbers !== null
-                    || $item->sessions()->where('status', 'done')->count() >= $item->sessions_count;
+                $commissionFired = false;
 
-                // One item can cover several teeth worked on together in the
-                // same session (e.g. a whole-arch cleaning) — every tooth
-                // still gets its own finding row so the chart/history is
-                // accurate per tooth, but commission is computed only ONCE
-                // for the session (off the first tooth's finding), not once
-                // per tooth — otherwise a single flat-fee cleaning across 16
-                // teeth would pay the doctor commission 16 times over.
-                foreach ($teeth as $i => $toothNumber) {
+                foreach ($teeth as $toothNumber) {
+                    // toothNumbers explicitly given (plan-session flow) means
+                    // each tooth is individually either finished today or
+                    // still continuing — the caller says which via
+                    // pendingTeeth. Only the legacy null-toothNumbers path
+                    // (repeat sessions always covering the item's whole pool)
+                    // still waits for the last session before marking done.
+                    $toothDoneNow = $toothNumbers !== null
+                        ? ! in_array($toothNumber, $pendingTeeth, true)
+                        : $item->sessions()->where('status', 'done')->count() >= $item->sessions_count;
+
                     $finding = ToothFinding::updateOrCreate(
                         [
                             'patient_id' => $plan->patient_id,
@@ -167,20 +172,29 @@ class TreatmentPlanService
                         [
                             'clinic_id' => $item->clinic_id,
                             'finding_type' => $item->service->name,
-                            'status' => $isLastSession ? 'done' : 'in_progress',
+                            'status' => $toothDoneNow ? 'done' : 'in_progress',
                             'doctor_id' => $plan->doctor_id,
                             'plan_item_session_id' => $session->id,
                             'recorded_at' => now(),
                         ],
                     );
 
-                    if ($isLastSession && $i === 0) {
+                    // One item can cover several teeth worked on together in
+                    // the same session (e.g. a whole-arch cleaning) — every
+                    // tooth still gets its own finding row so the chart/
+                    // history is accurate per tooth, but commission is
+                    // computed only ONCE per session (off the first tooth
+                    // actually finished today), not once per tooth —
+                    // otherwise a single flat-fee cleaning across 16 teeth
+                    // would pay the doctor commission 16 times over.
+                    if ($toothDoneNow && ! $commissionFired) {
                         app(CommissionService::class)->computeForFinding($finding);
+                        $commissionFired = true;
                     }
                 }
             }
 
-            if ($payCashboxId) {
+            if ($payCashboxId && $invoice) {
                 $cashbox = Cashbox::findOrFail($payCashboxId);
                 $this->paymentService->collect(
                     patient: $plan->patient,
@@ -191,7 +205,7 @@ class TreatmentPlanService
                     method: $payMethod ?? 'cash',
                     invoice: $invoice,
                 );
-            } else {
+            } elseif ($invoice) {
                 $this->paymentService->refreshInvoiceStatus($invoice->fresh());
             }
 
@@ -259,6 +273,7 @@ class TreatmentPlanService
                     null,
                     $line['tooth_numbers'] ?? null,
                     $appointment->id,
+                    $line['pending_teeth'] ?? null,
                 );
 
                 $totalPrice += (float) $line['price'];
