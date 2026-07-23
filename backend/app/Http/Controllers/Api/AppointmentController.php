@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Appointment\StoreAppointmentRequest;
 use App\Http\Requests\Appointment\UpdateAppointmentRequest;
 use App\Http\Resources\AppointmentResource;
+use App\Models\ActivityLog;
 use App\Models\Appointment;
 use App\Models\PlanItemSession;
 use App\Models\TreatmentPlan;
@@ -80,6 +81,14 @@ class AppointmentController extends Controller
     public function destroy(Appointment $appointment, TreatmentPlanService $planService)
     {
         $this->authorize('delete', $appointment);
+
+        $appointment->loadMissing(['patient:id,full_name', 'doctor:id,full_name']);
+        ActivityLog::record('appointment.deleted', sprintf(
+            'حذف موعد %s مع %s بتاريخ %s',
+            $appointment->patient?->full_name ?? 'مريض محذوف',
+            $appointment->doctor?->full_name ?? 'بدون طبيب',
+            $appointment->starts_at->format('d/m/Y H:i'),
+        ));
 
         DB::transaction(function () use ($appointment, $planService) {
             // Deleting an appointment that a treatment-plan session had booked

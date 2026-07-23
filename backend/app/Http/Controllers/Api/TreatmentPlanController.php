@@ -7,6 +7,7 @@ use App\Http\Requests\TreatmentPlan\StorePlanItemRequest;
 use App\Http\Requests\TreatmentPlan\StoreTreatmentPlanRequest;
 use App\Http\Resources\PlanItemResource;
 use App\Http\Resources\TreatmentPlanResource;
+use App\Models\ActivityLog;
 use App\Models\PlanItem;
 use App\Models\PlanItemSession;
 use App\Models\TreatmentPlan;
@@ -153,6 +154,12 @@ class TreatmentPlanController extends Controller
     {
         $this->authorize('cancel', $treatmentPlan);
 
+        $treatmentPlan->loadMissing('patient:id,full_name');
+        ActivityLog::record('treatment_plan.cancelled', sprintf(
+            'ألغى خطة علاج للمريض %s',
+            $treatmentPlan->patient?->full_name ?? 'مريض محذوف',
+        ));
+
         $plan = $service->cancel($treatmentPlan);
 
         return new TreatmentPlanResource($plan->load(['doctor', 'items.service', 'items.sessions']));
@@ -196,6 +203,14 @@ class TreatmentPlanController extends Controller
         $this->authorize('cancel', $treatmentPlan);
         abort_unless($item->treatment_plan_id === $treatmentPlan->id, 404);
         abort_unless($session->plan_item_id === $item->id, 404);
+
+        $treatmentPlan->loadMissing('patient:id,full_name');
+        ActivityLog::record('session.cancelled', sprintf(
+            'حذف جلسة (%s) للمريض %s — كانت بسعر %s ₪',
+            $item->service?->name ?? 'خدمة',
+            $treatmentPlan->patient?->full_name ?? 'مريض محذوف',
+            $session->price,
+        ));
 
         $service->cancelSession($session);
 
@@ -242,6 +257,17 @@ class TreatmentPlanController extends Controller
             'price' => ['sometimes', 'numeric', 'min:0'],
             'note' => ['sometimes', 'nullable', 'string'],
         ]);
+
+        if (array_key_exists('price', $data) && (float) $data['price'] !== (float) $session->price) {
+            $treatmentPlan->loadMissing('patient:id,full_name');
+            ActivityLog::record('session.price_changed', sprintf(
+                'غيّر سعر جلسة (%s) للمريض %s من %s ₪ إلى %s ₪',
+                $item->service?->name ?? 'خدمة',
+                $treatmentPlan->patient?->full_name ?? 'مريض',
+                $session->price,
+                $data['price'],
+            ));
+        }
 
         $service->updateSession(
             $session,

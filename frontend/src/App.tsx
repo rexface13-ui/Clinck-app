@@ -23,6 +23,7 @@ import DebtsPage from './pages/DebtsPage'
 import ReportsPage from './pages/ReportsPage'
 import PrintPage from './pages/PrintPage'
 import LabCasesPage from './pages/LabCasesPage'
+import ActivityLogPage from './pages/ActivityLogPage'
 
 function App() {
   return (
@@ -165,6 +166,14 @@ function App() {
               element={
                 <ProtectedRoute permission="purchasing.view">
                   <LabCasesPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/activity-log"
+              element={
+                <ProtectedRoute role="owner">
+                  <ActivityLogPage />
                 </ProtectedRoute>
               }
             />

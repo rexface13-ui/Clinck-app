@@ -21,6 +21,7 @@ import {
   faChartLine,
   faPrint,
   faFlask,
+  faClockRotateLeft,
 } from '@fortawesome/free-solid-svg-icons'
 import { useAuth } from '../contexts/AuthContext'
 import GlobalSearch from './GlobalSearch'
@@ -30,6 +31,7 @@ interface NavItem {
   label: string
   icon: typeof faGauge
   permission: string | null
+  role?: string
 }
 
 interface NavGroup {
@@ -78,6 +80,7 @@ const navGroups: NavGroup[] = [
     items: [
       { to: '/users', label: 'المستخدمون', icon: faUserGear, permission: 'users.view' },
       { to: '/backups', label: 'النسخ الاحتياطي', icon: faDatabase, permission: 'settings.manage' },
+      { to: '/activity-log', label: 'سجل النشاط', icon: faClockRotateLeft, permission: null, role: 'owner' },
       { to: '/settings', label: 'الإعدادات', icon: faGear, permission: null },
     ],
   },
@@ -109,7 +112,9 @@ export default function Layout() {
 
         <nav className="flex-1 space-y-5 overflow-y-auto px-3 pb-4">
           {navGroups.map((group) => {
-            const items = group.items.filter((item) => item.permission === null || can(item.permission))
+            const items = group.items.filter(
+              (item) => (item.permission === null || can(item.permission)) && (!item.role || data?.roles.includes(item.role)),
+            )
             if (items.length === 0) return null
 
             return (

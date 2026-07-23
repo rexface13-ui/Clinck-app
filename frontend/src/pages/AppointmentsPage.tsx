@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faChevronLeft, faChevronRight, faClock, faUserDoctor, faClockRotateLeft } from '@fortawesome/free-solid-svg-icons'
+import { faChevronLeft, faChevronRight, faClock, faUserDoctor, faClockRotateLeft, faTriangleExclamation } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
+import { useAuth } from '../contexts/AuthContext'
 import { formatDate, formatTime } from '../lib/formatDate'
 import DatePicker from '../components/DatePicker'
 import AppointmentDetailModal from '../components/AppointmentDetailModal'
@@ -37,6 +38,11 @@ function addDays(iso: string, delta: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
+function extractError(err: unknown): string {
+  const message = (err as { response?: { data?: { errors?: Record<string, string[]> } } })?.response?.data?.errors?.starts_at?.[0]
+  return message ?? 'تعذّر الحجز — قد يكون الوقت محجوزاً بالفعل.'
+}
+
 /** A bookable slot, tagged with which doctor/branch it belongs to — slots from every available doctor are merged into one flat, time-sorted list so booking doesn't require picking a doctor first. */
 interface OpenSlot extends Slot {
   doctorId: number
@@ -45,6 +51,8 @@ interface OpenSlot extends Slot {
 }
 
 export default function AppointmentsPage() {
+  const { data: authData } = useAuth()
+  const defaultDuration = (authData?.settings.default_appointment_duration as number) ?? 30
   const [searchParams] = useSearchParams()
   const preselectedPatient = searchParams.get('patient_id')
   const preselectedDate = searchParams.get('date')
@@ -135,12 +143,26 @@ export default function AppointmentsPage() {
       setSelectedSlot(null)
       loadAppointments()
       loadOpenSlots()
-    } catch {
-      setError('تعذّر الحجز — قد يكون الوقت محجوزاً بالفعل.')
+    } catch (err) {
+      setError(extractError(err))
     } finally {
       setBooking(false)
     }
   }
+
+  const manualConflict = useMemo(() => {
+    if (!manualDoctorId) return null
+    const startsAt = new Date(`${date}T${manualTime}:00`)
+    const endsAt = new Date(startsAt.getTime() + defaultDuration * 60000)
+    return dayAppointments.find(
+      (a) =>
+        a.doctor_id === Number(manualDoctorId) &&
+        a.status !== 'cancelled' &&
+        a.status !== 'no_show' &&
+        new Date(a.starts_at) < endsAt &&
+        new Date(a.ends_at) > startsAt,
+    )
+  }, [manualDoctorId, manualTime, date, dayAppointments, defaultDuration])
 
   async function bookManual() {
     const mainBranch = branches.find((b) => b.is_main) ?? branches[0]
@@ -149,7 +171,7 @@ export default function AppointmentsPage() {
     setError(null)
     try {
       const startsAt = new Date(`${date}T${manualTime}:00`)
-      const endsAt = new Date(startsAt.getTime() + 30 * 60000)
+      const endsAt = new Date(startsAt.getTime() + defaultDuration * 60000)
       await api.post('/appointments', {
         branch_id: mainBranch.id,
         patient_id: Number(patientId),
@@ -161,8 +183,8 @@ export default function AppointmentsPage() {
       setManualDoctorId('')
       loadAppointments()
       loadOpenSlots()
-    } catch {
-      setError('تعذّر الحجز — قد يكون الوقت محجوزاً بالفعل.')
+    } catch (err) {
+      setError(extractError(err))
     } finally {
       setBooking(false)
     }
@@ -341,9 +363,15 @@ export default function AppointmentsPage() {
                 ))}
               </Select>
 
+              {manualConflict && (
+                <p className="mb-2 flex items-center gap-1.5 text-sm text-danger">
+                  <FontAwesomeIcon icon={faTriangleExclamation} />
+                  الطبيب عنده موعد آخر بهاد الوقت ({manualConflict.patient_name ?? 'مريض آخر'} — {manualConflict.starts_at_display}).
+                </p>
+              )}
               {error && <p className="mb-2 text-sm text-danger">{error}</p>}
 
-              <Button onClick={bookManual} disabled={!patientId || booking} loading={booking} className="w-full justify-center">
+              <Button onClick={bookManual} disabled={!patientId || booking || !!manualConflict} loading={booking} className="w-full justify-center">
                 {booking ? 'جارِ الحجز...' : 'تأكيد الحجز'}
               </Button>
             </>
