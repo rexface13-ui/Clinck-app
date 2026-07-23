@@ -19,6 +19,7 @@ export default function ServicesPage() {
     default_price: '',
     default_sessions: '1',
     default_interval_days: '',
+    marks_teeth_missing: false,
   })
   const [error, setError] = useState<string | null>(null)
 
@@ -45,6 +46,7 @@ export default function ServicesPage() {
       default_price: Number(form.default_price),
       default_sessions: Number(form.default_sessions) || 1,
       default_interval_days: form.default_interval_days ? Number(form.default_interval_days) : null,
+      marks_teeth_missing: form.marks_teeth_missing,
     }
     try {
       if (editingId) {
@@ -62,7 +64,7 @@ export default function ServicesPage() {
   function closeForm() {
     setShowForm(false)
     setEditingId(null)
-    setForm({ service_category_id: '', name: '', default_price: '', default_sessions: '1', default_interval_days: '' })
+    setForm({ service_category_id: '', name: '', default_price: '', default_sessions: '1', default_interval_days: '', marks_teeth_missing: false })
   }
 
   function startEdit(s: Service) {
@@ -73,6 +75,7 @@ export default function ServicesPage() {
       default_price: s.default_price,
       default_sessions: String(s.default_sessions),
       default_interval_days: s.default_interval_days ? String(s.default_interval_days) : '',
+      marks_teeth_missing: s.marks_teeth_missing,
     })
     setError(null)
     setShowForm(true)
@@ -153,6 +156,15 @@ export default function ServicesPage() {
               value={form.default_sessions}
               onChange={(e) => setForm({ ...form, default_sessions: e.target.value })}
             />
+            <label className="col-span-2 flex items-center gap-2 text-sm text-ink/70">
+              <input
+                type="checkbox"
+                checked={form.marks_teeth_missing}
+                onChange={(e) => setForm({ ...form, marks_teeth_missing: e.target.checked })}
+                className="size-3.5"
+              />
+              هاي الخدمة بتخلع/بتشيل السن (خلع أسنان مثلاً) — لما تتم، السن بيصير "مفقود" تلقائياً بالرسمة
+            </label>
 
             {error && <p className="col-span-2 text-sm text-danger">{error}</p>}
 

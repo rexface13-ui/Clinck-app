@@ -23,6 +23,7 @@ class UpdateServiceRequest extends FormRequest
             'default_interval_days' => ['sometimes', 'nullable', 'integer', 'min:1'],
             'default_commission_percent' => ['sometimes', 'nullable', 'numeric', 'min:0', 'max:100'],
             'is_active' => ['sometimes', 'boolean'],
+            'marks_teeth_missing' => ['sometimes', 'boolean'],
         ];
     }
 }

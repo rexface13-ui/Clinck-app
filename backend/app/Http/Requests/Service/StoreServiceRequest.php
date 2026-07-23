@@ -23,6 +23,7 @@ class StoreServiceRequest extends FormRequest
             'default_interval_days' => ['nullable', 'integer', 'min:1'],
             'default_commission_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
             'is_active' => ['sometimes', 'boolean'],
+            'marks_teeth_missing' => ['sometimes', 'boolean'],
         ];
     }
 }

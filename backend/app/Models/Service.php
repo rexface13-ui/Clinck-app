@@ -14,7 +14,7 @@ class Service extends Model
     protected $fillable = [
         'clinic_id', 'service_category_id', 'name', 'default_price',
         'default_currency', 'default_sessions', 'default_interval_days',
-        'default_commission_percent', 'is_active',
+        'default_commission_percent', 'is_active', 'marks_teeth_missing',
     ];
 
     protected function casts(): array
@@ -23,6 +23,7 @@ class Service extends Model
             'default_price' => 'decimal:2',
             'default_commission_percent' => 'decimal:2',
             'is_active' => 'boolean',
+            'marks_teeth_missing' => 'boolean',
         ];
     }
 

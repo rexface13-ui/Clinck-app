@@ -19,6 +19,7 @@ class ServiceResource extends JsonResource
             'default_interval_days' => $this->default_interval_days,
             'default_commission_percent' => $this->default_commission_percent,
             'is_active' => $this->is_active,
+            'marks_teeth_missing' => $this->marks_teeth_missing,
             'branch_prices' => $this->whenLoaded('branchPrices', fn () => $this->branchPrices->map(fn ($p) => [
                 'id' => $p->id,
                 'branch_id' => $p->branch_id,

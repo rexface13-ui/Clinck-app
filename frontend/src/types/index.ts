@@ -51,6 +51,7 @@ export interface Service {
   default_interval_days: number | null
   default_commission_percent: string | null
   is_active: boolean
+  marks_teeth_missing: boolean
   branch_prices?: { id: number; branch_id: number; price: string | null; surcharge: string }[]
 }
 

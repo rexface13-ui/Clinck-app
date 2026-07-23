@@ -11,6 +11,7 @@ use App\Models\PatientTransaction;
 use App\Models\PlanItem;
 use App\Models\PlanItemSession;
 use App\Models\ToothFinding;
+use App\Models\ToothState;
 use App\Models\TreatmentPlan;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -163,6 +164,12 @@ class TreatmentPlanService
                         ? ! in_array($toothNumber, $pendingTeeth, true)
                         : $item->sessions()->where('status', 'done')->count() >= $item->sessions_count;
 
+                    // Some services (extraction chief among them) permanently
+                    // remove the tooth — once that's actually done today (not
+                    // just started), the tooth flips to missing automatically
+                    // instead of relying on staff to remember the checkbox.
+                    $marksMissing = $toothDoneNow && $item->service->marks_teeth_missing;
+
                     $finding = ToothFinding::updateOrCreate(
                         [
                             'patient_id' => $plan->patient_id,
@@ -173,11 +180,19 @@ class TreatmentPlanService
                             'clinic_id' => $item->clinic_id,
                             'finding_type' => $item->service->name,
                             'status' => $toothDoneNow ? 'done' : 'in_progress',
+                            'marks_missing' => $marksMissing,
                             'doctor_id' => $plan->doctor_id,
                             'plan_item_session_id' => $session->id,
                             'recorded_at' => now(),
                         ],
                     );
+
+                    if ($marksMissing) {
+                        ToothState::updateOrCreate(
+                            ['patient_id' => $plan->patient_id, 'tooth_number' => $toothNumber],
+                            ['clinic_id' => $item->clinic_id, 'status' => 'missing'],
+                        );
+                    }
 
                     // One item can cover several teeth worked on together in
                     // the same session (e.g. a whole-arch cleaning) — every
