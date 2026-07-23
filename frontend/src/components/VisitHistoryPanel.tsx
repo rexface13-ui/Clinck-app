@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faTrash, faSave, faMoneyBill, faChevronDown, faChevronLeft, faTooth } from '@fortawesome/free-solid-svg-icons'
+import { faTrash, faSave, faMoneyBill, faChevronDown, faChevronLeft, faTooth, faPrint } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
+import { formatDate } from '../lib/formatDate'
+import { printDocument, metaRow } from '../lib/print'
+import { useClinicProfile } from '../lib/useClinicProfile'
 import { Card, Badge, SearchableSelect } from './ui'
 import type { BadgeVariant } from './ui'
 import { describeTeeth } from '../lib/dental'
@@ -53,10 +56,30 @@ const INVOICE_STATUS_VARIANTS: Record<string, BadgeVariant> = {
   void: 'neutral',
 }
 
-export default function VisitHistoryPanel({ patientId, isChild = false, onChanged }: { patientId: number; isChild?: boolean; onChanged?: () => void }) {
+export default function VisitHistoryPanel({ patientId, patientName, isChild = false, onChanged }: { patientId: number; patientName?: string; isChild?: boolean; onChanged?: () => void }) {
   const { can } = useAuth()
   const canManage = can('treatment_plans.manage')
   const canCollect = can('billing.manage')
+  const clinic = useClinicProfile()
+  const [prescribingFor, setPrescribingFor] = useState<number | null>(null)
+  const [medsText, setMedsText] = useState<Record<number, string>>({})
+
+  function printPrescriptionFor(v: Visit) {
+    const meds = medsText[v.session_id] ?? ''
+    if (!meds.trim()) return
+    const body = `
+      ${metaRow([
+        ['المريض', patientName ?? ''],
+        ['التاريخ', formatDate(new Date().toISOString())],
+        ...(v.doctor_name ? ([['الطبيب', v.doctor_name]] as [string, string][]) : []),
+      ])}
+      <p style="font-size:13px;margin-bottom:6px;"><b>الأدوية:</b></p>
+      <div style="white-space:pre-wrap;font-size:14px;line-height:1.9;border:1px solid #ddd;border-radius:8px;padding:14px;min-height:120px;">${meds.replace(/\n/g, '<br/>')}</div>
+      <div class="signature"><div>توقيع الطبيب</div></div>
+    `
+    printDocument('وصفة طبية', body, clinic)
+    setPrescribingFor(null)
+  }
 
   const [visits, setVisits] = useState<Visit[]>([])
   const [cashboxes, setCashboxes] = useState<Cashbox[]>([])
@@ -338,6 +361,41 @@ export default function VisitHistoryPanel({ patientId, isChild = false, onChange
                   ) : (
                     v.note && <p className="text-sm text-ink">{v.note}</p>
                   )}
+
+                  <div className="border-t border-ink/5 pt-2">
+                    {prescribingFor === v.session_id ? (
+                      <div className="space-y-2">
+                        <textarea
+                          value={medsText[v.session_id] ?? ''}
+                          onChange={(e) => setMedsText({ ...medsText, [v.session_id]: e.target.value })}
+                          placeholder={'الأدوية...\nمثال: Amoxicillin 500mg — كل 8 ساعات لمدة 5 أيام'}
+                          rows={3}
+                          className="w-full rounded-lg border border-ink/10 px-2 py-1.5 text-sm"
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => printPrescriptionFor(v)}
+                            disabled={!(medsText[v.session_id] ?? '').trim()}
+                            className="flex items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-xs text-white hover:bg-accent-hover disabled:opacity-40"
+                          >
+                            <FontAwesomeIcon icon={faPrint} />
+                            طباعة
+                          </button>
+                          <button onClick={() => setPrescribingFor(null)} className="rounded-lg px-3 py-1.5 text-xs text-muted hover:bg-background">
+                            إلغاء
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setPrescribingFor(v.session_id)}
+                        className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-ink/60 hover:bg-background hover:text-accent"
+                      >
+                        <FontAwesomeIcon icon={faPrint} />
+                        كتابة وصفة طبية وطباعتها
+                      </button>
+                    )}
+                  </div>
 
                   {canCollect && v.invoice_status !== 'paid' && v.invoice_status !== 'void' && (
                     <div className="flex items-end gap-2 border-t border-ink/5 pt-2">

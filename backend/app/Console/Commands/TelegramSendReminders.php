@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\Appointment;
 use App\Models\CheckModel;
+use App\Models\LabCase;
 use App\Models\TelegramLink;
 use App\Services\TelegramService;
 use App\Support\Tenancy\CurrentClinic;
@@ -28,8 +29,38 @@ class TelegramSendReminders extends Command
 
         $this->sendAppointmentReminders($telegram);
         $this->sendCheckReminders($telegram);
+        $this->sendLabCaseReminders($telegram);
 
         return self::SUCCESS;
+    }
+
+    protected function sendLabCaseReminders(TelegramService $telegram): void
+    {
+        $cases = LabCase::with(['patient:id,full_name', 'supplier:id,name'])
+            ->where('status', '!=', 'received')
+            ->where('expected_return_date', '<=', Carbon::today())
+            ->get();
+
+        if ($cases->isEmpty()) {
+            return;
+        }
+
+        $lines = $cases->map(fn (LabCase $c) => sprintf(
+            '%s — %s (مخبر: %s، متوقع: %s)',
+            $c->patient?->full_name,
+            $c->description,
+            $c->supplier?->name,
+            $c->expected_return_date->format('d/m/Y'),
+        ));
+
+        $recipients = TelegramLink::with('user')
+            ->whereNotNull('linked_at')
+            ->get()
+            ->filter(fn (TelegramLink $link) => $link->user?->hasAnyRole(['owner', 'secretary']));
+
+        foreach ($recipients as $link) {
+            $telegram->sendMessage($link->telegram_chat_id, "تذكير: حالات مخبر وصل تاريخها المتوقع — تأكد وصلت ولا لسا:\n".$lines->implode("\n"));
+        }
     }
 
     protected function sendAppointmentReminders(TelegramService $telegram): void

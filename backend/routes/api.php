@@ -18,6 +18,7 @@ use App\Http\Controllers\Api\ExpenseController;
 use App\Http\Controllers\Api\IncomeController;
 use App\Http\Controllers\Api\ItemCategoryController;
 use App\Http\Controllers\Api\ItemController;
+use App\Http\Controllers\Api\LabCaseController;
 use App\Http\Controllers\Api\PatientAttachmentController;
 use App\Http\Controllers\Api\PatientBillingController;
 use App\Http\Controllers\Api\PatientController;
@@ -26,6 +27,7 @@ use App\Http\Controllers\Api\PurchaseInvoiceController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\ServiceCategoryController;
+use App\Http\Controllers\Api\SettingController;
 use App\Http\Controllers\Api\ServiceController;
 use App\Http\Controllers\Api\StockMovementController;
 use App\Http\Controllers\Api\SupplierController;
@@ -151,6 +153,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('purchase-invoices/{purchaseInvoice}/confirm', [PurchaseInvoiceController::class, 'confirm']);
     Route::post('purchase-invoices/{purchaseInvoice}/revert', [PurchaseInvoiceController::class, 'revert']);
 
+    Route::get('lab-cases', [LabCaseController::class, 'index']);
+    Route::post('lab-cases', [LabCaseController::class, 'store']);
+    Route::put('lab-cases/{labCase}', [LabCaseController::class, 'update']);
+    Route::delete('lab-cases/{labCase}', [LabCaseController::class, 'destroy']);
+
     Route::get('stock-movements', [StockMovementController::class, 'index']);
     Route::post('stock-movements', [StockMovementController::class, 'store']);
 
@@ -170,6 +177,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('reports/no-show', [ReportController::class, 'noShow']);
     Route::get('reports/debts-aging', [ReportController::class, 'debtsAging']);
     Route::get('reports/collections', [ReportController::class, 'collections']);
+
+    Route::put('settings', [SettingController::class, 'update']);
 
     // Telegram linking (Phase 4)
     Route::get('telegram-link', [TelegramLinkController::class, 'show']);

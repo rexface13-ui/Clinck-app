@@ -88,6 +88,15 @@ interface ExpiringLot {
   quantity_remaining: number
 }
 
+interface LabCaseAlert {
+  id: number
+  patient_name: string | null
+  supplier_name: string | null
+  description: string
+  expected_return_date: string
+  status: string
+}
+
 interface Summary {
   kpis: {
     today_appointments: number
@@ -99,6 +108,7 @@ interface Summary {
   alerts: {
     checks_due: CheckAlert[]
     expiring_lots: ExpiringLot[]
+    lab_cases_due: LabCaseAlert[]
   }
 }
 
@@ -440,6 +450,26 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {data && data.alerts.lab_cases_due.length > 0 && (
+        <Card className="mb-8 p-6">
+          <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-ink/80">
+            <FontAwesomeIcon icon={faTriangleExclamation} className="text-danger" />
+            حالات مخبر وصل تاريخها المتوقع
+          </h2>
+          <ul className="space-y-3 text-sm">
+            {data.alerts.lab_cases_due.map((c) => (
+              <li key={c.id} className="flex items-center justify-between border-b border-border/70 pb-2 last:border-0">
+                <span className="text-ink/80">
+                  {c.patient_name} — {c.description} <span className="text-muted">({c.supplier_name})</span>
+                </span>
+                <span className="text-muted">{formatDate(c.expected_return_date)}</span>
+              </li>
+            ))}
+          </ul>
+          <Link to="/lab-cases" className="mt-3 inline-block text-xs text-accent hover:underline">فتح صفحة تتبع المخبر</Link>
+        </Card>
       )}
 
       <Card className="mb-8 p-6">

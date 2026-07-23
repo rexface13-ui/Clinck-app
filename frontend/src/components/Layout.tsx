@@ -19,6 +19,8 @@ import {
   faGauge,
   faBook,
   faChartLine,
+  faPrint,
+  faFlask,
 } from '@fortawesome/free-solid-svg-icons'
 import { useAuth } from '../contexts/AuthContext'
 import GlobalSearch from './GlobalSearch'
@@ -41,6 +43,7 @@ const navGroups: NavGroup[] = [
     items: [
       { to: '/', label: 'لوحة التحكم', icon: faGauge, permission: null },
       { to: '/reports', label: 'التقارير', icon: faChartLine, permission: 'reports.view' },
+      { to: '/print', label: 'الطباعة', icon: faPrint, permission: null },
     ],
   },
   {
@@ -67,6 +70,7 @@ const navGroups: NavGroup[] = [
       { to: '/items', label: 'الأصناف والمخزون', icon: faBoxesStacked, permission: 'inventory.view' },
       { to: '/purchase-invoices', label: 'فواتير الشراء', icon: faFileInvoiceDollar, permission: 'purchasing.view' },
       { to: '/suppliers', label: 'الموردون', icon: faTruck, permission: 'suppliers.view' },
+      { to: '/lab-cases', label: 'تتبع المخبر', icon: faFlask, permission: 'purchasing.view' },
     ],
   },
   {

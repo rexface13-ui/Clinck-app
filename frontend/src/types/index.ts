@@ -337,6 +337,24 @@ export interface PurchaseInvoice {
   lines?: PurchaseInvoiceLine[]
 }
 
+export interface LabCase {
+  id: number
+  patient_id: number
+  patient_name: string | null
+  doctor_id: number | null
+  doctor_name: string | null
+  supplier_id: number
+  supplier_name: string | null
+  description: string
+  tooth_numbers: number[] | null
+  sent_at: string
+  expected_return_date: string
+  status: 'sent' | 'ready' | 'received'
+  notes: string | null
+  received_at: string | null
+  is_overdue: boolean
+}
+
 export interface StockMovement {
   id: number
   branch_id: number

@@ -10,6 +10,7 @@ use App\Models\Doctor;
 use App\Models\DoctorTransaction;
 use App\Models\Invoice;
 use App\Models\ItemLot;
+use App\Models\LabCase;
 use App\Models\Patient;
 use App\Models\PatientTransaction;
 use Illuminate\Http\Request;
@@ -56,6 +57,7 @@ class DashboardController extends Controller
         $canViewCommissions = $user->can('commissions.view');
         $canViewChecks = $user->can('checks.view');
         $canViewInventory = $user->can('inventory.view');
+        $canViewLabCases = $user->can('purchasing.view');
         $canViewFinance = $canViewCash || $canViewCommissions || $canViewChecks;
 
         // "Today"/"this month" must be computed in the clinic's local timezone,
@@ -175,6 +177,20 @@ class DashboardController extends Controller
                         'lot_number' => $lot->lot_number,
                         'expiry_date' => $lot->expiry_date,
                         'quantity_remaining' => (float) $lot->quantity_remaining,
+                    ]) : [],
+                'lab_cases_due' => $canViewLabCases ? LabCase::with(['patient:id,full_name', 'supplier:id,name'])
+                    ->where('status', '!=', 'received')
+                    ->where('expected_return_date', '<=', Carbon::today($timezone))
+                    ->orderBy('expected_return_date')
+                    ->limit(5)
+                    ->get()
+                    ->map(fn (LabCase $c) => [
+                        'id' => $c->id,
+                        'patient_name' => $c->patient?->full_name,
+                        'supplier_name' => $c->supplier?->name,
+                        'description' => $c->description,
+                        'expected_return_date' => $c->expected_return_date,
+                        'status' => $c->status,
                     ]) : [],
             ],
         ]);

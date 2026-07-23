@@ -21,6 +21,8 @@ import SettingsPage from './pages/SettingsPage'
 import DashboardPage from './pages/DashboardPage'
 import DebtsPage from './pages/DebtsPage'
 import ReportsPage from './pages/ReportsPage'
+import PrintPage from './pages/PrintPage'
+import LabCasesPage from './pages/LabCasesPage'
 
 function App() {
   return (
@@ -157,6 +159,15 @@ function App() {
               }
             />
             <Route path="/debts" element={<DebtsPage />} />
+            <Route path="/print" element={<PrintPage />} />
+            <Route
+              path="/lab-cases"
+              element={
+                <ProtectedRoute permission="purchasing.view">
+                  <LabCasesPage />
+                </ProtectedRoute>
+              }
+            />
             <Route path="/settings" element={<SettingsPage />} />
           </Route>
         </Routes>
