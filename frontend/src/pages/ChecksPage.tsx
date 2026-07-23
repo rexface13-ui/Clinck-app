@@ -256,7 +256,7 @@ export default function ChecksPage() {
                       </span>
                     </Td>
                     <Td className="text-muted">{c.bank_name ?? '—'}</Td>
-                    <Td className="text-muted">{c.amount} {c.currency}</Td>
+                    <Td className="text-muted">{c.amount} {c.currency === 'ILS' ? '₪' : c.currency}</Td>
                     <Td className="text-muted">{formatDate(c.due_date)}</Td>
                     <Td>
                       <Badge variant={STATUS_VARIANTS[c.status]}>{STATUS_LABELS[c.status]}</Badge>

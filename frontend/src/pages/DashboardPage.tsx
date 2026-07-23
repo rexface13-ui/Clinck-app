@@ -115,7 +115,7 @@ interface Summary {
 const statusLabels: Record<string, string> = {
   scheduled: 'مجدول',
   confirmed: 'مؤكد',
-  completed: 'مكتمل',
+  done: 'مكتمل',
   cancelled: 'ملغي',
   no_show: 'لم يحضر',
   paid: 'مدفوعة',
@@ -127,7 +127,7 @@ const statusLabels: Record<string, string> = {
 const statusVariants: Record<string, BadgeVariant> = {
   scheduled: 'info',
   confirmed: 'accent',
-  completed: 'success',
+  done: 'success',
   cancelled: 'danger',
   no_show: 'warning',
   paid: 'success',
