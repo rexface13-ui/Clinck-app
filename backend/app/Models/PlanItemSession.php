@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Models\Concerns\BelongsToClinic;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class PlanItemSession extends Model
 {
@@ -25,5 +26,10 @@ class PlanItemSession extends Model
     public function appointment(): BelongsTo
     {
         return $this->belongsTo(Appointment::class);
+    }
+
+    public function invoiceLine(): HasOne
+    {
+        return $this->hasOne(InvoiceLine::class);
     }
 }

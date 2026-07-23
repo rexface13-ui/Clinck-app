@@ -90,6 +90,9 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [editingFindingId, setEditingFindingId] = useState<number | null>(null)
+  const [editingFinding, setEditingFinding] = useState<ToothFinding | null>(null)
+  const [editStatus, setEditStatus] = useState<'planned' | 'in_progress' | 'done'>('done')
+  const [editPrice, setEditPrice] = useState('')
 
   const stateByTooth = useMemo(() => {
     const map = new Map<number, string>()
@@ -138,6 +141,8 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
     setNote('')
     setError(null)
     setEditingFindingId(null)
+    setEditingFinding(null)
+    setEditPrice('')
   }
 
   function openTooth(tooth: number) {
@@ -156,6 +161,9 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
     setNote(f.note ?? '')
     setError(null)
     setEditingFindingId(f.id)
+    setEditingFinding(f)
+    setEditStatus(f.status)
+    setEditPrice(f.session_price ?? '')
   }
 
   async function deleteFinding(findingId: number) {
@@ -194,11 +202,19 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
     setError(null)
     try {
       if (editingFindingId) {
+        const isSession = !!editingFinding?.plan_item_session_id
         await api.patch(`/patients/${patientId}/chart/findings/${editingFindingId}`, {
           note: note || null,
           marks_missing: markMissing,
           performed_externally: performedExternally,
+          ...(isSession ? { status: editStatus } : {}),
         })
+        if (isSession && editingFinding?.plan_id && editingFinding?.plan_item_id && editPrice !== '' && Number(editPrice) !== Number(editingFinding.session_price ?? 0)) {
+          await api.patch(
+            `/treatment-plans/${editingFinding.plan_id}/items/${editingFinding.plan_item_id}/sessions/${editingFinding.plan_item_session_id}`,
+            { price: Number(editPrice) },
+          )
+        }
       } else {
         for (const tooth of selectedTeeth) {
           await api.post(`/patients/${patientId}/chart/findings`, {
@@ -407,6 +423,31 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
 
           {!pickMode && canManage && (
             <>
+              {editingFinding?.plan_item_session_id && (
+                <div className="mb-3 rounded-lg bg-background p-2">
+                  <p className="mb-2 text-xs font-medium text-ink/70">تعديل جلسة: {editingFinding.finding_type}</p>
+
+                  <label className="mb-1 block text-xs text-ink/60">السعر (₪)</label>
+                  <input
+                    type="number"
+                    value={editPrice}
+                    onChange={(e) => setEditPrice(e.target.value)}
+                    className="mb-3 w-full rounded-lg border border-ink/10 px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
+                  />
+
+                  <label className="mb-1 block text-xs text-ink/60">الحالة</label>
+                  <select
+                    value={editStatus}
+                    onChange={(e) => setEditStatus(e.target.value as typeof editStatus)}
+                    className="w-full rounded-lg border border-ink/10 px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
+                  >
+                    <option value="planned">مخطط</option>
+                    <option value="in_progress">قيد التنفيذ</option>
+                    <option value="done">منجز</option>
+                  </select>
+                </div>
+              )}
+
               <label className="mb-3 flex items-center gap-2 text-xs text-ink/70">
                 <input type="checkbox" checked={markMissing} onChange={(e) => setMarkMissing(e.target.checked)} className="size-3.5" />
                 هذا السن مفقود (خلع، سقوط، أو غير موجود من الأساس) — بيصير مستثنى من "تحديد الكل/النصف" لاحقاً

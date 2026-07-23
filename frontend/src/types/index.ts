@@ -85,6 +85,10 @@ export interface ToothFinding {
   marks_missing: boolean
   performed_externally: boolean
   plan_item_session_id: number | null
+  session_status: 'pending' | 'scheduled' | 'done' | 'cancelled' | null
+  session_price: string | null
+  plan_id: number | null
+  plan_item_id: number | null
   service_id: number | null
   service_name: string | null
   doctor_id: number | null

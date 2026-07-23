@@ -31,7 +31,7 @@ class ToothChartController extends Controller
 
         if (! $asOf) {
             $states = $patient->toothStates()->get();
-            $findings = $patient->toothFindings()->orderByDesc('recorded_at')->with(['service', 'doctor'])->get();
+            $findings = $patient->toothFindings()->orderByDesc('recorded_at')->with(['service', 'doctor', 'planItemSession.planItem', 'planItemSession.invoiceLine'])->get();
 
             return [
                 'tooth_states' => ToothStateResource::collection($states),
