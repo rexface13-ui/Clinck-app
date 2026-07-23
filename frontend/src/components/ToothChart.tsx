@@ -396,6 +396,41 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
             </p>
           )}
 
+          {singleSelectedTooth && (
+            <div className="mb-4">
+              <h4 className="mb-2 text-xs font-medium text-ink/60">السجل</h4>
+              {history.length === 0 ? (
+                <p className="text-xs text-ink/40">لا يوجد سجل لهذا السن.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {history.map((f) => (
+                    <li key={f.id} className="flex items-start justify-between gap-2 text-xs text-ink/70">
+                      <span>
+                        <span className="font-medium text-ink">{f.finding_type}</span>
+                        {' — '}
+                        {STATUS_LABEL[f.status]}
+                        {f.performed_externally && <span className="text-warning"> — طرف خارجي</span>}
+                        {' — '}
+                        {f.doctor_name ?? 'طبيب عام'} — {f.recorded_at}
+                        {f.note && <p className="mt-0.5 text-ink/50">{f.note}</p>}
+                      </span>
+                      {canManage && (
+                        <span className="flex shrink-0 gap-2">
+                          <button onClick={() => editFinding(f)} className="text-ink/40 hover:text-accent">
+                            <FontAwesomeIcon icon={faPen} />
+                          </button>
+                          <button onClick={() => deleteFinding(f.id)} className="text-ink/40 hover:text-danger">
+                            <FontAwesomeIcon icon={faTrash} />
+                          </button>
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
           {!pickMode && canManage && (
             <>
               <label className="mb-1 block text-xs text-ink/60">الحالة</label>
@@ -526,40 +561,14 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
             </div>
           )}
 
-          {singleSelectedTooth && (
-            <div className="mt-4 border-t border-ink/10 pt-3">
-              <h4 className="mb-2 text-xs font-medium text-ink/60">السجل</h4>
-              {history.length === 0 ? (
-                <p className="text-xs text-ink/40">لا يوجد سجل لهذا السن.</p>
-              ) : (
-                <ul className="space-y-2">
-                  {history.map((f) => (
-                    <li key={f.id} className="flex items-start justify-between gap-2 text-xs text-ink/70">
-                      <span>
-                        <span className="font-medium text-ink">{f.finding_type}</span>
-                        {f.surfaces && <span className="text-ink/50"> ({f.surfaces})</span>} — {f.status}
-                        {f.performed_externally && <span className="text-warning"> — طرف خارجي</span>}
-                        {f.doctor_name && <> — {f.doctor_name}</>} — {f.recorded_at}
-                        {f.note && <p className="mt-0.5 text-ink/50">{f.note}</p>}
-                      </span>
-                      {canManage && (
-                        <span className="flex shrink-0 gap-2">
-                          <button onClick={() => editFinding(f)} className="text-ink/40 hover:text-accent">
-                            <FontAwesomeIcon icon={faPen} />
-                          </button>
-                          <button onClick={() => deleteFinding(f.id)} className="text-ink/40 hover:text-danger">
-                            <FontAwesomeIcon icon={faTrash} />
-                          </button>
-                        </span>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
         </div>
       )}
     </div>
   )
+}
+
+const STATUS_LABEL: Record<'planned' | 'in_progress' | 'done', string> = {
+  planned: 'مخطط',
+  in_progress: 'قيد التنفيذ',
+  done: 'منجز',
 }
