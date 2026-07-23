@@ -223,8 +223,7 @@ class ReportController extends Controller
 
         $patients = Patient::with(['transactions' => fn ($q) => $q->orderBy('occurred_at')])->get();
 
-        $buckets = ['0-30' => 0, '31-60' => 0, '61-90' => 0, '90+' => 0];
-        $bucketTotals = ['0-30' => 0.0, '31-60' => 0.0, '61-90' => 0.0, '90+' => 0.0];
+        $buckets = ['0-30' => [], '31-60' => [], '61-90' => [], '90+' => []];
 
         foreach ($patients as $patient) {
             $balance = $patient->transactions->reduce(
@@ -237,18 +236,23 @@ class ReportController extends Controller
             }
 
             $oldestCharge = $patient->transactions->firstWhere('type', 'charge');
-            $days = $oldestCharge ? Carbon::parse($oldestCharge->occurred_at)->diffInDays($now) : 0;
+            $days = $oldestCharge ? (int) Carbon::parse($oldestCharge->occurred_at)->diffInDays($now) : 0;
 
             $bucket = $days <= 30 ? '0-30' : ($days <= 60 ? '31-60' : ($days <= 90 ? '61-90' : '90+'));
-            $buckets[$bucket]++;
-            $bucketTotals[$bucket] += $balance;
+            $buckets[$bucket][] = [
+                'patient_id' => $patient->id,
+                'patient_name' => $patient->full_name,
+                'balance_ils' => round($balance, 2),
+                'days' => $days,
+            ];
         }
 
         return [
-            'buckets' => collect($buckets)->map(fn ($count, $key) => [
+            'buckets' => collect($buckets)->map(fn ($patients, $key) => [
                 'bucket' => $key,
-                'patients_count' => $count,
-                'total_ils' => round($bucketTotals[$key], 2),
+                'patients_count' => count($patients),
+                'total_ils' => round(collect($patients)->sum('balance_ils'), 2),
+                'patients' => collect($patients)->sortByDesc('balance_ils')->values(),
             ])->values(),
         ];
     }

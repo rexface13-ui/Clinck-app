@@ -60,6 +60,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('doctors/{doctor}/commissions/{commission}', [DoctorServiceCommissionController::class, 'destroy']);
     Route::get('doctors/{doctor}/slots', [DoctorSlotController::class, 'index']);
     Route::get('doctors/{doctor}/occupancy', [DoctorOccupancyController::class, 'index']);
+    Route::get('doctors-occupancy', [DoctorOccupancyController::class, 'indexAll']);
     Route::get('doctors/{doctor}/commission-statement', [DoctorCommissionController::class, 'index']);
     Route::post('doctors/{doctor}/commission-statement/pay', [DoctorCommissionController::class, 'pay']);
 

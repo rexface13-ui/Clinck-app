@@ -311,60 +311,60 @@ export default function DashboardPage() {
         />
       )}
 
-      <div className="mb-8">
+      <div className="mb-8 flex flex-col gap-6 lg:flex-row lg:items-start">
+        <Card className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center justify-between gap-3 p-6 pb-0">
+            <h2 className="text-sm font-semibold text-ink/80">مواعيد اليوم</h2>
+            <div className="relative">
+              <FontAwesomeIcon icon={faMagnifyingGlass} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted" />
+              <input
+                value={appointmentsSearch}
+                onChange={(e) => setAppointmentsSearch(e.target.value)}
+                placeholder="بحث باسم المريض أو الطبيب..."
+                className="w-64 rounded-xl border border-border bg-surface py-2 pe-3 ps-9 text-sm focus:border-accent focus:outline-none"
+              />
+            </div>
+          </div>
+          {!data ? (
+            <TableSkeleton />
+          ) : (
+            <Table>
+              <Thead>
+                <Th>الوقت</Th>
+                <Th>المريض</Th>
+                <Th>الطبيب</Th>
+                <Th>الحالة</Th>
+              </Thead>
+              <tbody>
+                {(() => {
+                  const term = appointmentsSearch.trim().toLowerCase()
+                  const active = data.today_appointments.filter((a) => a.status !== 'cancelled')
+                  const filtered = term
+                    ? active.filter(
+                        (a) => a.patient_name?.toLowerCase().includes(term) || a.doctor_name?.toLowerCase().includes(term),
+                      )
+                    : active
+                  if (filtered.length === 0) {
+                    return <EmptyRow colSpan={4}>{term ? 'لا توجد نتائج مطابقة' : 'لا يوجد مواعيد اليوم'}</EmptyRow>
+                  }
+                  return filtered.map((a) => (
+                    <Tr key={a.id} onClick={() => setOpenAppointmentId(a.id)} className="cursor-pointer">
+                      <Td className="font-mono">{formatTime(a.starts_at)}</Td>
+                      <Td>{a.patient_name}</Td>
+                      <Td>{a.doctor_name}</Td>
+                      <Td>
+                        <Badge variant={statusVariants[a.status] ?? 'neutral'}>{statusLabels[a.status] ?? a.status}</Badge>
+                      </Td>
+                    </Tr>
+                  ))
+                })()}
+              </tbody>
+            </Table>
+          )}
+        </Card>
+
         <DoctorOccupancyCalendar />
       </div>
-
-      <Card className="mb-8">
-        <div className="flex flex-wrap items-center justify-between gap-3 p-6 pb-0">
-          <h2 className="text-sm font-semibold text-ink/80">مواعيد اليوم</h2>
-          <div className="relative">
-            <FontAwesomeIcon icon={faMagnifyingGlass} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted" />
-            <input
-              value={appointmentsSearch}
-              onChange={(e) => setAppointmentsSearch(e.target.value)}
-              placeholder="بحث باسم المريض أو الطبيب..."
-              className="w-64 rounded-xl border border-border bg-surface py-2 pe-3 ps-9 text-sm focus:border-accent focus:outline-none"
-            />
-          </div>
-        </div>
-        {!data ? (
-          <TableSkeleton />
-        ) : (
-          <Table>
-            <Thead>
-              <Th>الوقت</Th>
-              <Th>المريض</Th>
-              <Th>الطبيب</Th>
-              <Th>الحالة</Th>
-            </Thead>
-            <tbody>
-              {(() => {
-                const term = appointmentsSearch.trim().toLowerCase()
-                const active = data.today_appointments.filter((a) => a.status !== 'cancelled')
-                const filtered = term
-                  ? active.filter(
-                      (a) => a.patient_name?.toLowerCase().includes(term) || a.doctor_name?.toLowerCase().includes(term),
-                    )
-                  : active
-                if (filtered.length === 0) {
-                  return <EmptyRow colSpan={4}>{term ? 'لا توجد نتائج مطابقة' : 'لا يوجد مواعيد اليوم'}</EmptyRow>
-                }
-                return filtered.map((a) => (
-                  <Tr key={a.id} onClick={() => setOpenAppointmentId(a.id)} className="cursor-pointer">
-                    <Td className="font-mono">{formatTime(a.starts_at)}</Td>
-                    <Td>{a.patient_name}</Td>
-                    <Td>{a.doctor_name}</Td>
-                    <Td>
-                      <Badge variant={statusVariants[a.status] ?? 'neutral'}>{statusLabels[a.status] ?? a.status}</Badge>
-                    </Td>
-                  </Tr>
-                ))
-              })()}
-            </tbody>
-          </Table>
-        )}
-      </Card>
 
       {!data ? (
         <div className="mb-8 grid grid-cols-1 gap-4 lg:grid-cols-3">

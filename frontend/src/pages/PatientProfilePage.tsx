@@ -381,7 +381,7 @@ export default function PatientProfilePage() {
             key: 'overview',
             label: 'نظرة عامة',
             content: (
-              <div className="grid grid-cols-1 gap-6 2xl:grid-cols-[1fr_1.4fr]">
+              <div className="grid grid-cols-[minmax(220px,1fr)_minmax(260px,1.4fr)] gap-6">
                 <div className="space-y-4">
                   <Card className="p-5">
                     <h2 className="mb-3 text-sm font-medium text-ink/70">معلومات المريض</h2>

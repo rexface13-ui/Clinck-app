@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../lib/api'
 import DatePicker from '../components/DatePicker'
-import { Card, PageHeader, Tabs } from '../components/ui'
+import { Card, PageHeader, Tabs, Modal, Table, Thead, Th, Td, Tr } from '../components/ui'
 
 /** Shared "from/to" range picker for the reports that support server-side date filtering. Empty values mean "all time". */
 function DateRangeFilter({ from, to, onFrom, onTo }: { from: string; to: string; onFrom: (v: string) => void; onTo: (v: string) => void }) {
@@ -54,14 +55,31 @@ function money(n: number) {
   return new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(n)
 }
 
-/** Simple vertical bar chart — no charting library, just divs sized by percentage of the max value. */
-function BarChart({ bars, formatValue }: { bars: { label: string; value: number; sub?: number }[]; formatValue?: (n: number) => string }) {
+/** Simple vertical bar chart — no charting library, just divs sized by percentage of the max value. Bars are clickable when onBarClick is passed, for drill-down. */
+function BarChart({
+  bars,
+  formatValue,
+  onBarClick,
+  activeIndex,
+}: {
+  bars: { label: string; value: number; sub?: number }[]
+  formatValue?: (n: number) => string
+  onBarClick?: (index: number) => void
+  activeIndex?: number | null
+}) {
   const max = Math.max(1, ...bars.map((b) => Math.max(b.value, b.sub ?? 0)))
   const fmt = formatValue ?? ((n: number) => money(n))
   return (
     <div className="flex items-end gap-3 overflow-x-auto pb-2" style={{ minHeight: 180 }}>
-      {bars.map((b) => (
-        <div key={b.label} className="flex min-w-[56px] flex-1 flex-col items-center gap-1.5">
+      {bars.map((b, i) => (
+        <button
+          key={b.label}
+          onClick={() => onBarClick?.(i)}
+          disabled={!onBarClick}
+          className={`flex min-w-[56px] flex-1 flex-col items-center gap-1.5 rounded-lg py-1 transition-colors ${
+            onBarClick ? 'cursor-pointer hover:bg-background' : ''
+          } ${activeIndex === i ? 'bg-background' : ''}`}
+        >
           <div className="flex h-36 w-full items-end justify-center gap-1">
             <div
               title={fmt(b.value)}
@@ -76,8 +94,8 @@ function BarChart({ bars, formatValue }: { bars: { label: string; value: number;
               />
             )}
           </div>
-          <span className="text-center text-[11px] text-muted">{b.label}</span>
-        </div>
+          <span className={`text-center text-[11px] ${activeIndex === i ? 'font-semibold text-accent' : 'text-muted'}`}>{b.label}</span>
+        </button>
       ))}
     </div>
   )
@@ -86,10 +104,29 @@ function BarChart({ bars, formatValue }: { bars: { label: string; value: number;
 function RevenueTab() {
   const [monthsCount, setMonthsCount] = useState(6)
   const [months, setMonths] = useState<{ month: string; label: string; total_ils: number }[]>([])
+  const [openIndex, setOpenIndex] = useState<number | null>(null)
+  const [detail, setDetail] = useState<{ service_name: string; total_ils: number }[] | null>(null)
 
   useEffect(() => {
     api.get('/reports/revenue', { params: { months: monthsCount } }).then((res) => setMonths(res.data.months))
+    setOpenIndex(null)
+    setDetail(null)
   }, [monthsCount])
+
+  function toggleMonth(index: number) {
+    if (openIndex === index) {
+      setOpenIndex(null)
+      setDetail(null)
+      return
+    }
+    setOpenIndex(index)
+    setDetail(null)
+    const m = months[index]
+    const [y, mo] = m.month.split('-').map(Number)
+    const from = `${m.month}-01`
+    const to = new Date(y, mo, 0).toISOString().slice(0, 10)
+    api.get('/reports/revenue-by-service', { params: { from, to } }).then((res) => setDetail(res.data.services))
+  }
 
   const last = months[months.length - 1]
   const prev = months[months.length - 2]
@@ -107,7 +144,31 @@ function RevenueTab() {
           </span>
         )}
       </div>
-      <BarChart bars={months.map((m) => ({ label: m.label, value: m.total_ils }))} formatValue={(n) => `${money(n)} ₪`} />
+      <BarChart
+        bars={months.map((m) => ({ label: m.label, value: m.total_ils }))}
+        formatValue={(n) => `${money(n)} ₪`}
+        onBarClick={toggleMonth}
+        activeIndex={openIndex}
+      />
+      {openIndex !== null && (
+        <div className="mt-4 rounded-xl bg-background p-4">
+          <h4 className="mb-3 text-xs font-semibold text-ink/70">تفاصيل إيرادات {months[openIndex].label} حسب الخدمة</h4>
+          {!detail ? (
+            <p className="text-xs text-muted">جارِ التحميل...</p>
+          ) : detail.length === 0 ? (
+            <p className="text-xs text-muted">لا توجد إيرادات هالشهر.</p>
+          ) : (
+            <div className="space-y-2">
+              {detail.map((s) => (
+                <div key={s.service_name} className="flex items-center justify-between text-xs">
+                  <span className="text-ink/80">{s.service_name}</span>
+                  <span className="font-medium text-ink">{money(s.total_ils)} ₪</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </Card>
   )
 }
@@ -149,6 +210,7 @@ function RevenueByServiceTab() {
 }
 
 function DoctorProductivityTab() {
+  const navigate = useNavigate()
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [doctors, setDoctors] = useState<{ doctor_id: number; doctor_name: string; sessions_count: number; revenue_ils: number; commission_ils: number }[]>([])
@@ -160,7 +222,8 @@ function DoctorProductivityTab() {
   return (
     <Card className="p-6">
       <DateRangeFilter from={from} to={to} onFrom={setFrom} onTo={setTo} />
-      <h3 className="mb-4 text-sm font-semibold text-ink/80">إنتاجية الأطباء {from || to ? '' : '(كل الوقت)'}</h3>
+      <h3 className="mb-1 text-sm font-semibold text-ink/80">إنتاجية الأطباء {from || to ? '' : '(كل الوقت)'}</h3>
+      <p className="mb-4 text-xs text-muted">اضغط طبيب لتشوف كشف حسابه بالتفصيل.</p>
       {doctors.length === 0 ? (
         <p className="text-sm text-muted">لا يوجد أطباء نشيطين.</p>
       ) : (
@@ -176,8 +239,12 @@ function DoctorProductivityTab() {
             </thead>
             <tbody>
               {doctors.map((d) => (
-                <tr key={d.doctor_id} className="border-b border-border/60 last:border-0">
-                  <td className="p-2 text-ink">{d.doctor_name}</td>
+                <tr
+                  key={d.doctor_id}
+                  onClick={() => navigate(`/commissions?doctor_id=${d.doctor_id}`)}
+                  className="cursor-pointer border-b border-border/60 last:border-0 hover:bg-background"
+                >
+                  <td className="p-2 text-accent">{d.doctor_name}</td>
                   <td className="p-2 text-muted">{d.sessions_count}</td>
                   <td className="p-2 text-ink">{money(d.revenue_ils)} ₪</td>
                   <td className="p-2 text-muted">{money(d.commission_ils)} ₪</td>
@@ -210,6 +277,7 @@ function PatientsTab() {
 }
 
 function NoShowTab() {
+  const navigate = useNavigate()
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [data, setData] = useState<{
@@ -244,8 +312,12 @@ function NoShowTab() {
         </thead>
         <tbody>
           {data.by_doctor.map((d) => (
-            <tr key={d.doctor_id ?? 'none'} className="border-b border-border/60 last:border-0">
-              <td className="p-2 text-ink">{d.doctor_name}</td>
+            <tr
+              key={d.doctor_id ?? 'none'}
+              onClick={() => d.doctor_id && navigate(`/appointments?doctor_id=${d.doctor_id}`)}
+              className={`border-b border-border/60 last:border-0 ${d.doctor_id ? 'cursor-pointer hover:bg-background' : ''}`}
+            >
+              <td className={`p-2 ${d.doctor_id ? 'text-accent' : 'text-ink'}`}>{d.doctor_name}</td>
               <td className="p-2 text-muted">{d.total}</td>
               <td className="p-2 text-muted">{d.no_show}</td>
               <td className={`p-2 font-medium ${d.rate > 15 ? 'text-danger' : 'text-ink/70'}`}>{d.rate}%</td>
@@ -259,8 +331,16 @@ function NoShowTab() {
   )
 }
 
+interface DebtBucket {
+  bucket: string
+  patients_count: number
+  total_ils: number
+  patients: { patient_id: number; patient_name: string; balance_ils: number; days: number }[]
+}
+
 function DebtsAgingTab() {
-  const [buckets, setBuckets] = useState<{ bucket: string; patients_count: number; total_ils: number }[]>([])
+  const [buckets, setBuckets] = useState<DebtBucket[]>([])
+  const [openBucket, setOpenBucket] = useState<DebtBucket | null>(null)
   const bucketLabels: Record<string, string> = { '0-30': '0-30 يوم', '31-60': '31-60 يوم', '61-90': '61-90 يوم', '90+': 'أكتر من 90 يوم' }
 
   useEffect(() => {
@@ -269,16 +349,49 @@ function DebtsAgingTab() {
 
   return (
     <Card className="p-6">
-      <h3 className="mb-4 text-sm font-semibold text-ink/80">أعمار الديون — كل يوم من متى الدين مستحق</h3>
+      <h3 className="mb-1 text-sm font-semibold text-ink/80">أعمار الديون — كل يوم من متى الدين مستحق</h3>
+      <p className="mb-4 text-xs text-muted">اضغط أي فئة لتشوف تفاصيل المرضى.</p>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {buckets.map((b) => (
-          <div key={b.bucket} className={`rounded-xl p-4 ${b.bucket === '90+' && b.total_ils > 0 ? 'bg-danger-soft' : 'bg-background'}`}>
+          <button
+            key={b.bucket}
+            onClick={() => b.patients_count > 0 && setOpenBucket(b)}
+            disabled={b.patients_count === 0}
+            className={`rounded-xl p-4 text-right transition-transform ${
+              b.patients_count > 0 ? 'cursor-pointer hover:scale-[1.02]' : 'cursor-default'
+            } ${b.bucket === '90+' && b.total_ils > 0 ? 'bg-danger-soft' : 'bg-background'}`}
+          >
             <p className="text-xs text-muted">{bucketLabels[b.bucket]}</p>
             <p className={`mt-1 text-lg font-semibold ${b.bucket === '90+' && b.total_ils > 0 ? 'text-danger' : 'text-ink'}`}>{money(b.total_ils)} ₪</p>
             <p className="text-xs text-muted">{b.patients_count} مريض</p>
-          </div>
+          </button>
         ))}
       </div>
+
+      {openBucket && (
+        <Modal title={`مرضى — ${bucketLabels[openBucket.bucket]}`} onClose={() => setOpenBucket(null)} width="w-[560px]">
+          <Table>
+            <Thead>
+              <Th>المريض</Th>
+              <Th>المبلغ المستحق</Th>
+              <Th>عدد الأيام</Th>
+            </Thead>
+            <tbody>
+              {openBucket.patients.map((p) => (
+                <Tr key={p.patient_id}>
+                  <Td>
+                    <Link to={`/patients/${p.patient_id}`} className="text-accent hover:underline">
+                      {p.patient_name}
+                    </Link>
+                  </Td>
+                  <Td className="font-medium text-danger">{money(p.balance_ils)} ₪</Td>
+                  <Td className="text-muted">{p.days} يوم</Td>
+                </Tr>
+              ))}
+            </tbody>
+          </Table>
+        </Modal>
+      )}
     </Card>
   )
 }

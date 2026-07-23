@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faInfoCircle } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
@@ -72,8 +73,10 @@ function ToothPreview({ toothNumber }: { toothNumber: number }) {
 
 export default function CommissionsPage() {
   const { can } = useAuth()
+  const [searchParams] = useSearchParams()
+  const preselectedDoctorId = searchParams.get('doctor_id')
   const [doctors, setDoctors] = useState<Doctor[]>([])
-  const [doctorId, setDoctorId] = useState<number | null>(null)
+  const [doctorId, setDoctorId] = useState<number | null>(preselectedDoctorId ? Number(preselectedDoctorId) : null)
   const [year, setYear] = useState(currentYear())
   const [monthNum, setMonthNum] = useState(currentMonthNum())
   const month = `${year}-${String(monthNum).padStart(2, '0')}`
@@ -87,8 +90,9 @@ export default function CommissionsPage() {
   useEffect(() => {
     api.get('/doctors').then((res) => {
       setDoctors(res.data.data)
-      if (res.data.data.length > 0) setDoctorId(res.data.data[0].id)
+      if (!preselectedDoctorId && res.data.data.length > 0) setDoctorId(res.data.data[0].id)
     })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   function load() {

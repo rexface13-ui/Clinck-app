@@ -38,7 +38,7 @@ function todayIso(): string {
 export default function DoctorOccupancyCalendar() {
   const navigate = useNavigate()
   const [doctors, setDoctors] = useState<Doctor[]>([])
-  const [doctorId, setDoctorId] = useState('')
+  const [doctorId, setDoctorId] = useState('all')
   const [cursor, setCursor] = useState(() => {
     const now = new Date()
     return { year: now.getFullYear(), month: now.getMonth() + 1 }
@@ -46,18 +46,13 @@ export default function DoctorOccupancyCalendar() {
   const [days, setDays] = useState<OccupancyDay[] | null>(null)
 
   useEffect(() => {
-    api.get('/doctors').then((res) => {
-      setDoctors(res.data.data)
-      if (res.data.data.length > 0) setDoctorId(String(res.data.data[0].id))
-    })
+    api.get('/doctors').then((res) => setDoctors(res.data.data))
   }, [])
 
   useEffect(() => {
-    if (!doctorId) return
     setDays(null)
-    api
-      .get<{ days: OccupancyDay[] }>(`/doctors/${doctorId}/occupancy`, { params: { year: cursor.year, month: cursor.month } })
-      .then((res) => setDays(res.data.days))
+    const url = doctorId === 'all' ? '/doctors-occupancy' : `/doctors/${doctorId}/occupancy`
+    api.get<{ days: OccupancyDay[] }>(url, { params: { year: cursor.year, month: cursor.month } }).then((res) => setDays(res.data.days))
   }, [doctorId, cursor])
 
   function shiftMonth(delta: number) {
@@ -68,7 +63,7 @@ export default function DoctorOccupancyCalendar() {
   }
 
   function openDay(date: string) {
-    navigate(`/appointments?date=${date}${doctorId ? `&doctor_id=${doctorId}` : ''}`)
+    navigate(`/appointments?date=${date}${doctorId !== 'all' ? `&doctor_id=${doctorId}` : ''}`)
   }
 
   const monthLabel = new Date(cursor.year, cursor.month - 1, 1).toLocaleDateString('ar-EG', { month: 'long', year: 'numeric' })
@@ -77,10 +72,10 @@ export default function DoctorOccupancyCalendar() {
   const today = todayIso()
 
   return (
-    <Card className="w-fit min-w-[280px] p-4">
+    <Card className="w-fit min-w-[320px] p-4">
       <div className="mb-3">
         <SearchableSelect
-          options={doctors.map((d) => ({ value: String(d.id), label: d.full_name }))}
+          options={[{ value: 'all', label: 'كل الأطباء' }, ...doctors.map((d) => ({ value: String(d.id), label: d.full_name }))]}
           value={doctorId}
           onChange={setDoctorId}
           placeholder="اختر طبيب..."
@@ -97,12 +92,12 @@ export default function DoctorOccupancyCalendar() {
         </button>
       </div>
 
-      {!doctorId ? (
+      {doctors.length === 0 ? (
         <p className="py-4 text-center text-xs text-muted">ما في أطباء مسجّلين بعد.</p>
       ) : !days ? (
         <div className="grid grid-cols-7 gap-1">
           {Array.from({ length: 35 }).map((_, i) => (
-            <div key={i} className="size-8 animate-pulse rounded-md bg-background" />
+            <div key={i} className="size-9 animate-pulse rounded-md bg-background" />
           ))}
         </div>
       ) : (
@@ -112,9 +107,9 @@ export default function DoctorOccupancyCalendar() {
               <div key={i}>{w}</div>
             ))}
           </div>
-          <div className="grid grid-cols-7 gap-y-0.5">
+          <div className="grid grid-cols-7 gap-y-1">
             {Array.from({ length: leadingBlanks }).map((_, i) => (
-              <div key={`blank-${i}`} className="size-8" />
+              <div key={`blank-${i}`} className="size-9" />
             ))}
             {days.map((d) => {
               const isToday = d.date === today
@@ -123,10 +118,10 @@ export default function DoctorOccupancyCalendar() {
                   key={d.date}
                   onClick={() => openDay(d.date)}
                   title={`${STATUS_LABELS[d.status]}${d.appointments_count > 0 ? ` — ${d.appointments_count} موعد` : ''}`}
-                  className="group flex size-8 flex-col items-center justify-center"
+                  className="group flex size-9 flex-col items-center justify-center"
                 >
                   <span
-                    className={`flex size-6 items-center justify-center rounded-full text-[11px] transition-colors ${
+                    className={`flex size-7 items-center justify-center rounded-full text-xs transition-colors ${
                       isToday
                         ? 'bg-accent font-semibold text-white'
                         : d.status === 'closed'
