@@ -432,6 +432,68 @@ function CollectionsTab() {
   )
 }
 
+interface PendingTreatmentItem {
+  plan_id: number
+  service_name: string
+  doctor_name: string | null
+  remaining_teeth: number[]
+}
+
+interface PendingTreatmentPatient {
+  patient_id: number
+  patient_name: string
+  phone: string | null
+  items: PendingTreatmentItem[]
+}
+
+function PendingTreatmentsTab() {
+  const [patients, setPatients] = useState<PendingTreatmentPatient[]>([])
+
+  useEffect(() => {
+    api.get('/reports/pending-treatments').then((res) => setPatients(res.data.patients))
+  }, [])
+
+  return (
+    <Card className="p-6">
+      <h3 className="mb-1 text-sm font-semibold text-ink/80">علاجات غير منجزة</h3>
+      <p className="mb-4 text-xs text-muted">
+        مرضى عندهم أسنان ضمن خطة معتمدة (أو زيارة) لسا ما خلصت — سواء ما اتشتغل فيها شي أصلاً، أو اتشتغل جزء وضل جزء "قيد التنفيذ".
+      </p>
+      {patients.length === 0 ? (
+        <p className="text-sm text-muted">ما في علاجات ناقصة حالياً.</p>
+      ) : (
+        <Table>
+          <Thead>
+            <Th>المريض</Th>
+            <Th>الخدمة</Th>
+            <Th>الطبيب</Th>
+            <Th>الأسنان المتبقية</Th>
+          </Thead>
+          <tbody>
+            {patients.flatMap((p) =>
+              p.items.map((item, i) => (
+                <Tr key={`${p.patient_id}-${item.plan_id}-${i}`}>
+                  {i === 0 && (
+                    <Td rowSpan={p.items.length}>
+                      <Link to={`/patients/${p.patient_id}`} className="text-accent hover:underline">
+                        {p.patient_name}
+                      </Link>
+                      {p.phone && <p className="text-xs text-muted">{p.phone}</p>}
+                    </Td>
+                  )}
+                  <Td>{item.service_name}</Td>
+                  <Td className="text-muted">{item.doctor_name ?? 'طبيب عام'}</Td>
+                  <Td className="text-warning">{item.remaining_teeth.join('، ')}</Td>
+                </Tr>
+              )),
+            )}
+          </tbody>
+        </Table>
+      )}
+    </Card>
+  )
+}
+
 export default function ReportsPage() {
   return (
     <div>
@@ -446,6 +508,7 @@ export default function ReportsPage() {
           { key: 'no-show', label: 'نسبة الغياب', content: <NoShowTab /> },
           { key: 'debts', label: 'أعمار الديون', content: <DebtsAgingTab /> },
           { key: 'collections', label: 'طرق التحصيل', content: <CollectionsTab /> },
+          { key: 'pending-treatments', label: 'علاجات غير منجزة', content: <PendingTreatmentsTab /> },
         ]}
       />
     </div>

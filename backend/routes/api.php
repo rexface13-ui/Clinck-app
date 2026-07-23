@@ -185,6 +185,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('reports/no-show', [ReportController::class, 'noShow']);
     Route::get('reports/debts-aging', [ReportController::class, 'debtsAging']);
     Route::get('reports/collections', [ReportController::class, 'collections']);
+    Route::get('reports/pending-treatments', [ReportController::class, 'pendingTreatments']);
 
     Route::put('settings', [SettingController::class, 'update']);
 

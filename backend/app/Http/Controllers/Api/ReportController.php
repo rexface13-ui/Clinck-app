@@ -10,6 +10,7 @@ use App\Models\InvoiceLine;
 use App\Models\Patient;
 use App\Models\PatientTransaction;
 use App\Models\Payment;
+use App\Models\PlanItem;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 
@@ -284,5 +285,52 @@ class ReportController extends Controller
                 'total_ils' => $total,
             ])->values(),
         ];
+    }
+
+    /**
+     * Patients with unfinished dental work: any item on an approved
+     * treatment plan (real plan or an auto-generated quick-visit one alike —
+     * this deliberately does NOT exclude appointment_id plans the way
+     * "خطط علاجية" does) that still has teeth left in its pool without a
+     * 'done' finding. Covers both "never touched" items and items where a
+     * past visit finished some teeth but left others "قيد التنفيذ" —
+     * regardless of whether that visit's own session/appointment is done.
+     */
+    public function pendingTreatments(Request $request)
+    {
+        $this->authorizeView($request);
+
+        $items = PlanItem::whereHas('treatmentPlan', fn ($q) => $q->where('status', 'approved'))
+            ->with(['service', 'treatmentPlan.patient', 'treatmentPlan.doctor'])
+            ->get();
+
+        $byPatient = [];
+        foreach ($items as $item) {
+            $remaining = $item->remainingTeeth();
+            if (empty($remaining)) {
+                continue;
+            }
+
+            $patient = $item->treatmentPlan->patient;
+            if (! $patient) {
+                continue;
+            }
+
+            $byPatient[$patient->id] ??= [
+                'patient_id' => $patient->id,
+                'patient_name' => $patient->full_name,
+                'phone' => $patient->phone,
+                'items' => [],
+            ];
+
+            $byPatient[$patient->id]['items'][] = [
+                'plan_id' => $item->treatment_plan_id,
+                'service_name' => $item->service->name ?? 'خدمة',
+                'doctor_name' => $item->treatmentPlan->doctor->full_name ?? null,
+                'remaining_teeth' => $remaining,
+            ];
+        }
+
+        return ['patients' => array_values($byPatient)];
     }
 }

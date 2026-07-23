@@ -325,9 +325,23 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
       {selectedTeeth.length > 0 && (
         <div className="w-full shrink-0 rounded-xl bg-white p-4 shadow-sm 2xl:w-72">
           <div className="mb-3 flex items-center justify-between">
-            <h3 className="font-medium text-ink">
-              {singleSelectedTooth ? `السن ${singleSelectedTooth}` : `${selectedTeeth.length} سن محدد`}
-            </h3>
+            <div className="flex items-center gap-2">
+              <h3 className="font-medium text-ink">
+                {singleSelectedTooth ? `السن ${singleSelectedTooth}` : `${selectedTeeth.length} سن محدد`}
+              </h3>
+              {singleSelectedTooth && (
+                <span
+                  className="rounded-full px-2 py-0.5 text-xs font-medium text-white"
+                  style={{ background: toothColor(singleSelectedTooth) }}
+                >
+                  {stateByTooth.get(singleSelectedTooth) === 'missing'
+                    ? 'مفقود'
+                    : activeFindingByTooth.has(singleSelectedTooth)
+                      ? STATUS_LABEL[activeFindingByTooth.get(singleSelectedTooth)!.status]
+                      : 'لا يوجد سجل'}
+                </span>
+              )}
+            </div>
             <button onClick={clearSelection} className="text-sm text-ink/50 hover:text-ink">
               إغلاق
             </button>
