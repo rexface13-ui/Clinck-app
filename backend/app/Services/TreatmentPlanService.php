@@ -79,6 +79,11 @@ class TreatmentPlanService
         if ($toothNumbers !== null) {
             $pool = $item->allTeeth();
             abort_if(array_diff($toothNumbers, $pool) !== [], 422, 'في سن مختار مو ضمن مجموعة أسنان هالبند بالخطة — عدّل الخطة وضيفه أول.');
+
+            $alreadyDone = $item->sessions()->where('status', 'done')->where('id', '!=', $session->id)
+                ->get()->flatMap(fn ($s) => $s->tooth_numbers ?? [])->unique()->values()->all();
+            $repeated = array_intersect($toothNumbers, $alreadyDone);
+            abort_if($repeated !== [], 422, 'هالسن اتحسب مسبقاً بجلسة تانية: '.implode('، ', $repeated));
         }
 
         return DB::transaction(function () use ($session, $item, $plan, $price, $payCashboxId, $payMethod, $toothNumbers, $appointmentId) {
@@ -103,7 +108,7 @@ class TreatmentPlanService
                 'invoice_id' => $invoice->id,
                 'plan_item_id' => $item->id,
                 'plan_item_session_id' => $session->id,
-                'description' => $item->service->name.($this->teethLabel($item)).$sessionLabel,
+                'description' => $item->service->name.($this->teethLabel($toothNumbers ?? $item->allTeeth())).$sessionLabel,
                 'amount' => $price,
                 'currency' => $item->currency,
                 'exchange_rate' => 1,
@@ -573,9 +578,8 @@ class TreatmentPlanService
         return sprintf('INV-%06d', $count + 1);
     }
 
-    protected function teethLabel(PlanItem $item): string
+    protected function teethLabel(array $teeth): string
     {
-        $teeth = $item->allTeeth();
         if (empty($teeth)) {
             return '';
         }

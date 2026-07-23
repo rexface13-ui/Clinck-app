@@ -649,18 +649,29 @@ export default function TreatmentPlanPanel({ patientId, patientName, isChild = f
                         />
                       </td>
                       <td className="p-1 align-top">
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          placeholder="رقم السن (أو عدة أسنان)"
-                          value={itemFormFor(plan.id).tooth_number}
-                          onChange={(e) => setItemForm({ ...itemForm, [plan.id]: { ...itemFormFor(plan.id), tooth_number: e.target.value } })}
-                          onFocus={() => onRequestPickTooth?.(plan.id)}
-                          title="اكتب رقم/أرقام الأسنان يدوياً (مفصولة بفاصلة)، أو اضغط عالحقل وحدد من الرسمة"
-                          className={`w-full rounded-lg border px-2 py-1 text-xs ${
-                            pickingForPlanId === plan.id ? 'border-accent ring-1 ring-accent/30' : 'border-ink/10'
-                          }`}
-                        />
+                        <div className="flex gap-1">
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            placeholder="رقم السن (أو عدة أسنان)"
+                            value={itemFormFor(plan.id).tooth_number}
+                            onChange={(e) => setItemForm({ ...itemForm, [plan.id]: { ...itemFormFor(plan.id), tooth_number: e.target.value } })}
+                            title="اكتب رقم/أرقام الأسنان يدوياً (مفصولة بفاصلة)، أو اضغط زر الرسمة وحدد من فيها"
+                            className={`w-full rounded-lg border px-2 py-1 text-xs ${
+                              pickingForPlanId === plan.id ? 'border-accent ring-1 ring-accent/30' : 'border-ink/10'
+                            }`}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => onRequestPickTooth?.(plan.id)}
+                            title="اختر من رسمة الأسنان"
+                            className={`shrink-0 rounded-lg border px-1.5 text-xs ${
+                              pickingForPlanId === plan.id ? 'border-accent bg-accent/10 text-accent' : 'border-ink/10 text-ink/50 hover:text-ink/80'
+                            }`}
+                          >
+                            🦷
+                          </button>
+                        </div>
                       </td>
                       <td className="p-1 align-top">
                         <input
