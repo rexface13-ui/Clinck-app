@@ -21,6 +21,7 @@ class PatientResource extends JsonResource
             'guardian_name' => $this->guardian_name,
             'guardian_phone' => $this->guardian_phone,
             'medical_alerts' => $this->medical_alerts ?? [],
+            'medical_notes' => $this->medical_notes,
             'created_at' => display_date($this->created_at),
         ];
     }

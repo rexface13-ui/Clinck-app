@@ -22,7 +22,8 @@ import VisitHistoryPanel from '../components/VisitHistoryPanel'
 import DatePicker from '../components/DatePicker'
 import CompleteVisitModal from '../components/CompleteVisitModal'
 import AppointmentDetailModal from '../components/AppointmentDetailModal'
-import { Card, Badge, Button, Tabs } from '../components/ui'
+import MedicalHistoryField from '../components/MedicalHistoryField'
+import { Card, Badge, Button, Tabs, Modal, Input } from '../components/ui'
 import { useAuth } from '../contexts/AuthContext'
 import type { PatientProfile, Service, Ledger, Doctor, TreatmentPlan } from '../types'
 
@@ -67,6 +68,16 @@ export default function PatientProfilePage() {
   const [openAppointmentId, setOpenAppointmentId] = useState<number | null>(null)
   const [startingWalkIn, setStartingWalkIn] = useState(false)
   const [plansRefreshSignal, setPlansRefreshSignal] = useState(0)
+  const [editingPatient, setEditingPatient] = useState(false)
+  const [patientForm, setPatientForm] = useState({
+    full_name: '',
+    phone: '',
+    guardian_name: '',
+    guardian_phone: '',
+    medical_alerts: [] as string[],
+    medical_notes: '',
+  })
+  const [savingPatient, setSavingPatient] = useState(false)
 
   function load() {
     api.get(`/patients/${id}/profile`).then((res) => setProfile(res.data))
@@ -145,6 +156,38 @@ export default function PatientProfilePage() {
       load()
     } finally {
       setUpdatingVisit(false)
+    }
+  }
+
+  function openEditPatient() {
+    if (!profile) return
+    const p = profile.patient
+    setPatientForm({
+      full_name: p.full_name,
+      phone: p.phone ?? '',
+      guardian_name: p.guardian_name ?? '',
+      guardian_phone: p.guardian_phone ?? '',
+      medical_alerts: p.medical_alerts,
+      medical_notes: p.medical_notes ?? '',
+    })
+    setEditingPatient(true)
+  }
+
+  async function savePatient() {
+    setSavingPatient(true)
+    try {
+      await api.put(`/patients/${id}`, {
+        full_name: patientForm.full_name,
+        phone: patientForm.phone || null,
+        guardian_name: patientForm.guardian_name || null,
+        guardian_phone: patientForm.guardian_phone || null,
+        medical_alerts: patientForm.medical_alerts,
+        medical_notes: patientForm.medical_notes || null,
+      })
+      setEditingPatient(false)
+      load()
+    } finally {
+      setSavingPatient(false)
     }
   }
 
@@ -233,6 +276,17 @@ export default function PatientProfilePage() {
         العودة للمرضى
       </Link>
 
+      {patient.medical_alerts.length > 0 && (
+        <div className="mb-4 flex items-start gap-3 rounded-xl border border-danger/30 bg-danger-soft px-4 py-3 text-sm text-danger">
+          <FontAwesomeIcon icon={faTriangleExclamation} className="mt-0.5" />
+          <div>
+            <span className="font-semibold">تنبيه طبي: </span>
+            <span>{patient.medical_alerts.join('، ')}</span>
+            {patient.medical_notes && <p className="mt-1 text-danger/80">{patient.medical_notes}</p>}
+          </div>
+        </div>
+      )}
+
       {hasDebt && (
         <div className="mb-4 flex items-center gap-3 rounded-xl border border-danger/30 bg-danger-soft px-4 py-3 text-sm text-danger">
           <FontAwesomeIcon icon={faTriangleExclamation} />
@@ -258,6 +312,14 @@ export default function PatientProfilePage() {
           )}
         </div>
         <div className="flex gap-2">
+          <button
+            onClick={openEditPatient}
+            title="تعديل معلومات المريض"
+            className="flex items-center gap-2 rounded-xl border border-ink/10 px-3 py-2 text-sm text-ink/70 hover:bg-background"
+          >
+            <FontAwesomeIcon icon={faPen} />
+            تعديل
+          </button>
           <Button variant="secondary" onClick={startWalkInVisit} disabled={startingWalkIn}>
             <FontAwesomeIcon icon={faCheck} />
             {startingWalkIn ? 'جارِ التسجيل...' : 'اجاني هلق (بدون موعد)'}
@@ -351,11 +413,6 @@ export default function PatientProfilePage() {
                         </div>
                       )}
                     </dl>
-                    {patient.medical_alerts.length > 0 && (
-                      <div className="mt-3 rounded-lg bg-danger-soft px-3 py-2 text-xs text-danger">
-                        {patient.medical_alerts.join('، ')}
-                      </div>
-                    )}
                   </Card>
 
                   <Card className="space-y-2 p-5">
@@ -662,6 +719,46 @@ export default function PatientProfilePage() {
           onClose={() => setOpenAppointmentId(null)}
           onChanged={load}
         />
+      )}
+      {editingPatient && (
+        <Modal title="تعديل معلومات المريض" onClose={() => setEditingPatient(false)} width="w-[560px]">
+          <div className="grid grid-cols-2 gap-4">
+            <Input
+              label="الاسم الكامل"
+              value={patientForm.full_name}
+              onChange={(e) => setPatientForm({ ...patientForm, full_name: e.target.value })}
+            />
+            <Input
+              label="الهاتف"
+              value={patientForm.phone}
+              onChange={(e) => setPatientForm({ ...patientForm, phone: e.target.value })}
+            />
+            <Input
+              label="اسم ولي الأمر (اختياري)"
+              value={patientForm.guardian_name}
+              onChange={(e) => setPatientForm({ ...patientForm, guardian_name: e.target.value })}
+            />
+            <Input
+              label="هاتف ولي الأمر"
+              value={patientForm.guardian_phone}
+              onChange={(e) => setPatientForm({ ...patientForm, guardian_phone: e.target.value })}
+            />
+            <MedicalHistoryField
+              alerts={patientForm.medical_alerts}
+              onAlertsChange={(medical_alerts) => setPatientForm({ ...patientForm, medical_alerts })}
+              notes={patientForm.medical_notes}
+              onNotesChange={(medical_notes) => setPatientForm({ ...patientForm, medical_notes })}
+            />
+            <div className="col-span-2 flex justify-end gap-2">
+              <Button type="button" variant="ghost" onClick={() => setEditingPatient(false)}>
+                إلغاء
+              </Button>
+              <Button onClick={savePatient} loading={savingPatient}>
+                {savingPatient ? 'جارِ الحفظ...' : 'حفظ'}
+              </Button>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   )

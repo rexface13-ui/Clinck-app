@@ -5,6 +5,7 @@ import { faPlus, faUser, faBolt, faMagnifyingGlass } from '@fortawesome/free-sol
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import DatePicker from '../components/DatePicker'
+import MedicalHistoryField from '../components/MedicalHistoryField'
 import { Card, PageHeader, Badge, Button, Modal, Table, Thead, Th, Td, Tr, EmptyRow, TableSkeleton, Input, Select } from '../components/ui'
 import type { Branch, Doctor, Patient } from '../types'
 
@@ -50,6 +51,8 @@ export default function PatientsListPage() {
     phone: '',
     guardian_name: '',
     guardian_phone: '',
+    medical_alerts: [] as string[],
+    medical_notes: '',
     walkIn: false,
     walkInDoctorId: '',
   })
@@ -89,6 +92,8 @@ export default function PatientsListPage() {
         guardian_name: form.guardian_name || null,
         guardian_phone: form.guardian_phone || null,
         phone: form.phone || null,
+        medical_alerts: form.medical_alerts,
+        medical_notes: form.medical_notes || null,
       }
       const res = await api.post('/patients', payload)
       const patientId = res.data.data.id
@@ -218,6 +223,13 @@ export default function PatientsListPage() {
             label="هاتف ولي الأمر"
             value={form.guardian_phone}
             onChange={(e) => setForm({ ...form, guardian_phone: e.target.value })}
+          />
+
+          <MedicalHistoryField
+            alerts={form.medical_alerts}
+            onAlertsChange={(medical_alerts) => setForm({ ...form, medical_alerts })}
+            notes={form.medical_notes}
+            onNotesChange={(medical_notes) => setForm({ ...form, medical_notes })}
           />
 
           <div className="col-span-2 rounded-xl border border-accent/30 bg-accent-soft p-4">

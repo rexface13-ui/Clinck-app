@@ -66,6 +66,7 @@ export interface Patient {
   guardian_name: string | null
   guardian_phone: string | null
   medical_alerts: string[]
+  medical_notes: string | null
   created_at: string
 }
 

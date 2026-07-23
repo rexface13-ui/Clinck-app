@@ -25,6 +25,7 @@ class UpdatePatientRequest extends FormRequest
             'guardian_phone' => ['sometimes', 'nullable', 'string', 'max:50'],
             'medical_alerts' => ['sometimes', 'nullable', 'array'],
             'medical_alerts.*' => ['string'],
+            'medical_notes' => ['sometimes', 'nullable', 'string'],
         ];
     }
 }
