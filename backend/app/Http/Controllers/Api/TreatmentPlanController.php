@@ -186,6 +186,10 @@ class TreatmentPlanController extends Controller
             'pay_now' => ['sometimes', 'boolean'],
             'cashbox_id' => ['required_if:pay_now,true', 'integer', 'exists:cashboxes,id'],
             'method' => ['sometimes', 'string', 'in:cash,card,transfer,check'],
+            'tooth_numbers' => ['nullable', 'array'],
+            'tooth_numbers.*' => ['integer'],
+            'pending_teeth' => ['nullable', 'array'],
+            'pending_teeth.*' => ['integer'],
         ]);
 
         $service->completeSession(
@@ -193,6 +197,9 @@ class TreatmentPlanController extends Controller
             (float) $data['price'],
             $request->boolean('pay_now') ? (int) $data['cashbox_id'] : null,
             $data['method'] ?? null,
+            $data['tooth_numbers'] ?? null,
+            null,
+            $data['pending_teeth'] ?? null,
         );
 
         return new TreatmentPlanResource($treatmentPlan->fresh(['doctor', 'items.service', 'items.sessions']));

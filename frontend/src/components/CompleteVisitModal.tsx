@@ -37,6 +37,8 @@ interface Line {
   price: string
   /** Optional, comma-separated (e.g. "16" or "16,17") — one per tooth this line applies to. */
   tooth_numbers: string
+  /** Subset of tooth_numbers that's still ongoing (needs another visit) rather than finished today. */
+  pending_teeth: string
   /** true (default): price is per tooth, so picking N teeth multiplies the total (extraction, filling...).
    *  false: price is a flat fee no matter how many teeth are picked (cleaning...) — still logs each tooth
    *  in its history, just split evenly so the total stays the flat price. */
@@ -127,7 +129,7 @@ export default function CompleteVisitModal({ appointmentId, patientId, patientNa
   function addService(serviceId: string) {
     const svc = services.find((s) => s.id === Number(serviceId))
     if (!svc) return
-    setLines([...lines, { service_id: svc.id, name: svc.name, price: svc.default_price, tooth_numbers: '', per_tooth: true }])
+    setLines([...lines, { service_id: svc.id, name: svc.name, price: svc.default_price, tooth_numbers: '', pending_teeth: '', per_tooth: true }])
     setAddServiceId('')
   }
 
@@ -147,14 +149,27 @@ export default function CompleteVisitModal({ appointmentId, patientId, patientNa
     setLines(lines.map((l, i) => (i === idx ? { ...l, per_tooth: !l.per_tooth } : l)))
   }
 
-  function toggleTooth(idx: number, tooth: number) {
-    const line = lines[idx]
-    const current = line.tooth_numbers
-      .split(',')
-      .map((t) => t.trim())
-      .filter(Boolean)
-    const next = current.includes(String(tooth)) ? current.filter((t) => t !== String(tooth)) : [...current, String(tooth)]
-    updateTeeth(idx, next.join(','))
+  /** Cycles a tooth chip: not touched → touched + done today → touched + still continuing → not touched. */
+  function cycleTooth(idx: number, tooth: number) {
+    setLines(
+      lines.map((l, i) => {
+        if (i !== idx) return l
+        const touched = l.tooth_numbers.split(',').map((t) => t.trim()).filter(Boolean)
+        const pending = l.pending_teeth.split(',').map((t) => t.trim()).filter(Boolean)
+        const key = String(tooth)
+        if (!touched.includes(key)) {
+          return { ...l, tooth_numbers: [...touched, key].join(',') }
+        }
+        if (!pending.includes(key)) {
+          return { ...l, pending_teeth: [...pending, key].join(',') }
+        }
+        return {
+          ...l,
+          tooth_numbers: touched.filter((t) => t !== key).join(','),
+          pending_teeth: pending.filter((t) => t !== key).join(','),
+        }
+      }),
+    )
   }
 
   async function submit() {
@@ -181,6 +196,7 @@ export default function CompleteVisitModal({ appointmentId, patientId, patientNa
       // the submitted unit_prices matches the discounted total exactly.
       const discountRatio = subtotal > 0 ? discountAmount / subtotal : 0
       const itemIds: number[] = []
+      const itemTeeth: Record<number, { tooth_numbers: number[] | null; pending_teeth: number[] | null }> = {}
       for (const l of lines) {
         const teeth = l.tooth_numbers
           .split(',')
@@ -202,7 +218,15 @@ export default function CompleteVisitModal({ appointmentId, patientId, patientNa
           unit_price: linePrice,
           sessions_count: 1,
         })
-        itemIds.push(itemRes.data.data.id)
+        const itemId = itemRes.data.data.id
+        itemIds.push(itemId)
+        const pending = l.pending_teeth
+          .split(',')
+          .map((t) => t.trim())
+          .filter(Boolean)
+          .map(Number)
+          .filter((t) => teeth.includes(t))
+        itemTeeth[itemId] = { tooth_numbers: teeth.length > 0 ? teeth : null, pending_teeth: pending.length > 0 ? pending : null }
       }
 
       // Approving only schedules the (single) session per item — nothing is
@@ -220,6 +244,8 @@ export default function CompleteVisitModal({ appointmentId, patientId, patientNa
           const sessionId = item.sessions[0].id
           return api.post(`/treatment-plans/${planId}/items/${itemId}/sessions/${sessionId}/complete`, {
             price: Number(item.unit_price),
+            tooth_numbers: itemTeeth[itemId]?.tooth_numbers,
+            pending_teeth: itemTeeth[itemId]?.pending_teeth,
           })
         }),
       )
@@ -341,13 +367,14 @@ export default function CompleteVisitModal({ appointmentId, patientId, patientNa
                       {l.tooth_numbers && (
                         <button
                           type="button"
-                          onClick={() => updateTeeth(idx, '')}
+                          onClick={() => setLines(lines.map((line, i) => (i === idx ? { ...line, tooth_numbers: '', pending_teeth: '' } : line)))}
                           className="rounded-lg border border-danger/20 px-2 py-1 text-[11px] text-danger/70 hover:border-danger hover:text-danger"
                         >
                           مسح التحديد
                         </button>
                       )}
                     </div>
+                    <p className="text-[11px] text-ink/40">أخضر = خلص اليوم، أصفر = لسا مستمر (بضل بحالة "قيد التنفيذ" ويظهر بجلسة جاية)</p>
                     <svg viewBox={`0 0 ${VIEWBOX.width} ${VIEWBOX.height}`} className="w-full" style={{ maxWidth: 380 }}>
                       <line
                         x1={40}
@@ -360,13 +387,21 @@ export default function CompleteVisitModal({ appointmentId, patientId, patientNa
                       <line x1={UPPER_ARCH.cx} y1={20} x2={UPPER_ARCH.cx} y2={VIEWBOX.height - 20} stroke="#e2e8f0" strokeDasharray="4 4" />
                       {pickerTeeth.map((t) => {
                         const selected = l.tooth_numbers.split(',').map((v) => v.trim()).includes(String(t.number))
+                        const pending = l.pending_teeth.split(',').map((v) => v.trim()).includes(String(t.number))
+                        const fill = selected ? (pending ? '#fef3c7' : 'var(--color-accent)') : '#fff8f0'
+                        const stroke = selected ? (pending ? '#d97706' : 'var(--color-accent)') : '#c9b8a8'
                         return (
-                          <g key={t.number} onClick={() => toggleTooth(idx, t.number)} className="cursor-pointer">
+                          <g
+                            key={t.number}
+                            onClick={() => cycleTooth(idx, t.number)}
+                            className="cursor-pointer"
+                            title={!selected ? 'مو مشمول بهاي الزيارة' : pending ? 'استمرار — لسا محتاج جلسة تانية' : 'خلص اليوم'}
+                          >
                             <g transform={`translate(${t.x},${t.y}) rotate(${t.rotationDeg})`}>
                               <path
                                 d={t.crownPath}
-                                fill={selected ? 'var(--color-accent)' : '#fff8f0'}
-                                stroke={selected ? 'var(--color-accent)' : '#c9b8a8'}
+                                fill={fill}
+                                stroke={stroke}
                                 strokeWidth={selected ? 2.5 : 1.2}
                               />
                               {t.cusps.map((c, i) => (
