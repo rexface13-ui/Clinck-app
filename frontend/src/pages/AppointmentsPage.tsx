@@ -47,6 +47,8 @@ interface OpenSlot extends Slot {
 export default function AppointmentsPage() {
   const [searchParams] = useSearchParams()
   const preselectedPatient = searchParams.get('patient_id')
+  const preselectedDate = searchParams.get('date')
+  const preselectedDoctorId = searchParams.get('doctor_id')
   const [openAppointmentId, setOpenAppointmentId] = useState<number | null>(null)
 
   const [doctors, setDoctors] = useState<Doctor[]>([])
@@ -55,8 +57,8 @@ export default function AppointmentsPage() {
   const [manualBooking, setManualBooking] = useState(false)
   const [manualTime, setManualTime] = useState('09:00')
   const [manualDoctorId, setManualDoctorId] = useState('')
-  const [doctorFilter, setDoctorFilter] = useState<number | 'all'>('all')
-  const [date, setDate] = useState(todayIso())
+  const [doctorFilter, setDoctorFilter] = useState<number | 'all'>(preselectedDoctorId ? Number(preselectedDoctorId) : 'all')
+  const [date, setDate] = useState(preselectedDate ?? todayIso())
   const [dayAppointments, setDayAppointments] = useState<Appointment[]>([])
   const [openSlots, setOpenSlots] = useState<OpenSlot[]>([])
   const [loadingSlots, setLoadingSlots] = useState(false)

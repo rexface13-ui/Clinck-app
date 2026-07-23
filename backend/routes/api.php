@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\DebtController;
 use App\Http\Controllers\Api\DoctorAvailabilityController;
 use App\Http\Controllers\Api\DoctorCommissionController;
 use App\Http\Controllers\Api\DoctorController;
+use App\Http\Controllers\Api\DoctorOccupancyController;
 use App\Http\Controllers\Api\DoctorServiceCommissionController;
 use App\Http\Controllers\Api\DoctorSlotController;
 use App\Http\Controllers\Api\ExpenseController;
@@ -53,6 +54,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('doctors/{doctor}/commissions', [DoctorServiceCommissionController::class, 'store']);
     Route::delete('doctors/{doctor}/commissions/{commission}', [DoctorServiceCommissionController::class, 'destroy']);
     Route::get('doctors/{doctor}/slots', [DoctorSlotController::class, 'index']);
+    Route::get('doctors/{doctor}/occupancy', [DoctorOccupancyController::class, 'index']);
     Route::get('doctors/{doctor}/commission-statement', [DoctorCommissionController::class, 'index']);
     Route::post('doctors/{doctor}/commission-statement/pay', [DoctorCommissionController::class, 'pay']);
 

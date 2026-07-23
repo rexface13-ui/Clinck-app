@@ -25,6 +25,7 @@ import PatientSearchModal from '../components/PatientSearchModal'
 import CompleteVisitModal from '../components/CompleteVisitModal'
 import PatientPaymentModal from '../components/PatientPaymentModal'
 import AppointmentDetailModal from '../components/AppointmentDetailModal'
+import DoctorOccupancyCalendar from '../components/DoctorOccupancyCalendar'
 import { Card, PageHeader, StatCard, Badge, Button, Table, Thead, Th, Td, Tr, EmptyRow, TableSkeleton, CardSkeleton } from '../components/ui'
 import type { BadgeVariant } from '../components/ui'
 import type { Patient } from '../types'
@@ -299,6 +300,10 @@ export default function DashboardPage() {
           onChanged={loadSummary}
         />
       )}
+
+      <div className="mb-8">
+        <DoctorOccupancyCalendar />
+      </div>
 
       <Card className="mb-8">
         <div className="flex flex-wrap items-center justify-between gap-3 p-6 pb-0">
