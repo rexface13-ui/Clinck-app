@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faPen, faTrash } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
@@ -20,7 +20,7 @@ import {
   toothSize,
   type ArchConfig,
 } from '../lib/dental'
-import type { Doctor, Service, ToothFinding, ToothState, Visit } from '../types'
+import type { Doctor, Service, ToothFinding, ToothState } from '../types'
 
 interface Props {
   patientId: number
@@ -80,28 +80,16 @@ function layoutArch(numbers: number[], primaryNumbers: number[], isChild: boolea
   })
 }
 
-export default function ToothChart({ patientId, isChild, toothStates, toothFindings, services, doctors, onChanged, pickMode = false, onPickTooth, busyToothNumbers }: Props) {
+export default function ToothChart({ patientId, isChild, toothStates, toothFindings, onChanged, pickMode = false, onPickTooth, busyToothNumbers }: Props) {
   const { can } = useAuth()
   const [selectedTeeth, setSelectedTeeth] = useState<number[]>([])
   const [multiSelect, setMultiSelect] = useState(false)
-  const [status, setStatus] = useState<'planned' | 'in_progress' | 'done'>('planned')
   const [markMissing, setMarkMissing] = useState(false)
   const [performedExternally, setPerformedExternally] = useState(false)
-  const [linkedSessionId, setLinkedSessionId] = useState<string>('')
-  const [serviceId, setServiceId] = useState<string>('')
-  const [doctorId, setDoctorId] = useState<string>('')
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [externalNoteOpen, setExternalNoteOpen] = useState(false)
-  const [externalNote, setExternalNote] = useState('')
-  const [savingExternalNote, setSavingExternalNote] = useState(false)
   const [editingFindingId, setEditingFindingId] = useState<number | null>(null)
-  const [visits, setVisits] = useState<Visit[]>([])
-
-  useEffect(() => {
-    api.get(`/patients/${patientId}/visits`).then((res) => setVisits(res.data))
-  }, [patientId])
 
   const stateByTooth = useMemo(() => {
     const map = new Map<number, string>()
@@ -145,12 +133,8 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
   }
 
   function resetForm() {
-    setStatus('planned')
     setMarkMissing(false)
     setPerformedExternally(false)
-    setLinkedSessionId('')
-    setServiceId('')
-    setDoctorId('')
     setNote('')
     setError(null)
     setEditingFindingId(null)
@@ -167,12 +151,8 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
 
   function editFinding(f: ToothFinding) {
     setSelectedTeeth([f.tooth_number])
-    setStatus(f.status)
     setMarkMissing(f.marks_missing)
     setPerformedExternally(f.performed_externally)
-    setLinkedSessionId(f.plan_item_session_id ? String(f.plan_item_session_id) : '')
-    setServiceId(f.service_id ? String(f.service_id) : '')
-    setDoctorId(f.doctor_id ? String(f.doctor_id) : '')
     setNote(f.note ?? '')
     setError(null)
     setEditingFindingId(f.id)
@@ -215,25 +195,18 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
     try {
       if (editingFindingId) {
         await api.patch(`/patients/${patientId}/chart/findings/${editingFindingId}`, {
-          status,
           note: note || null,
           marks_missing: markMissing,
           performed_externally: performedExternally,
-          doctor_id: doctorId || null,
-          plan_item_session_id: linkedSessionId || null,
         })
       } else {
-        const findingType = serviceId ? services.find((s) => String(s.id) === serviceId)?.name ?? 'ملاحظة' : 'ملاحظة'
         for (const tooth of selectedTeeth) {
           await api.post(`/patients/${patientId}/chart/findings`, {
             tooth_number: tooth,
-            finding_type: findingType,
-            status,
+            finding_type: 'ملاحظة',
+            status: 'done',
             marks_missing: markMissing,
             performed_externally: performedExternally,
-            plan_item_session_id: linkedSessionId || null,
-            service_id: serviceId || null,
-            doctor_id: doctorId || null,
             note: note || null,
           })
         }
@@ -250,24 +223,6 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
   const canManage = can('dental_chart.manage')
   const singleSelectedTooth = selectedTeeth.length === 1 ? selectedTeeth[0] : null
   const history = singleSelectedTooth ? toothFindings.filter((f) => f.tooth_number === singleSelectedTooth) : []
-
-  async function saveExternalNote() {
-    if (!singleSelectedTooth || !externalNote.trim()) return
-    setSavingExternalNote(true)
-    try {
-      await api.post(`/patients/${patientId}/chart/findings`, {
-        tooth_number: singleSelectedTooth,
-        finding_type: 'ملاحظة: عيادة أخرى',
-        status: 'planned',
-        note: externalNote,
-      })
-      setExternalNote('')
-      setExternalNoteOpen(false)
-      onChanged()
-    } finally {
-      setSavingExternalNote(false)
-    }
-  }
 
   return (
     <div className="flex flex-col gap-6 2xl:flex-row">
@@ -456,57 +411,8 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
 
               <label className="mb-3 flex items-center gap-2 text-xs text-ink/70">
                 <input type="checkbox" checked={performedExternally} onChange={(e) => setPerformedExternally(e.target.checked)} className="size-3.5" />
-                اشتغل عليه طرف خارجي (مو إحنا) — بيتحدد بخط منقّط عالرسمة
+                اشتغل عليه طرف خارجي (مو إحنا، أو عيادة تانية) — بيتحدد بخط منقّط عالرسمة
               </label>
-
-              {editingFindingId === null && singleSelectedTooth && (
-                <>
-                  <label className="mb-1 block text-xs text-ink/60">اربط بجلسة موجودة (اختياري)</label>
-                  <select
-                    value={linkedSessionId}
-                    onChange={(e) => setLinkedSessionId(e.target.value)}
-                    className="mb-3 w-full rounded-lg border border-ink/10 px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
-                  >
-                    <option value="">بدون ربط</option>
-                    {visits
-                      .filter((v) => v.tooth_number === singleSelectedTooth)
-                      .map((v) => (
-                        <option key={v.session_id} value={v.session_id}>
-                          {v.service_name} — {v.date} — {v.price} ₪
-                        </option>
-                      ))}
-                  </select>
-                </>
-              )}
-
-              <label className="mb-1 block text-xs text-ink/60">الخدمة المرتبطة (اختياري)</label>
-              <select
-                value={serviceId}
-                onChange={(e) => setServiceId(e.target.value)}
-                disabled={editingFindingId !== null}
-                className="mb-3 w-full rounded-lg border border-ink/10 px-2 py-1.5 text-sm focus:border-accent focus:outline-none disabled:opacity-50"
-              >
-                <option value="">بدون</option>
-                {services.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
-
-              <label className="mb-1 block text-xs text-ink/60">الطبيب المعالج (اختياري — لازم لاحتساب العمولة)</label>
-              <select
-                value={doctorId}
-                onChange={(e) => setDoctorId(e.target.value)}
-                className="mb-3 w-full rounded-lg border border-ink/10 px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
-              >
-                <option value="">بدون طبيب محدد</option>
-                {doctors.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.full_name}
-                  </option>
-                ))}
-              </select>
 
               <label className="mb-1 block text-xs text-ink/60">ملاحظة</label>
               <textarea
@@ -524,7 +430,7 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
                   disabled={saving}
                   className="flex-1 rounded-lg bg-accent py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60"
                 >
-                  {saving ? 'جارِ الحفظ...' : editingFindingId ? 'تحديث' : singleSelectedTooth ? 'حفظ' : `حفظ لـ${selectedTeeth.length} سن`}
+                  {saving ? 'جارِ الحفظ...' : editingFindingId ? 'تحديث' : singleSelectedTooth ? 'حفظ ملاحظة' : `حفظ لـ${selectedTeeth.length} سن`}
                 </button>
                 {editingFindingId && (
                   <button onClick={resetForm} className="rounded-lg border border-ink/10 px-3 py-2 text-sm text-ink/60 hover:bg-background">
@@ -534,38 +440,6 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
               </div>
             </>
           )}
-
-          {!pickMode && singleSelectedTooth && canManage && (
-            <div className="mt-3 border-t border-ink/10 pt-3">
-              {!externalNoteOpen ? (
-                <button
-                  type="button"
-                  onClick={() => setExternalNoteOpen(true)}
-                  className="text-xs text-ink/50 underline hover:text-ink"
-                >
-                  + هذا السن مشغول بعيادة أخرى؟ أضف ملاحظة (اختياري)
-                </button>
-              ) : (
-                <>
-                  <label className="mb-1 block text-xs text-ink/60">تفاصيل (اسم العيادة، نوع العلاج...)</label>
-                  <textarea
-                    value={externalNote}
-                    onChange={(e) => setExternalNote(e.target.value)}
-                    rows={2}
-                    className="mb-2 w-full rounded-lg border border-ink/10 px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
-                  />
-                  <button
-                    onClick={saveExternalNote}
-                    disabled={savingExternalNote || !externalNote.trim()}
-                    className="w-full rounded-lg border border-ink/10 py-1.5 text-xs text-ink/70 hover:border-accent hover:text-accent disabled:opacity-60"
-                  >
-                    {savingExternalNote ? 'جارِ الحفظ...' : 'حفظ الملاحظة'}
-                  </button>
-                </>
-              )}
-            </div>
-          )}
-
         </div>
       )}
     </div>
