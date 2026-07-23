@@ -37,6 +37,7 @@ class ClinicSeeder extends Seeder
         'purchasing.view', 'purchasing.manage',
         'checks.view', 'checks.manage',
         'inventory.view', 'inventory.manage',
+        'reports.view',
     ];
 
     protected array $rolePermissions = [
@@ -65,6 +66,7 @@ class ClinicSeeder extends Seeder
             'suppliers.view', 'suppliers.manage',
             'checks.view', 'checks.manage',
             'inventory.view',
+            'reports.view',
         ],
     ];
 

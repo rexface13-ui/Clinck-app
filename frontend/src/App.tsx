@@ -20,6 +20,7 @@ import ChecksPage from './pages/ChecksPage'
 import SettingsPage from './pages/SettingsPage'
 import DashboardPage from './pages/DashboardPage'
 import DebtsPage from './pages/DebtsPage'
+import ReportsPage from './pages/ReportsPage'
 
 function App() {
   return (
@@ -35,6 +36,14 @@ function App() {
             }
           >
             <Route path="/" element={<DashboardPage />} />
+            <Route
+              path="/reports"
+              element={
+                <ProtectedRoute permission="reports.view">
+                  <ReportsPage />
+                </ProtectedRoute>
+              }
+            />
             <Route
               path="/patients"
               element={

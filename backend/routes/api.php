@@ -23,6 +23,7 @@ use App\Http\Controllers\Api\PatientBillingController;
 use App\Http\Controllers\Api\PatientController;
 use App\Http\Controllers\Api\PatientNoteController;
 use App\Http\Controllers\Api\PurchaseInvoiceController;
+use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\ServiceCategoryController;
 use App\Http\Controllers\Api\ServiceController;
@@ -160,6 +161,15 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('checks/{check}/bounce', [CheckController::class, 'bounce']);
     Route::post('checks/{check}/clear', [CheckController::class, 'clear']);
     Route::get('checks/{check}/image', [CheckController::class, 'image']);
+
+    // Reports
+    Route::get('reports/revenue', [ReportController::class, 'revenue']);
+    Route::get('reports/revenue-by-service', [ReportController::class, 'revenueByService']);
+    Route::get('reports/doctor-productivity', [ReportController::class, 'doctorProductivity']);
+    Route::get('reports/patients', [ReportController::class, 'patients']);
+    Route::get('reports/no-show', [ReportController::class, 'noShow']);
+    Route::get('reports/debts-aging', [ReportController::class, 'debtsAging']);
+    Route::get('reports/collections', [ReportController::class, 'collections']);
 
     // Telegram linking (Phase 4)
     Route::get('telegram-link', [TelegramLinkController::class, 'show']);

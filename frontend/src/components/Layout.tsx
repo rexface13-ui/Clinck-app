@@ -18,6 +18,7 @@ import {
   faGear,
   faGauge,
   faBook,
+  faChartLine,
 } from '@fortawesome/free-solid-svg-icons'
 import { useAuth } from '../contexts/AuthContext'
 import GlobalSearch from './GlobalSearch'
@@ -37,7 +38,10 @@ interface NavGroup {
 const navGroups: NavGroup[] = [
   {
     label: 'عام',
-    items: [{ to: '/', label: 'لوحة التحكم', icon: faGauge, permission: null }],
+    items: [
+      { to: '/', label: 'لوحة التحكم', icon: faGauge, permission: null },
+      { to: '/reports', label: 'التقارير', icon: faChartLine, permission: 'reports.view' },
+    ],
   },
   {
     label: 'العيادة',
