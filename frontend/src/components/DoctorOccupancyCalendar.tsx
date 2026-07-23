@@ -14,13 +14,13 @@ interface OccupancyDay {
   booked_minutes: number
 }
 
-const WEEKDAY_LABELS = ['أحد', 'اثنين', 'ثلاثاء', 'أربعاء', 'خميس', 'جمعة', 'سبت']
+const WEEKDAY_LABELS = ['ح', 'ن', 'ث', 'ر', 'خ', 'ج', 'س']
 
-const STATUS_STYLES: Record<OccupancyDay['status'], string> = {
-  empty: 'bg-success-soft text-success border-success/20',
-  some: 'bg-warning-soft text-warning border-warning/20',
-  full: 'bg-danger-soft text-danger border-danger/20',
-  closed: 'bg-background text-ink/30 border-border',
+const DOT_COLOR: Record<OccupancyDay['status'], string> = {
+  empty: 'bg-success',
+  some: 'bg-warning',
+  full: 'bg-danger',
+  closed: 'bg-transparent',
 }
 
 const STATUS_LABELS: Record<OccupancyDay['status'], string> = {
@@ -77,67 +77,74 @@ export default function DoctorOccupancyCalendar() {
   const today = todayIso()
 
   return (
-    <Card className="p-6">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold text-ink/80">التقويم الشهري</h2>
-        <div className="w-56">
-          <SearchableSelect
-            options={doctors.map((d) => ({ value: String(d.id), label: d.full_name }))}
-            value={doctorId}
-            onChange={setDoctorId}
-            placeholder="اختر طبيب..."
-          />
-        </div>
+    <Card className="w-fit min-w-[280px] p-4">
+      <div className="mb-3">
+        <SearchableSelect
+          options={doctors.map((d) => ({ value: String(d.id), label: d.full_name }))}
+          value={doctorId}
+          onChange={setDoctorId}
+          placeholder="اختر طبيب..."
+        />
       </div>
 
-      <div className="mb-3 flex items-center justify-between">
-        <button onClick={() => shiftMonth(-1)} className="rounded-lg p-2 text-ink/50 hover:bg-background hover:text-ink">
-          <FontAwesomeIcon icon={faChevronRight} />
+      <div className="mb-2 flex items-center justify-between">
+        <button onClick={() => shiftMonth(-1)} className="rounded-md p-1 text-ink/40 hover:bg-background hover:text-ink">
+          <FontAwesomeIcon icon={faChevronRight} className="text-xs" />
         </button>
-        <span className="text-sm font-medium text-ink">{monthLabel}</span>
-        <button onClick={() => shiftMonth(1)} className="rounded-lg p-2 text-ink/50 hover:bg-background hover:text-ink">
-          <FontAwesomeIcon icon={faChevronLeft} />
+        <span className="text-xs font-semibold text-ink/80">{monthLabel}</span>
+        <button onClick={() => shiftMonth(1)} className="rounded-md p-1 text-ink/40 hover:bg-background hover:text-ink">
+          <FontAwesomeIcon icon={faChevronLeft} className="text-xs" />
         </button>
       </div>
 
       {!doctorId ? (
-        <p className="py-6 text-center text-sm text-muted">ما في أطباء مسجّلين بعد.</p>
+        <p className="py-4 text-center text-xs text-muted">ما في أطباء مسجّلين بعد.</p>
       ) : !days ? (
-        <div className="grid grid-cols-7 gap-1.5">
+        <div className="grid grid-cols-7 gap-1">
           {Array.from({ length: 35 }).map((_, i) => (
-            <div key={i} className="aspect-square animate-pulse rounded-lg bg-background" />
+            <div key={i} className="size-8 animate-pulse rounded-md bg-background" />
           ))}
         </div>
       ) : (
         <>
-          <div className="mb-1 grid grid-cols-7 gap-1.5 text-center text-[11px] text-muted">
-            {WEEKDAY_LABELS.map((w) => (
-              <div key={w}>{w}</div>
+          <div className="mb-0.5 grid grid-cols-7 text-center text-[10px] text-ink/30">
+            {WEEKDAY_LABELS.map((w, i) => (
+              <div key={i}>{w}</div>
             ))}
           </div>
-          <div className="grid grid-cols-7 gap-1.5">
+          <div className="grid grid-cols-7 gap-y-0.5">
             {Array.from({ length: leadingBlanks }).map((_, i) => (
-              <div key={`blank-${i}`} />
+              <div key={`blank-${i}`} className="size-8" />
             ))}
-            {days.map((d) => (
-              <button
-                key={d.date}
-                onClick={() => openDay(d.date)}
-                title={`${STATUS_LABELS[d.status]} — ${d.appointments_count} موعد`}
-                className={`flex aspect-square flex-col items-center justify-center rounded-lg border text-xs font-medium transition-transform hover:scale-105 ${STATUS_STYLES[d.status]} ${
-                  d.date === today ? 'ring-2 ring-accent' : ''
-                }`}
-              >
-                <span>{Number(d.date.slice(-2))}</span>
-                {d.appointments_count > 0 && <span className="text-[10px] opacity-70">{d.appointments_count}</span>}
-              </button>
-            ))}
+            {days.map((d) => {
+              const isToday = d.date === today
+              return (
+                <button
+                  key={d.date}
+                  onClick={() => openDay(d.date)}
+                  title={`${STATUS_LABELS[d.status]}${d.appointments_count > 0 ? ` — ${d.appointments_count} موعد` : ''}`}
+                  className="group flex size-8 flex-col items-center justify-center"
+                >
+                  <span
+                    className={`flex size-6 items-center justify-center rounded-full text-[11px] transition-colors ${
+                      isToday
+                        ? 'bg-accent font-semibold text-white'
+                        : d.status === 'closed'
+                          ? 'text-ink/25 group-hover:bg-background'
+                          : 'text-ink/70 group-hover:bg-background'
+                    }`}
+                  >
+                    {Number(d.date.slice(-2))}
+                  </span>
+                  <span className={`mt-0.5 size-1 rounded-full ${DOT_COLOR[d.status]}`} />
+                </button>
+              )
+            })}
           </div>
-          <div className="mt-4 flex flex-wrap gap-3 text-[11px] text-ink/60">
-            <span className="flex items-center gap-1"><span className="size-2.5 rounded-full bg-success" /> فاضي</span>
-            <span className="flex items-center gap-1"><span className="size-2.5 rounded-full bg-warning" /> في حجوزات</span>
-            <span className="flex items-center gap-1"><span className="size-2.5 rounded-full bg-danger" /> ممتلئ</span>
-            <span className="flex items-center gap-1"><span className="size-2.5 rounded-full bg-ink/20" /> غير مفتوح</span>
+          <div className="mt-3 flex flex-wrap gap-2.5 text-[10px] text-ink/50">
+            <span className="flex items-center gap-1"><span className="size-1.5 rounded-full bg-success" /> فاضي</span>
+            <span className="flex items-center gap-1"><span className="size-1.5 rounded-full bg-warning" /> حجوزات</span>
+            <span className="flex items-center gap-1"><span className="size-1.5 rounded-full bg-danger" /> ممتلئ</span>
           </div>
         </>
       )}
