@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faTrash, faSave, faMoneyBill, faChevronDown, faChevronLeft, faTooth, faPrint, faTriangleExclamation, faFileMedical } from '@fortawesome/free-solid-svg-icons'
+import { faTrash, faSave, faMoneyBill, faChevronDown, faChevronLeft, faTooth, faPrint, faTriangleExclamation, faFileMedical, faPen } from '@fortawesome/free-solid-svg-icons'
+import EditVisitModal from './EditVisitModal'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import { formatDate } from '../lib/formatDate'
@@ -102,6 +103,7 @@ export default function VisitHistoryPanel({
   const [openId, setOpenId] = useState<number | null>(null)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const [diagramFor, setDiagramFor] = useState<string | null>(null)
+  const [editingPlanId, setEditingPlanId] = useState<number | null>(null)
 
   function toggleDiagram(key: string) {
     setDiagramFor((prev) => (prev === key ? null : key))
@@ -284,6 +286,18 @@ export default function VisitHistoryPanel({
                     {first.doctor_name && <span className="text-xs text-muted">— {first.doctor_name}</span>}
                   </div>
                   <div className="flex items-center gap-3">
+                    {canManage && first.is_quick_visit && first.plan_id && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setEditingPlanId(first.plan_id)
+                        }}
+                        title="تعديل الزيارة كاملة"
+                        className="text-ink/40 hover:text-accent"
+                      >
+                        <FontAwesomeIcon icon={faPen} />
+                      </button>
+                    )}
                     <span className="text-ink">{totalPrice.toFixed(2)} ₪</span>
                     <Badge variant={INVOICE_STATUS_VARIANTS[first.invoice_status]}>{INVOICE_STATUS_LABELS[first.invoice_status]}</Badge>
                     <span className="text-xs text-muted">{first.date}</span>
@@ -321,6 +335,19 @@ export default function VisitHistoryPanel({
         </div>
       )}
     </Card>
+
+    {editingPlanId && (
+      <EditVisitModal
+        planId={editingPlanId}
+        patientId={patientId}
+        patientName={patientName ?? ''}
+        onClose={() => setEditingPlanId(null)}
+        onDone={() => {
+          load()
+          onChanged?.()
+        }}
+      />
+    )}
     </div>
   )
 
@@ -350,6 +377,18 @@ export default function VisitHistoryPanel({
             {!nested && v.doctor_name && <span className="text-xs text-muted">— {v.doctor_name}</span>}
           </div>
           <div className="flex items-center gap-3">
+            {!nested && canManage && v.is_quick_visit && v.plan_id && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setEditingPlanId(v.plan_id)
+                }}
+                title="تعديل الزيارة كاملة"
+                className="text-ink/40 hover:text-accent"
+              >
+                <FontAwesomeIcon icon={faPen} />
+              </button>
+            )}
             <span className="text-ink">{v.price} ₪</span>
             {!nested && <Badge variant={INVOICE_STATUS_VARIANTS[v.invoice_status]}>{INVOICE_STATUS_LABELS[v.invoice_status]}</Badge>}
             <span className="text-xs text-muted">{v.date}</span>

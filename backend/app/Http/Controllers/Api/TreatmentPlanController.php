@@ -254,6 +254,29 @@ class TreatmentPlanController extends Controller
         ]);
     }
 
+    public function rebill(Request $request, TreatmentPlan $treatmentPlan, TreatmentPlanService $service)
+    {
+        $this->authorize('update', $treatmentPlan);
+
+        $data = $request->validate([
+            'lines' => ['required', 'array', 'min:1'],
+            'lines.*.service_id' => ['required', 'integer', 'exists:services,id'],
+            'lines.*.tooth_numbers' => ['nullable', 'array', 'min:1'],
+            'lines.*.tooth_numbers.*' => ['integer'],
+            'lines.*.price' => ['required', 'numeric', 'min:0'],
+        ]);
+
+        $treatmentPlan->loadMissing('patient:id,full_name');
+        ActivityLog::record('visit.edited', sprintf(
+            'عدّل زيارة كاملة للمريض %s',
+            $treatmentPlan->patient?->full_name ?? 'مريض محذوف',
+        ));
+
+        $plan = $service->rebillVisit($treatmentPlan, $data['lines']);
+
+        return new TreatmentPlanResource($plan);
+    }
+
     public function updateSession(Request $request, TreatmentPlan $treatmentPlan, PlanItem $item, PlanItemSession $session, TreatmentPlanService $service)
     {
         $this->authorize('update', $treatmentPlan);

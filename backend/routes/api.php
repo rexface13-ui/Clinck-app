@@ -103,6 +103,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('treatment-plans/{treatmentPlan}/items/{item}/sessions/{session}/complete', [TreatmentPlanController::class, 'completeSession']);
     Route::post('treatment-plans/{treatmentPlan}/items/{item}/sessions/{session}/cancel', [TreatmentPlanController::class, 'cancelSession']);
     Route::patch('treatment-plans/{treatmentPlan}/items/{item}/sessions/{session}', [TreatmentPlanController::class, 'updateSession']);
+    Route::post('treatment-plans/{treatmentPlan}/rebill', [TreatmentPlanController::class, 'rebill']);
     Route::post('treatment-plans/{treatmentPlan}/record-session', [TreatmentPlanController::class, 'recordSession']);
     Route::post('treatment-plans/{treatmentPlan}/cancel', [TreatmentPlanController::class, 'cancel']);
     Route::post('treatment-plans/{treatmentPlan}/approve', [TreatmentPlanController::class, 'approve']);

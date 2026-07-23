@@ -313,6 +313,107 @@ class TreatmentPlanService
     }
 
     /**
+     * Replaces everything billed under a same-day quick-visit plan (the
+     * kind "اجاني هلق"/"تمّت الزيارة" creates, tagged by having an
+     * appointment_id) with a fresh set of lines — voids every existing
+     * item/session's charge and clinical findings first (same reversal
+     * "cancelSession" does, minus touching the appointment, which stays
+     * exactly as it was), then bills the new lines the same way
+     * recordSessionVisit does. Any payment already collected against this
+     * visit's invoice is left untouched — only what was billed changes, so
+     * the invoice may end up over/under-paid and needs reconciling
+     * separately, same as any other price correction.
+     */
+    public function rebillVisit(TreatmentPlan $plan, array $lines): TreatmentPlan
+    {
+        abort_if(! $plan->appointment_id, 422, 'التعديل الكامل متاح بس لزيارات "اجاني هلق"/"تمّت الزيارة".');
+        abort_if(empty($lines), 422, 'لازم تختار خدمة واحدة عالأقل.');
+
+        return DB::transaction(function () use ($plan, $lines) {
+            $plan->loadMissing('items.sessions', 'patient');
+
+            foreach ($plan->items as $item) {
+                foreach ($item->sessions as $session) {
+                    if ($session->status === 'cancelled') {
+                        continue;
+                    }
+
+                    $line = InvoiceLine::where('plan_item_session_id', $session->id)->first();
+                    if ($line) {
+                        $invoice = $line->invoice;
+                        $refundIls = $line->amount_ils;
+                        $line->delete();
+                        $invoice->update(['total_amount_ils' => max(0, $invoice->total_amount_ils - $refundIls)]);
+
+                        PatientTransaction::create([
+                            'clinic_id' => $item->clinic_id,
+                            'patient_id' => $plan->patient_id,
+                            'type' => 'refund',
+                            'reference_type' => 'plan_item_session_cancel',
+                            'reference_id' => $session->id,
+                            'amount' => $refundIls,
+                            'currency' => 'ILS',
+                            'exchange_rate' => 1,
+                            'amount_ils' => $refundIls,
+                            'occurred_at' => now(),
+                        ]);
+                    }
+
+                    $findings = ToothFinding::where('patient_id', $plan->patient_id)
+                        ->where('plan_item_session_id', $session->id)
+                        ->get();
+                    foreach ($findings as $finding) {
+                        DoctorTransaction::where('tooth_finding_id', $finding->id)->whereNull('settled_at')->delete();
+                        $finding->delete();
+                    }
+
+                    $session->delete();
+                }
+
+                $item->delete();
+            }
+
+            $invoice = $plan->invoices()->where('status', '!=', 'void')->latest('id')->first();
+            if ($invoice && $invoice->lines()->count() === 0) {
+                $invoice->update(['status' => 'void']);
+            } elseif ($invoice) {
+                $this->paymentService->refreshInvoiceStatus($invoice->fresh());
+            }
+
+            foreach ($lines as $line) {
+                $item = $plan->items()->create([
+                    'clinic_id' => $plan->clinic_id,
+                    'service_id' => $line['service_id'],
+                    'tooth_number' => ! empty($line['tooth_numbers']) ? $line['tooth_numbers'][0] : null,
+                    'tooth_numbers' => $line['tooth_numbers'] ?? null,
+                    'unit_price' => $line['price'],
+                    'currency' => 'ILS',
+                    'sessions_count' => 1,
+                ]);
+
+                $session = PlanItemSession::create([
+                    'clinic_id' => $item->clinic_id,
+                    'plan_item_id' => $item->id,
+                    'session_number' => 1,
+                    'status' => 'pending',
+                ]);
+
+                $this->completeSession(
+                    $session,
+                    (float) $line['price'],
+                    null,
+                    null,
+                    $line['tooth_numbers'] ?? null,
+                    $plan->appointment_id,
+                    [],
+                );
+            }
+
+            return $plan->fresh(['doctor', 'items.service', 'items.sessions']);
+        });
+    }
+
+    /**
      * Cancelling an approved plan cancels every session that hasn't
      * happened yet (done sessions stay — they were real, billed visits)
      * and reverses whatever charges those cancelled sessions had already

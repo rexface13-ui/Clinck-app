@@ -109,6 +109,7 @@ class PatientBillingController extends Controller
                 'price' => $line->amount_ils,
                 'note' => $session?->note ?? $line->description,
                 'doctor_name' => $item?->treatmentPlan?->doctor?->full_name,
+                'is_quick_visit' => (bool) $item?->treatmentPlan?->appointment_id,
                 'invoice_id' => $line->invoice_id,
                 'invoice_status' => $line->invoice?->status,
             ];

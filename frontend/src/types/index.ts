@@ -240,6 +240,7 @@ export interface Visit {
   price: string
   note: string | null
   doctor_name: string | null
+  is_quick_visit: boolean
   invoice_id: number
   invoice_status: 'unpaid' | 'partial' | 'paid' | 'void'
 }
