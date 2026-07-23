@@ -1,6 +1,54 @@
 import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
+import DatePicker from '../components/DatePicker'
 import { Card, PageHeader, Tabs } from '../components/ui'
+
+/** Shared "from/to" range picker for the reports that support server-side date filtering. Empty values mean "all time". */
+function DateRangeFilter({ from, to, onFrom, onTo }: { from: string; to: string; onFrom: (v: string) => void; onTo: (v: string) => void }) {
+  return (
+    <div className="mb-4 flex flex-wrap items-end gap-3">
+      <div>
+        <label className="mb-1 block text-xs text-muted">من تاريخ</label>
+        <DatePicker value={from} onChange={onFrom} allowClear />
+      </div>
+      <div>
+        <label className="mb-1 block text-xs text-muted">إلى تاريخ</label>
+        <DatePicker value={to} onChange={onTo} allowClear />
+      </div>
+      {(from || to) && (
+        <button
+          onClick={() => {
+            onFrom('')
+            onTo('')
+          }}
+          className="rounded-lg border border-border px-3 py-2 text-xs text-ink/60 hover:bg-background"
+        >
+          مسح الفلتر (كل الوقت)
+        </button>
+      )}
+    </div>
+  )
+}
+
+const MONTHS_OPTIONS = [3, 6, 12]
+
+function MonthsFilter({ months, onChange }: { months: number; onChange: (n: number) => void }) {
+  return (
+    <div className="mb-4 flex gap-2">
+      {MONTHS_OPTIONS.map((n) => (
+        <button
+          key={n}
+          onClick={() => onChange(n)}
+          className={`rounded-lg border px-3 py-1.5 text-xs font-medium ${
+            months === n ? 'border-accent bg-accent text-white' : 'border-border text-ink/60 hover:bg-background'
+          }`}
+        >
+          آخر {n} أشهر
+        </button>
+      ))}
+    </div>
+  )
+}
 
 function money(n: number) {
   return new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(n)
@@ -36,11 +84,12 @@ function BarChart({ bars, formatValue }: { bars: { label: string; value: number;
 }
 
 function RevenueTab() {
+  const [monthsCount, setMonthsCount] = useState(6)
   const [months, setMonths] = useState<{ month: string; label: string; total_ils: number }[]>([])
 
   useEffect(() => {
-    api.get('/reports/revenue', { params: { months: 6 } }).then((res) => setMonths(res.data.months))
-  }, [])
+    api.get('/reports/revenue', { params: { months: monthsCount } }).then((res) => setMonths(res.data.months))
+  }, [monthsCount])
 
   const last = months[months.length - 1]
   const prev = months[months.length - 2]
@@ -49,8 +98,9 @@ function RevenueTab() {
 
   return (
     <Card className="p-6">
+      <MonthsFilter months={monthsCount} onChange={setMonthsCount} />
       <div className="mb-4 flex items-baseline justify-between">
-        <h3 className="text-sm font-semibold text-ink/80">إيرادات آخر 6 أشهر</h3>
+        <h3 className="text-sm font-semibold text-ink/80">إيرادات آخر {monthsCount} أشهر</h3>
         {diff !== null && (
           <span className={`text-sm font-medium ${diff >= 0 ? 'text-success' : 'text-danger'}`}>
             {diff >= 0 ? '▲' : '▼'} {money(Math.abs(diff))} ₪ {diffPct !== null && `(${diffPct >= 0 ? '+' : ''}${diffPct}%)`} عن الشهر الماضي
@@ -63,17 +113,20 @@ function RevenueTab() {
 }
 
 function RevenueByServiceTab() {
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
   const [services, setServices] = useState<{ service_name: string; total_ils: number }[]>([])
 
   useEffect(() => {
-    api.get('/reports/revenue-by-service').then((res) => setServices(res.data.services))
-  }, [])
+    api.get('/reports/revenue-by-service', { params: { from: from || undefined, to: to || undefined } }).then((res) => setServices(res.data.services))
+  }, [from, to])
 
   const total = services.reduce((s, x) => s + x.total_ils, 0)
 
   return (
     <Card className="p-6">
-      <h3 className="mb-4 text-sm font-semibold text-ink/80">الإيرادات حسب الخدمة (كل الوقت)</h3>
+      <DateRangeFilter from={from} to={to} onFrom={setFrom} onTo={setTo} />
+      <h3 className="mb-4 text-sm font-semibold text-ink/80">الإيرادات حسب الخدمة {from || to ? '' : '(كل الوقت)'}</h3>
       {services.length === 0 ? (
         <p className="text-sm text-muted">لا توجد بيانات بعد.</p>
       ) : (
@@ -96,15 +149,18 @@ function RevenueByServiceTab() {
 }
 
 function DoctorProductivityTab() {
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
   const [doctors, setDoctors] = useState<{ doctor_id: number; doctor_name: string; sessions_count: number; revenue_ils: number; commission_ils: number }[]>([])
 
   useEffect(() => {
-    api.get('/reports/doctor-productivity').then((res) => setDoctors(res.data.doctors))
-  }, [])
+    api.get('/reports/doctor-productivity', { params: { from: from || undefined, to: to || undefined } }).then((res) => setDoctors(res.data.doctors))
+  }, [from, to])
 
   return (
     <Card className="p-6">
-      <h3 className="mb-4 text-sm font-semibold text-ink/80">إنتاجية الأطباء (كل الوقت)</h3>
+      <DateRangeFilter from={from} to={to} onFrom={setFrom} onTo={setTo} />
+      <h3 className="mb-4 text-sm font-semibold text-ink/80">إنتاجية الأطباء {from || to ? '' : '(كل الوقت)'}</h3>
       {doctors.length === 0 ? (
         <p className="text-sm text-muted">لا يوجد أطباء نشيطين.</p>
       ) : (
@@ -136,15 +192,17 @@ function DoctorProductivityTab() {
 }
 
 function PatientsTab() {
+  const [monthsCount, setMonthsCount] = useState(6)
   const [months, setMonths] = useState<{ month: string; label: string; new_patients: number; returning_patients: number }[]>([])
 
   useEffect(() => {
-    api.get('/reports/patients', { params: { months: 6 } }).then((res) => setMonths(res.data.months))
-  }, [])
+    api.get('/reports/patients', { params: { months: monthsCount } }).then((res) => setMonths(res.data.months))
+  }, [monthsCount])
 
   return (
     <Card className="p-6">
-      <h3 className="mb-1 text-sm font-semibold text-ink/80">مرضى جدد مقابل عائدين — آخر 6 أشهر</h3>
+      <MonthsFilter months={monthsCount} onChange={setMonthsCount} />
+      <h3 className="mb-1 text-sm font-semibold text-ink/80">مرضى جدد مقابل عائدين — آخر {monthsCount} أشهر</h3>
       <p className="mb-4 text-xs text-muted">العمود الداكن = مرضى جدد، الفاتح = مرضى عائدين (زاروا هالشهر وكانوا مسجّلين قبل)</p>
       <BarChart bars={months.map((m) => ({ label: m.label, value: m.new_patients, sub: m.returning_patients }))} formatValue={(n) => `${n}`} />
     </Card>
@@ -152,20 +210,25 @@ function PatientsTab() {
 }
 
 function NoShowTab() {
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
   const [data, setData] = useState<{
     overall: { total: number; no_show: number; rate: number }
     by_doctor: { doctor_id: number | null; doctor_name: string; total: number; no_show: number; rate: number }[]
   } | null>(null)
 
   useEffect(() => {
-    api.get('/reports/no-show').then((res) => setData(res.data))
-  }, [])
-
-  if (!data) return <Card className="p-6 text-sm text-muted">جارِ التحميل...</Card>
+    api.get('/reports/no-show', { params: { from: from || undefined, to: to || undefined } }).then((res) => setData(res.data))
+  }, [from, to])
 
   return (
     <Card className="p-6">
-      <h3 className="mb-4 text-sm font-semibold text-ink/80">نسبة الغياب عن الموعد (كل الوقت)</h3>
+      <DateRangeFilter from={from} to={to} onFrom={setFrom} onTo={setTo} />
+      {!data ? (
+        <p className="text-sm text-muted">جارِ التحميل...</p>
+      ) : (
+        <>
+      <h3 className="mb-4 text-sm font-semibold text-ink/80">نسبة الغياب عن الموعد {from || to ? '' : '(كل الوقت)'}</h3>
       <div className="mb-6 flex items-center gap-4 rounded-xl bg-background p-4">
         <span className={`text-3xl font-bold ${data.overall.rate > 15 ? 'text-danger' : 'text-success'}`}>{data.overall.rate}%</span>
         <span className="text-sm text-muted">{data.overall.no_show} غياب من أصل {data.overall.total} موعد (منجز أو غياب)</span>
@@ -190,6 +253,8 @@ function NoShowTab() {
           ))}
         </tbody>
       </table>
+        </>
+      )}
     </Card>
   )
 }
@@ -219,17 +284,20 @@ function DebtsAgingTab() {
 }
 
 function CollectionsTab() {
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
   const [methods, setMethods] = useState<{ method: string; label: string; total_ils: number }[]>([])
 
   useEffect(() => {
-    api.get('/reports/collections').then((res) => setMethods(res.data.methods))
-  }, [])
+    api.get('/reports/collections', { params: { from: from || undefined, to: to || undefined } }).then((res) => setMethods(res.data.methods))
+  }, [from, to])
 
   const total = methods.reduce((s, m) => s + m.total_ils, 0)
 
   return (
     <Card className="p-6">
-      <h3 className="mb-4 text-sm font-semibold text-ink/80">طرق التحصيل (كل الوقت)</h3>
+      <DateRangeFilter from={from} to={to} onFrom={setFrom} onTo={setTo} />
+      <h3 className="mb-4 text-sm font-semibold text-ink/80">طرق التحصيل {from || to ? '' : '(كل الوقت)'}</h3>
       {methods.length === 0 ? (
         <p className="text-sm text-muted">لا توجد تحصيلات بعد.</p>
       ) : (
