@@ -110,6 +110,8 @@ export default function WorkPlanningPanel({
   const [schedulingId, setSchedulingId] = useState<number | null>(null)
   const [scheduleDate, setScheduleDate] = useState('')
   const [scheduleTime, setScheduleTime] = useState('10:00')
+  const [scheduleDurationHours, setScheduleDurationHours] = useState(0)
+  const [scheduleDurationMinutes, setScheduleDurationMinutes] = useState(30)
   const [scheduleError, setScheduleError] = useState<string | null>(null)
   const [scheduleSuccessId, setScheduleSuccessId] = useState<number | null>(null)
 
@@ -281,8 +283,13 @@ export default function WorkPlanningPanel({
       setScheduleError('لازم تحدد التاريخ والوقت.')
       return
     }
+    const durationMinutes = scheduleDurationHours * 60 + scheduleDurationMinutes
+    if (durationMinutes <= 0) {
+      setScheduleError('لازم تحدد مدة الموعد.')
+      return
+    }
     const startsAt = new Date(`${scheduleDate}T${scheduleTime}:00`)
-    const endsAt = new Date(startsAt.getTime() + 30 * 60000)
+    const endsAt = new Date(startsAt.getTime() + durationMinutes * 60000)
     try {
       await api.post(`/work-items/${workItem.id}/schedule`, { starts_at: startsAt.toISOString(), ends_at: endsAt.toISOString() })
       setSchedulingId(null)
@@ -385,7 +392,7 @@ export default function WorkPlanningPanel({
 
                   {schedulingId === w.id && (
                     <div className="border-t border-ink/10 p-3">
-                      <div className="flex items-end gap-2">
+                      <div className="flex flex-wrap items-end gap-2">
                         <div className="w-40">
                           <DatePicker value={scheduleDate} onChange={setScheduleDate} placeholder="تاريخ المتابعة" />
                         </div>
@@ -395,6 +402,27 @@ export default function WorkPlanningPanel({
                           onChange={(e) => setScheduleTime(e.target.value)}
                           className="rounded-lg border border-border px-2 py-1.5 text-sm"
                         />
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="number"
+                            min={0}
+                            max={8}
+                            value={scheduleDurationHours}
+                            onChange={(e) => setScheduleDurationHours(Number(e.target.value))}
+                            className="w-14 rounded-lg border border-border px-2 py-1.5 text-sm"
+                          />
+                          <span className="text-xs text-muted">ساعة</span>
+                          <input
+                            type="number"
+                            min={0}
+                            max={59}
+                            step={5}
+                            value={scheduleDurationMinutes}
+                            onChange={(e) => setScheduleDurationMinutes(Number(e.target.value))}
+                            className="w-16 rounded-lg border border-border px-2 py-1.5 text-sm"
+                          />
+                          <span className="text-xs text-muted">دقيقة</span>
+                        </div>
                         <Button onClick={() => submitSchedule(w)} className="px-3 py-1.5 text-xs">
                           حجز موعد متابعة
                         </Button>
