@@ -1,23 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faChevronLeft, faChevronRight, faClock, faUserDoctor, faClockRotateLeft, faTriangleExclamation } from '@fortawesome/free-solid-svg-icons'
+import { faChevronLeft, faChevronRight, faUserDoctor, faClockRotateLeft, faTriangleExclamation, faPlus } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
-import { formatDate, formatTime } from '../lib/formatDate'
+import { formatDate } from '../lib/formatDate'
 import DatePicker from '../components/DatePicker'
 import AppointmentDetailModal from '../components/AppointmentDetailModal'
-import { Card, PageHeader, Button, Select, Badge } from '../components/ui'
-import type { BadgeVariant } from '../components/ui'
-import type { Appointment, Branch, Doctor, Patient, Slot } from '../types'
-
-const STATUS_VARIANTS: Record<Appointment['status'], BadgeVariant> = {
-  scheduled: 'info',
-  confirmed: 'accent',
-  done: 'neutral',
-  cancelled: 'danger',
-  no_show: 'danger',
-}
+import { Card, PageHeader, Button, Select } from '../components/ui'
+import type { Appointment, Branch, Doctor, Patient } from '../types'
 
 const STATUS_LABELS: Record<Appointment['status'], string> = {
   scheduled: 'مجدول',
@@ -26,6 +17,10 @@ const STATUS_LABELS: Record<Appointment['status'], string> = {
   cancelled: 'ملغى',
   no_show: 'لم يحضر',
 }
+
+/** Consistent color per doctor, assigned by position in the doctors list — not by id, so colors stay stable and don't run out for small clinics. */
+const DOCTOR_COLORS = ['#2f5d4f', '#b5651d', '#3f6ea5', '#8a3ffc', '#c0392b', '#0e7c7b', '#a0522d', '#5b6ee1']
+const NO_DOCTOR_COLOR = '#6b7280'
 
 function todayIso(): string {
   const d = new Date()
@@ -43,16 +38,58 @@ function extractError(err: unknown): string {
   return message ?? 'تعذّر الحجز — قد يكون الوقت محجوزاً بالفعل.'
 }
 
-/** A bookable slot, tagged with which doctor/branch it belongs to — slots from every available doctor are merged into one flat, time-sorted list so booking doesn't require picking a doctor first. */
-interface OpenSlot extends Slot {
-  doctorId: number
-  doctorName: string
-  branchId: number
+function parseHM(hm: string): number {
+  const [h, m] = hm.split(':').map(Number)
+  return h * 60 + m
+}
+
+function minutesToHM(mins: number): string {
+  const h = Math.floor(mins / 60) % 24
+  const m = mins % 60
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+}
+
+const PX_PER_MIN = 1.3
+
+interface LaidOutAppointment extends Appointment {
+  startMin: number
+  endMin: number
+  col: number
+  colCount: number
+}
+
+/** Greedy column assignment so overlapping appointments (any doctor) sit side by side instead of stacking on top of each other. */
+function minutesSinceMidnight(iso: string): number {
+  const d = new Date(iso)
+  return d.getHours() * 60 + d.getMinutes()
+}
+
+function layoutAppointments(appointments: Appointment[]): LaidOutAppointment[] {
+  const sorted = [...appointments]
+    .map((a) => ({ ...a, startMin: minutesSinceMidnight(a.starts_at), endMin: minutesSinceMidnight(a.ends_at) }))
+    .sort((a, b) => a.startMin - b.startMin)
+
+  const columns: number[] = []
+  const withCol = sorted.map((a) => {
+    let col = columns.findIndex((endMin) => endMin <= a.startMin)
+    if (col === -1) {
+      col = columns.length
+      columns.push(a.endMin)
+    } else {
+      columns[col] = a.endMin
+    }
+    return { ...a, col }
+  })
+
+  const colCount = Math.max(1, columns.length)
+  return withCol.map((a) => ({ ...a, colCount }))
 }
 
 export default function AppointmentsPage() {
   const { data: authData } = useAuth()
   const defaultDuration = (authData?.settings.default_appointment_duration as number) ?? 30
+  const clinicStart = (authData?.settings.clinic_hours_start as string) || '10:00'
+  const clinicEnd = (authData?.settings.clinic_hours_end as string) || '22:00'
   const [searchParams] = useSearchParams()
   const preselectedPatient = searchParams.get('patient_id')
   const preselectedDate = searchParams.get('date')
@@ -62,16 +99,16 @@ export default function AppointmentsPage() {
   const [doctors, setDoctors] = useState<Doctor[]>([])
   const [patients, setPatients] = useState<Patient[]>([])
   const [branches, setBranches] = useState<Branch[]>([])
-  const [manualBooking, setManualBooking] = useState(false)
-  const [manualTime, setManualTime] = useState('09:00')
-  const [manualDoctorId, setManualDoctorId] = useState('')
   const [doctorFilter, setDoctorFilter] = useState<number | 'all'>(preselectedDoctorId ? Number(preselectedDoctorId) : 'all')
   const [date, setDate] = useState(preselectedDate ?? todayIso())
   const [dayAppointments, setDayAppointments] = useState<Appointment[]>([])
-  const [openSlots, setOpenSlots] = useState<OpenSlot[]>([])
-  const [loadingSlots, setLoadingSlots] = useState(false)
-  const [selectedSlot, setSelectedSlot] = useState<OpenSlot | null>(null)
+
+  const [bookingOpen, setBookingOpen] = useState(false)
   const [patientId, setPatientId] = useState(preselectedPatient ?? '')
+  const [startTime, setStartTime] = useState(clinicStart)
+  const [durationHours, setDurationHours] = useState(Math.floor(defaultDuration / 60))
+  const [durationMinutes, setDurationMinutes] = useState(defaultDuration % 60)
+  const [bookingDoctorId, setBookingDoctorId] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [booking, setBooking] = useState(false)
 
@@ -95,107 +132,96 @@ export default function AppointmentsPage() {
 
   useEffect(loadAppointments, [date, doctorFilter])
 
-  function loadOpenSlots() {
-    const weekday = new Date(date + 'T00:00:00').getDay()
-    const candidates = doctors
-      .filter((d) => doctorFilter === 'all' || d.id === doctorFilter)
-      .map((d) => ({ doctor: d, branchId: d.availability?.find((a) => a.weekday === weekday)?.branch_id }))
-      .filter((c): c is { doctor: Doctor; branchId: number } => !!c.branchId)
+  const doctorColor = useMemo(() => {
+    const map = new Map<number, string>()
+    doctors.forEach((d, i) => map.set(d.id, DOCTOR_COLORS[i % DOCTOR_COLORS.length]))
+    return map
+  }, [doctors])
 
-    if (candidates.length === 0) {
-      setOpenSlots([])
-      return
+  const activeAppointments = useMemo(() => dayAppointments.filter((a) => a.status !== 'cancelled'), [dayAppointments])
+
+  // The grid always spans the clinic's configured hours, but a specific
+  // doctor's appointment that day can fall outside that range (running
+  // late, extra hours) — the grid stretches for that one day instead of
+  // clipping it or forcing a settings change.
+  const { rangeStart, rangeEnd } = useMemo(() => {
+    let start = parseHM(clinicStart)
+    let end = parseHM(clinicEnd)
+    for (const a of activeAppointments) {
+      const s = new Date(a.starts_at)
+      const e = new Date(a.ends_at)
+      const sMin = s.getHours() * 60 + s.getMinutes()
+      const eMin = e.getHours() * 60 + e.getMinutes()
+      if (sMin < start) start = Math.floor(sMin / 60) * 60
+      if (eMin > end) end = Math.ceil(eMin / 60) * 60
     }
+    return { rangeStart: start, rangeEnd: end }
+  }, [clinicStart, clinicEnd, activeAppointments])
 
-    setLoadingSlots(true)
-    Promise.all(
-      candidates.map(({ doctor, branchId }) =>
-        api
-          .get(`/doctors/${doctor.id}/slots`, { params: { branch_id: branchId, date } })
-          .then((res) => (res.data.slots as Slot[]).map((s) => ({ ...s, doctorId: doctor.id, doctorName: doctor.full_name, branchId }))),
-      ),
-    )
-      .then((groups) => {
-        const merged = groups.flat().sort((a, b) => a.starts_at.localeCompare(b.starts_at))
-        setOpenSlots(merged)
-      })
-      .finally(() => setLoadingSlots(false))
-  }
+  const hourMarks = useMemo(() => {
+    const marks: number[] = []
+    for (let h = Math.floor(rangeStart / 60); h <= Math.ceil(rangeEnd / 60); h++) marks.push(h * 60)
+    return marks
+  }, [rangeStart, rangeEnd])
 
-  useEffect(() => {
-    setSelectedSlot(null)
-    loadOpenSlots()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [date, doctorFilter, doctors])
+  const gridHeight = (rangeEnd - rangeStart) * PX_PER_MIN
+  const laidOut = useMemo(() => layoutAppointments(activeAppointments), [activeAppointments])
 
-  async function book() {
-    if (!selectedSlot || !patientId) return
-    setBooking(true)
+  function openBookingAt(startMinutesFromMidnight: number) {
+    const rounded = Math.round(startMinutesFromMidnight / 15) * 15
+    setStartTime(minutesToHM(rounded))
+    setBookingOpen(true)
     setError(null)
-    try {
-      await api.post('/appointments', {
-        branch_id: selectedSlot.branchId,
-        patient_id: Number(patientId),
-        doctor_id: selectedSlot.doctorId,
-        starts_at: selectedSlot.starts_at,
-        ends_at: selectedSlot.ends_at,
-      })
-      setSelectedSlot(null)
-      loadAppointments()
-      loadOpenSlots()
-    } catch (err) {
-      setError(extractError(err))
-    } finally {
-      setBooking(false)
-    }
   }
 
-  const manualConflict = useMemo(() => {
-    if (!manualDoctorId) return null
-    const startsAt = new Date(`${date}T${manualTime}:00`)
-    const endsAt = new Date(startsAt.getTime() + defaultDuration * 60000)
+  function handleGridClick(e: React.MouseEvent<HTMLDivElement>) {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const offsetY = e.clientY - rect.top
+    const minutesFromRangeStart = offsetY / PX_PER_MIN
+    openBookingAt(rangeStart + minutesFromRangeStart)
+  }
+
+  const duration = durationHours * 60 + durationMinutes
+
+  const bookingConflict = useMemo(() => {
+    if (!bookingDoctorId || duration <= 0) return null
+    const startsAt = new Date(`${date}T${startTime}:00`)
+    const endsAt = new Date(startsAt.getTime() + duration * 60000)
     return dayAppointments.find(
       (a) =>
-        a.doctor_id === Number(manualDoctorId) &&
+        a.doctor_id === Number(bookingDoctorId) &&
         a.status !== 'cancelled' &&
         a.status !== 'no_show' &&
         new Date(a.starts_at) < endsAt &&
         new Date(a.ends_at) > startsAt,
     )
-  }, [manualDoctorId, manualTime, date, dayAppointments, defaultDuration])
+  }, [bookingDoctorId, startTime, date, dayAppointments, duration])
 
-  async function bookManual() {
+  async function submitBooking() {
     const mainBranch = branches.find((b) => b.is_main) ?? branches[0]
-    if (!patientId || !mainBranch) return
+    if (!patientId || !mainBranch || duration <= 0) return
     setBooking(true)
     setError(null)
     try {
-      const startsAt = new Date(`${date}T${manualTime}:00`)
-      const endsAt = new Date(startsAt.getTime() + defaultDuration * 60000)
+      const startsAt = new Date(`${date}T${startTime}:00`)
+      const endsAt = new Date(startsAt.getTime() + duration * 60000)
       await api.post('/appointments', {
         branch_id: mainBranch.id,
         patient_id: Number(patientId),
-        doctor_id: manualDoctorId ? Number(manualDoctorId) : null,
+        doctor_id: bookingDoctorId ? Number(bookingDoctorId) : null,
         starts_at: startsAt.toISOString(),
         ends_at: endsAt.toISOString(),
       })
-      setManualBooking(false)
-      setManualDoctorId('')
+      setBookingOpen(false)
+      setPatientId('')
+      setBookingDoctorId('')
       loadAppointments()
-      loadOpenSlots()
     } catch (err) {
       setError(extractError(err))
     } finally {
       setBooking(false)
     }
   }
-
-  // Cancelled appointments don't need to keep occupying the day view once
-  // they're cancelled — they still exist and are visible in "سجل المواعيد".
-  const sortedAppointments = useMemo(
-    () => dayAppointments.filter((a) => a.status !== 'cancelled').sort((a, b) => a.starts_at.localeCompare(b.starts_at)),
-    [dayAppointments],
-  )
 
   return (
     <div>
@@ -228,9 +254,11 @@ export default function AppointmentsPage() {
               key={d.id}
               onClick={() => setDoctorFilter(d.id)}
               className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-sm transition-colors ${
-                doctorFilter === d.id ? 'border-accent bg-accent text-white' : 'border-border text-ink/70 hover:border-accent/40'
+                doctorFilter === d.id ? 'text-white' : 'border-border text-ink/70 hover:border-accent/40'
               }`}
+              style={doctorFilter === d.id ? { borderColor: doctorColor.get(d.id), backgroundColor: doctorColor.get(d.id) } : undefined}
             >
+              <span className="size-2 rounded-full" style={{ backgroundColor: doctorColor.get(d.id) }} />
               <FontAwesomeIcon icon={faUserDoctor} />
               {d.full_name}
             </button>
@@ -255,82 +283,72 @@ export default function AppointmentsPage() {
 
       <div className="grid grid-cols-3 gap-6">
         <Card className="col-span-2 p-4">
-          <h2 className="mb-2 flex items-center gap-2 px-2 text-sm font-medium text-ink/70">
-            <FontAwesomeIcon icon={faClock} className="text-accent" />
-            مواعيد {formatDate(date)}
-          </h2>
+          <div className="mb-3 flex items-center justify-between px-2">
+            <h2 className="text-sm font-medium text-ink/70">مواعيد {formatDate(date)}</h2>
+            <p className="text-xs text-muted">اضغط أي مكان فاضي بالجدول لتضيف موعد بهيك الوقت.</p>
+          </div>
 
-          {sortedAppointments.length === 0 ? (
-            <p className="p-6 text-center text-sm text-muted">لا يوجد مواعيد بهذا اليوم.</p>
-          ) : (
-            <div className="divide-y divide-border/70">
-              {sortedAppointments.map((a) => (
-                <button
-                  key={a.id}
-                  onClick={() => setOpenAppointmentId(a.id)}
-                  className="flex w-full items-center gap-3 px-2 py-2.5 text-start text-sm hover:bg-background"
-                >
-                  <span className="w-14 shrink-0 font-mono text-xs text-muted">{formatTime(a.starts_at)}</span>
-                  <span className="flex-1 font-medium text-ink">{a.patient_name}</span>
-                  <span className="text-xs text-muted">{a.doctor_name ?? 'بدون طبيب محدد'}</span>
-                  <Badge variant={STATUS_VARIANTS[a.status]}>{STATUS_LABELS[a.status]}</Badge>
-                </button>
+          <div className="flex">
+            <div className="w-14 shrink-0 text-left" style={{ height: gridHeight }}>
+              {hourMarks.map((m) => (
+                <div key={m} className="relative text-[11px] text-muted" style={{ height: 60 * PX_PER_MIN }}>
+                  <span className="absolute -top-2">{minutesToHM(m)}</span>
+                </div>
               ))}
             </div>
-          )}
 
-          <h2 className="mb-2 mt-6 flex items-center gap-2 border-t border-border px-2 pt-4 text-sm font-medium text-ink/70">
-            <FontAwesomeIcon icon={faClock} className="text-accent" />
-            الأوقات المتاحة — اختر أي وقت، بأي طبيب
-          </h2>
-
-          {loadingSlots ? (
-            <p className="p-6 text-center text-sm text-muted">جارِ التحميل...</p>
-          ) : openSlots.length === 0 ? (
-            <div className="p-6 text-center">
-              <p className="mb-3 text-sm text-muted">لا يوجد دوام أو أوقات متاحة بهذا اليوم.</p>
-              <button
-                onClick={() => {
-                  setManualBooking(true)
-                  setSelectedSlot(null)
-                }}
-                className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover"
-              >
-                احجز موعداً يدوياً بدون طبيب
-              </button>
-            </div>
-          ) : (
-            <div className="flex flex-wrap gap-2 px-2 py-2">
-              {openSlots.map((s) => (
-                <button
-                  key={`${s.doctorId}-${s.starts_at}`}
-                  onClick={() => setSelectedSlot(s)}
-                  className={`flex items-center gap-2 rounded-lg border border-dashed px-3 py-2 text-sm transition-colors ${
-                    selectedSlot?.doctorId === s.doctorId && selectedSlot?.starts_at === s.starts_at
-                      ? 'border-accent bg-accent-soft text-accent'
-                      : 'border-border text-muted hover:border-accent hover:text-accent'
-                  }`}
-                >
-                  <span className="font-mono">{s.starts_at_display}</span>
-                  {doctorFilter === 'all' && <span className="text-xs opacity-70">· {s.doctorName}</span>}
-                </button>
+            <div
+              onClick={handleGridClick}
+              className="relative flex-1 cursor-crosshair rounded-lg border border-border bg-background/40"
+              style={{ height: gridHeight }}
+            >
+              {hourMarks.map((m) => (
+                <div
+                  key={m}
+                  className="absolute inset-x-0 border-t border-border/60"
+                  style={{ top: (m - rangeStart) * PX_PER_MIN }}
+                />
               ))}
+
+              {laidOut.length === 0 && (
+                <p className="absolute inset-0 flex items-center justify-center text-sm text-muted">لا يوجد مواعيد بهذا اليوم.</p>
+              )}
+
+              {laidOut.map((a) => {
+                const top = (a.startMin - rangeStart) * PX_PER_MIN
+                const height = Math.max(18, (a.endMin - a.startMin) * PX_PER_MIN)
+                const width = 100 / a.colCount
+                const left = a.col * width
+                const color = a.doctor_id ? doctorColor.get(a.doctor_id) ?? NO_DOCTOR_COLOR : NO_DOCTOR_COLOR
+                return (
+                  <button
+                    key={a.id}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setOpenAppointmentId(a.id)
+                    }}
+                    className="absolute overflow-hidden rounded-md px-1.5 py-0.5 text-start text-[11px] text-white shadow-sm transition-opacity hover:opacity-90"
+                    style={{ top, height, left: `${left}%`, width: `calc(${width}% - 3px)`, backgroundColor: color }}
+                    title={`${a.patient_name} — ${a.doctor_name ?? 'بدون طبيب'} — ${STATUS_LABELS[a.status]}`}
+                  >
+                    <div className="truncate font-medium">{a.patient_name}</div>
+                    {height > 30 && <div className="truncate opacity-80">{a.doctor_name ?? 'بدون طبيب محدد'}</div>}
+                  </button>
+                )
+              })}
             </div>
-          )}
+          </div>
         </Card>
 
         <Card className="p-6">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-sm font-medium text-ink/70">حجز موعد</h2>
-            <button
-              onClick={() => {
-                setManualBooking((v) => !v)
-                setSelectedSlot(null)
-              }}
-              className="text-xs text-accent hover:underline"
-            >
-              {manualBooking ? 'اختيار من الأوقات المتاحة' : 'حجز بدون تحديد طبيب'}
-            </button>
+            {!bookingOpen && (
+              <button onClick={() => openBookingAt(rangeStart)} className="flex items-center gap-1 text-xs text-accent hover:underline">
+                <FontAwesomeIcon icon={faPlus} />
+                موعد جديد
+              </button>
+            )}
           </div>
 
           <div className="mb-3">
@@ -338,67 +356,76 @@ export default function AppointmentsPage() {
             <DatePicker value={date} onChange={(iso) => iso && setDate(iso)} allowClear={false} />
           </div>
 
-          {manualBooking ? (
+          {!bookingOpen ? (
+            <p className="text-sm text-muted">اضغط "موعد جديد" فوق، أو اضغط أي مكان فاضي بالجدول يسار.</p>
+          ) : (
             <>
-              <p className="mb-3 text-xs text-muted">
-                يحجز موعداً بدون ربطه بجدول طبيب معيّن — تقدر تحدد الطبيب لاحقاً، أو تخليه بدون طبيب.
-              </p>
               <Select label="المريض" value={patientId} onChange={(e) => setPatientId(e.target.value)} className="mb-3">
                 <option value="">اختر مريضاً</option>
                 {patients.map((p) => (
                   <option key={p.id} value={p.id}>{p.full_name} ({p.code})</option>
                 ))}
               </Select>
-              <label className="mb-1 block text-sm text-muted">الوقت</label>
+
+              <label className="mb-1 block text-sm text-muted">وقت بداية الجلسة</label>
               <input
                 type="time"
-                value={manualTime}
-                onChange={(e) => setManualTime(e.target.value)}
+                value={startTime}
+                onChange={(e) => setStartTime(e.target.value)}
                 className="mb-3 w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none"
               />
-              <Select label="الطبيب (اختياري)" value={manualDoctorId} onChange={(e) => setManualDoctorId(e.target.value)} className="mb-3">
+
+              <label className="mb-1 block text-sm text-muted">مدة الجلسة</label>
+              <div className="mb-3 flex items-center gap-2">
+                <input
+                  type="number"
+                  min={0}
+                  max={8}
+                  value={durationHours}
+                  onChange={(e) => setDurationHours(Number(e.target.value))}
+                  className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none"
+                />
+                <span className="shrink-0 text-xs text-muted">ساعة</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={59}
+                  step={5}
+                  value={durationMinutes}
+                  onChange={(e) => setDurationMinutes(Number(e.target.value))}
+                  className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none"
+                />
+                <span className="shrink-0 text-xs text-muted">دقيقة</span>
+              </div>
+
+              <Select label="الطبيب (اختياري)" value={bookingDoctorId} onChange={(e) => setBookingDoctorId(e.target.value)} className="mb-3">
                 <option value="">بدون طبيب محدد</option>
                 {doctors.map((d) => (
                   <option key={d.id} value={d.id}>{d.full_name}</option>
                 ))}
               </Select>
 
-              {manualConflict && (
+              {bookingConflict && (
                 <p className="mb-2 flex items-center gap-1.5 text-sm text-danger">
                   <FontAwesomeIcon icon={faTriangleExclamation} />
-                  الطبيب عنده موعد آخر بهاد الوقت ({manualConflict.patient_name ?? 'مريض آخر'} — {manualConflict.starts_at_display}).
+                  الطبيب عنده موعد آخر بهاد الوقت ({bookingConflict.patient_name ?? 'مريض آخر'} — {bookingConflict.starts_at_display}).
                 </p>
               )}
               {error && <p className="mb-2 text-sm text-danger">{error}</p>}
 
-              <Button onClick={bookManual} disabled={!patientId || booking || !!manualConflict} loading={booking} className="w-full justify-center">
-                {booking ? 'جارِ الحجز...' : 'تأكيد الحجز'}
-              </Button>
-            </>
-          ) : !selectedSlot ? (
-            <p className="text-sm text-muted">
-              {openSlots.length === 0
-                ? 'ما في أوقات متاحة اليوم — اضغط "حجز بدون تحديد طبيب" فوق، أو احجز يدوياً من القائمة يسار.'
-                : 'اختر وقتاً متاحاً من القائمة.'}
-            </p>
-          ) : (
-            <>
-              <p className="mb-1 text-sm text-ink">
-                الوقت: <span className="font-medium">{selectedSlot.starts_at_display}</span>
-              </p>
-              <p className="mb-3 text-sm text-muted">مع {selectedSlot.doctorName}</p>
-              <Select label="المريض" value={patientId} onChange={(e) => setPatientId(e.target.value)} className="mb-3">
-                <option value="">اختر مريضاً</option>
-                {patients.map((p) => (
-                  <option key={p.id} value={p.id}>{p.full_name} ({p.code})</option>
-                ))}
-              </Select>
-
-              {error && <p className="mb-2 text-sm text-danger">{error}</p>}
-
-              <Button onClick={book} disabled={!patientId || booking} loading={booking} className="w-full justify-center">
-                {booking ? 'جارِ الحجز...' : 'تأكيد الحجز'}
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  onClick={submitBooking}
+                  disabled={!patientId || booking || !!bookingConflict || duration <= 0}
+                  loading={booking}
+                  className="flex-1 justify-center"
+                >
+                  {booking ? 'جارِ الحجز...' : 'تأكيد الحجز'}
+                </Button>
+                <Button variant="ghost" onClick={() => setBookingOpen(false)}>
+                  إلغاء
+                </Button>
+              </div>
             </>
           )}
         </Card>
@@ -408,10 +435,7 @@ export default function AppointmentsPage() {
         <AppointmentDetailModal
           appointmentId={openAppointmentId}
           onClose={() => setOpenAppointmentId(null)}
-          onChanged={() => {
-            loadAppointments()
-            loadOpenSlots()
-          }}
+          onChanged={loadAppointments}
         />
       )}
     </div>

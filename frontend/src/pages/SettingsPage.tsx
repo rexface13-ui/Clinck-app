@@ -107,7 +107,13 @@ function ClinicProfileCard() {
 
 function GeneralSettingsCard() {
   const { data, can, refresh } = useAuth()
-  const [form, setForm] = useState({ default_appointment_duration: '30', base_currency: 'ILS', invoice_footer_note: '' })
+  const [form, setForm] = useState({
+    default_appointment_duration: '30',
+    base_currency: 'ILS',
+    invoice_footer_note: '',
+    clinic_hours_start: '10:00',
+    clinic_hours_end: '22:00',
+  })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
 
@@ -117,6 +123,8 @@ function GeneralSettingsCard() {
       default_appointment_duration: String((data.settings.default_appointment_duration as number) ?? 30),
       base_currency: (data.settings.base_currency as string) ?? 'ILS',
       invoice_footer_note: (data.settings.invoice_footer_note as string) ?? '',
+      clinic_hours_start: (data.settings.clinic_hours_start as string) ?? '10:00',
+      clinic_hours_end: (data.settings.clinic_hours_end as string) ?? '22:00',
     })
   }, [data])
 
@@ -172,6 +180,29 @@ function GeneralSettingsCard() {
           value={form.invoice_footer_note}
           onChange={(e) => setForm({ ...form, invoice_footer_note: e.target.value })}
         />
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="mb-1 block text-sm text-muted">دوام العيادة — من</label>
+            <input
+              type="time"
+              value={form.clinic_hours_start}
+              onChange={(e) => setForm({ ...form, clinic_hours_start: e.target.value })}
+              className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm text-muted">دوام العيادة — إلى</label>
+            <input
+              type="time"
+              value={form.clinic_hours_end}
+              onChange={(e) => setForm({ ...form, clinic_hours_end: e.target.value })}
+              className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none"
+            />
+          </div>
+        </div>
+        <p className="text-xs text-muted">
+          هاد نطاق الجدول الافتراضي بصفحة المواعيد. إذا طبيب معين عنده موعد قبل أو بعد هالنطاق، الجدول بيتوسع تلقائياً هاليوم بس، بدون ما يغيّر هالإعداد.
+        </p>
       </div>
 
       <div className="mt-4 flex items-center gap-3">

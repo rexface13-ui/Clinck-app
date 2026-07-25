@@ -19,6 +19,7 @@ class SettingController extends Controller
         'clinic_name', 'clinic_phone', 'clinic_address', 'clinic_logo',
         'default_appointment_duration', 'base_currency', 'invoice_footer_note',
         'reminder_appointments_enabled', 'reminder_checks_enabled', 'reminder_lab_enabled',
+        'clinic_hours_start', 'clinic_hours_end',
     ];
 
     public function update(Request $request)
