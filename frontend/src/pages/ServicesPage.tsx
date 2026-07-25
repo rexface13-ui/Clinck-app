@@ -92,8 +92,6 @@ function StepsEditor({ steps, onChange }: { steps: StepDraft[]; onChange: (steps
 const emptyForm = {
   name: '',
   default_price: '',
-  default_sessions: '1',
-  default_interval_days: '',
   marks_teeth_missing: false,
   price_per_tooth: true,
 }
@@ -129,8 +127,8 @@ export default function ServicesPage() {
     const payload = {
       name: form.name,
       default_price: Number(form.default_price),
-      default_sessions: Number(form.default_sessions) || 1,
-      default_interval_days: form.default_interval_days ? Number(form.default_interval_days) : null,
+      default_sessions: 1,
+      default_interval_days: null,
       marks_teeth_missing: form.marks_teeth_missing,
       price_per_tooth: form.price_per_tooth,
     }
@@ -175,8 +173,6 @@ export default function ServicesPage() {
     setForm({
       name: s.name,
       default_price: s.default_price,
-      default_sessions: String(s.default_sessions),
-      default_interval_days: s.default_interval_days ? String(s.default_interval_days) : '',
       marks_teeth_missing: s.marks_teeth_missing,
       price_per_tooth: s.price_per_tooth,
     })
@@ -227,12 +223,6 @@ export default function ServicesPage() {
                 required
                 value={form.default_price}
                 onChange={(e) => setForm({ ...form, default_price: e.target.value })}
-              />
-              <Input
-                type="number"
-                label="عدد الجلسات الافتراضي"
-                value={form.default_sessions}
-                onChange={(e) => setForm({ ...form, default_sessions: e.target.value })}
               />
               <label className="col-span-2 flex items-center gap-2 text-sm text-ink/70">
                 <input
@@ -287,19 +277,17 @@ export default function ServicesPage() {
             <Thead>
               <Th>الخدمة</Th>
               <Th>السعر</Th>
-              <Th>الجلسات</Th>
               <Th>الخطوات</Th>
               <Th></Th>
             </Thead>
             <tbody>
               {services.length === 0 ? (
-                <EmptyRow colSpan={5}>لا توجد خدمات بعد.</EmptyRow>
+                <EmptyRow colSpan={4}>لا توجد خدمات بعد.</EmptyRow>
               ) : (
                 services.map((s) => (
                   <Tr key={s.id}>
                     <Td>{s.name}</Td>
                     <Td className="text-muted">{s.default_price} {s.default_currency}</Td>
-                    <Td className="text-muted">{s.default_sessions}</Td>
                     <Td className="text-muted">{s.steps?.length ?? 0}</Td>
                     <Td>
                       {can('services.manage') && (
