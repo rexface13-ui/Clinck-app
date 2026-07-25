@@ -10,7 +10,7 @@ use App\Models\InvoiceLine;
 use App\Models\Patient;
 use App\Models\PatientTransaction;
 use App\Models\Payment;
-use App\Models\PlanItem;
+use App\Models\WorkItem;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 
@@ -64,13 +64,13 @@ class ReportController extends Controller
             'to' => ['nullable', 'date'],
         ]);
 
-        $query = InvoiceLine::with('planItem.service')
+        $query = InvoiceLine::with('workItemToothStep.workItem.service')
             ->when($data['from'] ?? null, fn ($q, $from) => $q->where('created_at', '>=', $from))
             ->when($data['to'] ?? null, fn ($q, $to) => $q->where('created_at', '<=', $to.' 23:59:59'));
 
         $totals = [];
         foreach ($query->get() as $line) {
-            $name = $line->planItem?->service?->name ?? 'أخرى';
+            $name = $line->workItemToothStep?->workItem?->service?->name ?? 'أخرى';
             $totals[$name] = ($totals[$name] ?? 0) + (float) $line->amount_ils;
         }
 
@@ -92,12 +92,12 @@ class ReportController extends Controller
         $doctors = Doctor::where('is_active', true)->get();
 
         $result = $doctors->map(function (Doctor $doctor) use ($data) {
-            $revenue = InvoiceLine::whereHas('planItem.treatmentPlan', fn ($q) => $q->where('doctor_id', $doctor->id))
+            $revenue = InvoiceLine::whereHas('workItemToothStep.workItem', fn ($q) => $q->where('doctor_id', $doctor->id))
                 ->when($data['from'] ?? null, fn ($q, $from) => $q->where('created_at', '>=', $from))
                 ->when($data['to'] ?? null, fn ($q, $to) => $q->where('created_at', '<=', $to.' 23:59:59'))
                 ->sum('amount_ils');
 
-            $sessionsCount = InvoiceLine::whereHas('planItem.treatmentPlan', fn ($q) => $q->where('doctor_id', $doctor->id))
+            $sessionsCount = InvoiceLine::whereHas('workItemToothStep.workItem', fn ($q) => $q->where('doctor_id', $doctor->id))
                 ->when($data['from'] ?? null, fn ($q, $from) => $q->where('created_at', '>=', $from))
                 ->when($data['to'] ?? null, fn ($q, $to) => $q->where('created_at', '<=', $to.' 23:59:59'))
                 ->count();
@@ -288,30 +288,27 @@ class ReportController extends Controller
     }
 
     /**
-     * Patients with unfinished dental work: any item on an approved
-     * treatment plan (real plan or an auto-generated quick-visit one alike —
-     * this deliberately does NOT exclude appointment_id plans the way
-     * "خطط علاجية" does) that still has teeth left in its pool without a
-     * 'done' finding. Covers both "never touched" items and items where a
-     * past visit finished some teeth but left others "قيد التنفيذ" —
-     * regardless of whether that visit's own session/appointment is done.
+     * Patients with unfinished dental work: any work item still "in_progress"
+     * (at least one tooth-step not yet completed). Covers both "never
+     * touched" work and work where a past visit finished some teeth but
+     * left others still needing a step done.
      */
     public function pendingTreatments(Request $request)
     {
         $this->authorizeView($request);
 
-        $items = PlanItem::whereHas('treatmentPlan', fn ($q) => $q->where('status', 'approved'))
-            ->with(['service', 'treatmentPlan.patient', 'treatmentPlan.doctor'])
+        $workItems = WorkItem::where('status', 'in_progress')
+            ->with(['service', 'patient', 'doctor', 'toothSteps'])
             ->get();
 
         $byPatient = [];
-        foreach ($items as $item) {
-            $remaining = $item->remainingTeeth();
+        foreach ($workItems as $workItem) {
+            $remaining = $workItem->toothSteps->whereNull('completed_at')->pluck('tooth_number')->unique()->values()->all();
             if (empty($remaining)) {
                 continue;
             }
 
-            $patient = $item->treatmentPlan->patient;
+            $patient = $workItem->patient;
             if (! $patient) {
                 continue;
             }
@@ -324,10 +321,10 @@ class ReportController extends Controller
             ];
 
             $byPatient[$patient->id]['items'][] = [
-                'plan_id' => $item->treatment_plan_id,
-                'service_name' => $item->service->name ?? 'خدمة',
-                'doctor_name' => $item->treatmentPlan->doctor->full_name ?? null,
-                'remaining_teeth' => $remaining,
+                'plan_id' => $workItem->id,
+                'service_name' => $workItem->service->name ?? 'خدمة',
+                'doctor_name' => $workItem->doctor->full_name ?? null,
+                'remaining_teeth' => array_map('intval', $remaining),
             ];
         }
 

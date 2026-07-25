@@ -41,6 +41,20 @@ export interface ServiceCategory {
   sort_order: number
 }
 
+export interface ServiceStepField {
+  id: number
+  label: string
+  sort_order: number
+}
+
+export interface ServiceStep {
+  id: number
+  title: string
+  price: string
+  sort_order: number
+  fields: ServiceStepField[]
+}
+
 export interface Service {
   id: number
   service_category_id: number
@@ -52,7 +66,9 @@ export interface Service {
   default_commission_percent: string | null
   is_active: boolean
   marks_teeth_missing: boolean
+  price_per_tooth: boolean
   branch_prices?: { id: number; branch_id: number; price: string | null; surcharge: string }[]
+  steps?: ServiceStep[]
 }
 
 export interface Patient {
@@ -84,11 +100,10 @@ export interface ToothFinding {
   status: 'planned' | 'in_progress' | 'done'
   marks_missing: boolean
   performed_externally: boolean
-  plan_item_session_id: number | null
-  session_status: 'pending' | 'scheduled' | 'done' | 'cancelled' | null
+  work_item_tooth_step_id: number | null
+  session_status: 'pending' | 'done' | null
   session_price: string | null
   plan_id: number | null
-  plan_item_id: number | null
   service_id: number | null
   service_name: string | null
   doctor_id: number | null
@@ -110,7 +125,7 @@ export interface Appointment {
   status: 'scheduled' | 'confirmed' | 'done' | 'cancelled' | 'no_show'
   created_via: 'web' | 'bot'
   notes?: string | null
-  treatment_plan?: TreatmentPlan | null
+  work_items?: { id: number; service_name: string | null; doctor_name: string | null; status: string }[]
 }
 
 export interface Attachment {
@@ -139,43 +154,36 @@ export interface Slot {
   ends_at_display: string
 }
 
-export interface PlanItemSessionRow {
+export interface WorkItemToothStepRow {
   id: number
-  session_number: number
-  status: 'pending' | 'scheduled' | 'done' | 'cancelled'
-  appointment_id: number | null
-  tooth_numbers: number[] | null
+  tooth_number: number
+  field_values: Record<string, string>
+  completed: boolean
+  invoiced: boolean
 }
 
-export interface PlanItem {
+export interface WorkItemStepRow {
   id: number
-  service_id: number
-  service_name: string | null
-  tooth_number: number | null
-  tooth_numbers: number[] | null
-  /** Teeth from this item's pool not yet fully finished — what a new session should offer. */
-  remaining_teeth: number[]
-  batch_id: string | null
-  surfaces: string | null
-  unit_price: string
-  currency: string
-  sessions_count: number
-  interval_days: number | null
-  created_at: string
-  sessions?: PlanItemSessionRow[]
+  title: string
+  price: string
+  sort_order: number
+  fields: ServiceStepField[]
+  tooth_steps: WorkItemToothStepRow[]
 }
 
-export interface TreatmentPlan {
+export interface WorkItem {
   id: number
   patient_id: number
   doctor_id: number | null
   doctor_name: string | null
-  status: 'draft' | 'approved' | 'cancelled'
-  approved_at: string | null
-  notes: string | null
-  items: PlanItem[]
-  latest_invoice_id: number | null
+  service_id: number | null
+  service_name: string | null
+  appointment_id: number | null
+  price_per_tooth: boolean
+  status: 'in_progress' | 'done' | 'cancelled'
   created_at: string
+  teeth: number[]
+  steps: WorkItemStepRow[]
 }
 
 export interface InvoiceLine {
@@ -189,7 +197,6 @@ export interface InvoiceLine {
 export interface Invoice {
   id: number
   patient_id: number
-  treatment_plan_id: number | null
   invoice_number: string
   status: 'unpaid' | 'partial' | 'paid' | 'void'
   total_amount_ils: string
@@ -228,13 +235,14 @@ export interface Ledger {
 }
 
 export interface Visit {
-  session_id: number
-  item_id: number
-  plan_id: number
+  session_id: number | null
+  item_id: number | null
+  plan_id: number | null
   batch_id: string | null
   created_at: string
   date: string
   service_name: string | null
+  step_title?: string | null
   tooth_number: number | null
   tooth_numbers: number[] | null
   price: string

@@ -10,6 +10,7 @@ use App\Models\Cashbox;
 use App\Models\Invoice;
 use App\Models\InvoiceLine;
 use App\Models\Patient;
+use App\Models\WorkItemToothStep;
 use App\Services\PaymentService;
 use Illuminate\Http\Request;
 
@@ -71,45 +72,45 @@ class PatientBillingController extends Controller
     }
 
     /**
-     * "سجل الزيارات" — one row per actually-completed session, billed or
-     * not (billed via completeSession()). Grouped implicitly by the visit
-     * itself (a session IS a visit here) rather than by invoice, since one
-     * invoice can accumulate lines from sessions on different days.
+     * "سجل الزيارات" — one row per billed invoice line, grouped by which
+     * work item / step it came from so the UI can show which teeth and
+     * which step of which service each charge belongs to.
      */
     public function visits(Request $request, Patient $patient)
     {
         $this->requireBillingView($request);
 
-        // Sourced from the patient's invoice lines directly (not just lines
-        // that carry a plan_item_session_id) — a handful of older charges
-        // predate the per-session billing redesign and were never linked to
-        // a session, and silently dropping those left real, debt-generating
-        // charges invisible here even though they show up fine in the
-        // ledger/outstanding balance. Every line that ever charged this
-        // patient belongs in their visit history, session-linked or not.
-        $lines = InvoiceLine::with(['planItemSession.planItem.service', 'planItemSession.planItem.treatmentPlan.doctor', 'invoice'])
+        $lines = InvoiceLine::with(['workItemToothStep.workItem.service', 'workItemToothStep.workItem.doctor', 'workItemToothStep.step', 'invoice'])
             ->whereHas('invoice', fn ($q) => $q->where('patient_id', $patient->id))
             ->orderByDesc('created_at')
             ->get();
 
         return $lines->map(function (InvoiceLine $line) {
-            $session = $line->planItemSession;
-            $item = $session?->planItem;
+            $toothStep = $line->workItemToothStep;
+            $workItem = $toothStep?->workItem;
+
+            // A flat (non-per-tooth) charge's one invoice line can cover
+            // several teeth — every tooth_step tagged with this same line
+            // belongs to the same billed event.
+            $siblingTeeth = $toothStep
+                ? WorkItemToothStep::where('invoice_line_id', $line->id)->pluck('tooth_number')->map(fn ($n) => (int) $n)->values()->all()
+                : [];
 
             return [
-                'session_id' => $session?->id,
-                'item_id' => $item?->id,
-                'plan_id' => $item?->treatment_plan_id,
-                'batch_id' => $item?->batch_id,
+                'session_id' => $toothStep?->id,
+                'item_id' => $workItem?->id,
+                'plan_id' => $workItem?->id,
+                'batch_id' => $line->id ? "line-{$line->id}" : null,
                 'created_at' => $line->created_at,
                 'date' => display_datetime($line->created_at),
-                'service_name' => $item?->service?->name,
-                'tooth_number' => $item?->tooth_number,
-                'tooth_numbers' => $session?->tooth_numbers ?? $item?->allTeeth(),
+                'service_name' => $workItem?->service?->name,
+                'step_title' => $toothStep?->step?->title,
+                'tooth_number' => $toothStep ? (int) $toothStep->tooth_number : null,
+                'tooth_numbers' => $siblingTeeth,
                 'price' => $line->amount_ils,
-                'note' => $session?->note ?? $line->description,
-                'doctor_name' => $item?->treatmentPlan?->doctor?->full_name,
-                'is_quick_visit' => (bool) $item?->treatmentPlan?->appointment_id,
+                'note' => $line->description,
+                'doctor_name' => $workItem?->doctor?->full_name,
+                'is_quick_visit' => true,
                 'invoice_id' => $line->invoice_id,
                 'invoice_status' => $line->invoice?->status,
             ];

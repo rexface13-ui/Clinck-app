@@ -72,9 +72,9 @@ class Patient extends Model
         return $this->hasMany(Appointment::class);
     }
 
-    public function treatmentPlans(): HasMany
+    public function workItems(): HasMany
     {
-        return $this->hasMany(TreatmentPlan::class);
+        return $this->hasMany(WorkItem::class);
     }
 
     public function invoices(): HasMany

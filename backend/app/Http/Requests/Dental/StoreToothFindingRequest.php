@@ -22,7 +22,6 @@ class StoreToothFindingRequest extends FormRequest
             'status' => ['required', Rule::in(['planned', 'in_progress', 'done'])],
             'marks_missing' => ['sometimes', 'boolean'],
             'performed_externally' => ['sometimes', 'boolean'],
-            'plan_item_session_id' => ['nullable', Rule::exists('plan_item_sessions', 'id')],
             'service_id' => ['nullable', Rule::exists('services', 'id')],
             'doctor_id' => ['nullable', Rule::exists('doctors', 'id')],
             'note' => ['nullable', 'string'],

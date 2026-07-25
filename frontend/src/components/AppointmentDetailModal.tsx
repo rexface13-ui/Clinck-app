@@ -1,14 +1,13 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faCheck, faXmark, faFileInvoiceDollar, faUser } from '@fortawesome/free-solid-svg-icons'
+import { faCheck, faXmark, faUser } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import { formatDate, formatTime } from '../lib/formatDate'
 import { Modal, Badge } from './ui'
 import type { BadgeVariant } from './ui'
 import type { Appointment } from '../types'
-import CompleteVisitModal from './CompleteVisitModal'
 
 const STATUS_VARIANTS: Record<Appointment['status'], BadgeVariant> = {
   scheduled: 'info',
@@ -39,7 +38,6 @@ export default function AppointmentDetailModal({ appointmentId, onClose, onChang
   const [notes, setNotes] = useState('')
   const [savingNotes, setSavingNotes] = useState(false)
   const [cancelling, setCancelling] = useState(false)
-  const [completing, setCompleting] = useState(false)
 
   function load() {
     api.get<{ data: Appointment }>(`/appointments/${appointmentId}`).then((res) => {
@@ -72,24 +70,7 @@ export default function AppointmentDetailModal({ appointmentId, onClose, onChang
     }
   }
 
-  if (completing && appointment) {
-    return (
-      <CompleteVisitModal
-        appointmentId={appointment.id}
-        patientId={appointment.patient_id}
-        patientName={appointment.patient_name ?? ''}
-        doctorId={appointment.doctor_id}
-        onClose={() => setCompleting(false)}
-        onDone={() => {
-          onChanged()
-          onClose()
-        }}
-      />
-    )
-  }
-
   const pending = appointment && (appointment.status === 'scheduled' || appointment.status === 'confirmed')
-  const plan = appointment?.treatment_plan
 
   return (
     <Modal title="تفاصيل الموعد" onClose={onClose} width="w-[520px]">
@@ -117,34 +98,17 @@ export default function AppointmentDetailModal({ appointmentId, onClose, onChang
             فتح ملف المريض
           </Link>
 
-          {plan && (
+          {!!appointment.work_items?.length && (
             <div className="rounded-lg bg-background p-3">
-              <h3 className="mb-2 text-xs font-semibold text-muted">الخدمات المسجّلة بهاي الزيارة</h3>
-              {plan.items.length === 0 ? (
-                <p className="text-sm text-muted">لا يوجد خدمات.</p>
-              ) : (
-                <ul className="space-y-1 text-sm">
-                  {plan.items.map((item) => (
-                    <li key={item.id} className="flex items-center justify-between">
-                      <span>
-                        {item.service_name}
-                        {item.tooth_number && <span className="text-muted"> — سن {item.tooth_number}</span>}
-                      </span>
-                      <span className="text-muted">{item.unit_price} ₪</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {plan.latest_invoice_id && can('billing.view') && (
-                <Link
-                  to={`/patients/${appointment.patient_id}?pay=1`}
-                  onClick={onClose}
-                  className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-border py-1.5 text-xs font-medium text-accent hover:border-accent"
-                >
-                  <FontAwesomeIcon icon={faFileInvoiceDollar} />
-                  فتح كشف الحساب / تحصيل دفعة
-                </Link>
-              )}
+              <h3 className="mb-2 text-xs font-semibold text-muted">الشغل المسجّل بهاي الزيارة</h3>
+              <ul className="space-y-1 text-sm">
+                {appointment.work_items.map((w) => (
+                  <li key={w.id} className="flex items-center justify-between">
+                    <span>{w.service_name}</span>
+                    <span className="text-xs text-muted">{w.status === 'done' ? 'مكتمل' : 'قيد التنفيذ'}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
 
@@ -168,13 +132,14 @@ export default function AppointmentDetailModal({ appointmentId, onClose, onChang
 
           {pending && can('appointments.manage') && (
             <div className="flex gap-2 border-t border-border/70 pt-3">
-              <button
-                onClick={() => setCompleting(true)}
+              <Link
+                to={`/patients/${appointment.patient_id}?tab=work`}
+                onClick={onClose}
                 className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-accent py-2 text-sm font-medium text-white hover:bg-accent-hover"
               >
                 <FontAwesomeIcon icon={faCheck} />
                 تمّت الزيارة
-              </button>
+              </Link>
               <button
                 onClick={cancelAppointment}
                 disabled={cancelling}

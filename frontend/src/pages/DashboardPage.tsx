@@ -22,7 +22,6 @@ import { api } from '../lib/api'
 import { formatDate, formatTime } from '../lib/formatDate'
 import { useAuth } from '../contexts/AuthContext'
 import PatientSearchModal from '../components/PatientSearchModal'
-import CompleteVisitModal from '../components/CompleteVisitModal'
 import PatientPaymentModal from '../components/PatientPaymentModal'
 import AppointmentDetailModal from '../components/AppointmentDetailModal'
 import DoctorOccupancyCalendar from '../components/DoctorOccupancyCalendar'
@@ -153,7 +152,6 @@ export default function DashboardPage() {
   const [hideMoney, setHideMoney] = useState(() => localStorage.getItem('dashboard.hideMoney') === '1')
   const [showPatientSearch, setShowPatientSearch] = useState(false)
   const [showPaymentSearch, setShowPaymentSearch] = useState(false)
-  const [completingVisit, setCompletingVisit] = useState<Appointment | null>(null)
   const [payingPatient, setPayingPatient] = useState<Patient | null>(null)
   const [selectedCheck, setSelectedCheck] = useState<CheckAlert | null>(null)
   const [invoiceSearch, setInvoiceSearch] = useState('')
@@ -166,25 +164,8 @@ export default function DashboardPage() {
     api.get<Summary>('/dashboard/summary').then((res) => setData(res.data))
   }
 
-  async function startVisitForPatient(patient: Patient) {
-    const now = new Date()
-    const ends = new Date(now.getTime() + 30 * 60000)
-    const res = await api.post('/appointments', {
-      branch_id: patient.branch_id,
-      patient_id: patient.id,
-      doctor_id: null,
-      starts_at: now.toISOString(),
-      ends_at: ends.toISOString(),
-    })
-    setCompletingVisit({
-      id: res.data.data.id,
-      patient_id: patient.id,
-      doctor_id: null,
-      starts_at: now.toISOString(),
-      patient_name: patient.full_name,
-      doctor_name: null,
-      status: 'scheduled',
-    })
+  function startVisitForPatient(patient: Patient) {
+    navigate(`/patients/${patient.id}?tab=work`)
   }
 
   function bookAppointmentForPatient(patient: Patient) {
@@ -291,16 +272,6 @@ export default function DashboardPage() {
           patientId={payingPatient.id}
           patientName={payingPatient.full_name}
           onClose={() => setPayingPatient(null)}
-        />
-      )}
-      {completingVisit && (
-        <CompleteVisitModal
-          appointmentId={completingVisit.id}
-          patientId={completingVisit.patient_id}
-          patientName={completingVisit.patient_name ?? ''}
-          doctorId={completingVisit.doctor_id}
-          onClose={() => setCompletingVisit(null)}
-          onDone={loadSummary}
         />
       )}
       {openAppointmentId && (

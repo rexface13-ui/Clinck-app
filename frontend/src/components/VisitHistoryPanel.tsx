@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faTrash, faSave, faMoneyBill, faChevronDown, faChevronLeft, faTooth, faPrint, faTriangleExclamation, faFileMedical, faPen } from '@fortawesome/free-solid-svg-icons'
-import EditVisitModal from './EditVisitModal'
+import { faMoneyBill, faChevronDown, faChevronLeft, faTooth, faPrint, faTriangleExclamation, faFileMedical } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import { formatDate } from '../lib/formatDate'
@@ -18,22 +17,18 @@ interface VisitGroup {
   visits: Visit[]
 }
 
-/** All teeth a visit covers — tooth_numbers if the session's item has several, else the single tooth_number, else none. */
+/** All teeth a visit covers. */
 function visitTeeth(v: Visit): number[] {
   if (v.tooth_numbers && v.tooth_numbers.length > 0) return v.tooth_numbers
   return v.tooth_number ? [v.tooth_number] : []
 }
 
-/** Visits created together in one "add" action (several teeth picked for the same service in one go) share a batch_id, so they show as one grouped entry with a "press for detail" list instead of a separate row per tooth. */
+/** Visits billed together in one invoice line (a flat-fee service covering several teeth at once) share a batch_id, so they show as one grouped entry instead of a separate row per tooth. */
 function groupVisits(visits: Visit[]): VisitGroup[] {
   const order: string[] = []
   const map = new Map<string, Visit[]>()
   for (const v of visits) {
-    // Same fallback as TreatmentPlanPanel's groupItems: visits from before
-    // batch_id existed still group if they're the same service within the
-    // same minute, instead of listing every tooth as its own entry.
-    const minuteBucket = Math.floor(new Date(v.created_at).getTime() / 60000)
-    const key = v.batch_id ?? `legacy-${v.service_name}-${minuteBucket}`
+    const key = v.batch_id ?? `single-${v.session_id ?? v.invoice_id}`
     if (!map.has(key)) {
       map.set(key, [])
       order.push(key)
@@ -71,15 +66,14 @@ export default function VisitHistoryPanel({
   onChanged?: () => void
 }) {
   const { can } = useAuth()
-  const canManage = can('treatment_plans.manage')
   const canCollect = can('billing.manage')
   const clinic = useClinicProfile()
-  const [prescribingFor, setPrescribingFor] = useState<number | null>(null)
-  const [medsText, setMedsText] = useState<Record<number, string>>({})
+  const [prescribingFor, setPrescribingFor] = useState<string | null>(null)
+  const [medsText, setMedsText] = useState<Record<string, string>>({})
   const [prescriptionsVersion, setPrescriptionsVersion] = useState(0)
 
-  function printPrescriptionFor(v: Visit) {
-    const meds = medsText[v.session_id] ?? ''
+  function printPrescriptionFor(key: string, v: Visit) {
+    const meds = medsText[key] ?? ''
     if (!meds.trim()) return
     const body = `
       ${metaRow([
@@ -92,7 +86,7 @@ export default function VisitHistoryPanel({
       <div class="signature"><div>توقيع الطبيب</div></div>
     `
     printDocument('وصفة طبية', body, clinic)
-    api.post('/prescriptions', { patient_id: patientId, plan_item_session_id: v.session_id, medications: meds }).then(() => setPrescriptionsVersion((n) => n + 1))
+    api.post('/prescriptions', { patient_id: patientId, medications: meds }).then(() => setPrescriptionsVersion((n) => n + 1))
     setPrescribingFor(null)
   }
 
@@ -100,10 +94,9 @@ export default function VisitHistoryPanel({
   const [prescriptions, setPrescriptions] = useState<Prescription[]>([])
   const [showPrescriptions, setShowPrescriptions] = useState(false)
   const [cashboxes, setCashboxes] = useState<Cashbox[]>([])
-  const [openId, setOpenId] = useState<number | null>(null)
+  const [openKey, setOpenKey] = useState<string | null>(null)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const [diagramFor, setDiagramFor] = useState<string | null>(null)
-  const [editingPlanId, setEditingPlanId] = useState<number | null>(null)
 
   function toggleDiagram(key: string) {
     setDiagramFor((prev) => (prev === key ? null : key))
@@ -117,10 +110,8 @@ export default function VisitHistoryPanel({
       return next
     })
   }
-  const [editPrice, setEditPrice] = useState<Record<number, string>>({})
-  const [editNote, setEditNote] = useState<Record<number, string>>({})
-  const [payAmount, setPayAmount] = useState<Record<number, string>>({})
-  const [payCashboxId, setPayCashboxId] = useState<Record<number, string>>({})
+  const [payAmount, setPayAmount] = useState<Record<string, string>>({})
+  const [payCashboxId, setPayCashboxId] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
 
   function load() {
@@ -136,68 +127,22 @@ export default function VisitHistoryPanel({
     api.get('/prescriptions', { params: { patient_id: patientId } }).then((res) => setPrescriptions(res.data.data))
   }, [patientId, prescriptionsVersion])
 
-  function open(v: Visit) {
-    if (openId === v.session_id) {
-      setOpenId(null)
+  function open(key: string, v: Visit) {
+    if (openKey === key) {
+      setOpenKey(null)
       return
     }
-    setOpenId(v.session_id)
-    setEditPrice({ ...editPrice, [v.session_id]: v.price })
-    setEditNote({ ...editNote, [v.session_id]: v.note ?? '' })
-    setPayAmount({ ...payAmount, [v.session_id]: v.price })
+    setOpenKey(key)
+    setPayAmount({ ...payAmount, [key]: v.price })
     const ils = cashboxes.find((c) => c.currency === 'ILS')
-    if (ils) setPayCashboxId({ ...payCashboxId, [v.session_id]: String(ils.id) })
+    if (ils) setPayCashboxId({ ...payCashboxId, [key]: String(ils.id) })
   }
 
-  async function saveEdit(v: Visit) {
-    setBusy(true)
-    try {
-      await api.patch(`/treatment-plans/${v.plan_id}/items/${v.item_id}/sessions/${v.session_id}`, {
-        price: Number(editPrice[v.session_id]),
-        note: editNote[v.session_id],
-      })
-      load()
-      onChanged?.()
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function deleteVisit(v: Visit) {
-    if (!window.confirm('حذف هالزيارة نهائياً؟ رح يترد مبلغها كرصيد للمريض، وأي سن مسجل عليها يرجع لونه.')) return
-    setBusy(true)
-    try {
-      await api.post(`/treatment-plans/${v.plan_id}/items/${v.item_id}/sessions/${v.session_id}/cancel`)
-      setOpenId(null)
-      load()
-      onChanged?.()
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function deleteGroup(group: VisitGroup) {
-    if (!window.confirm(`حذف كل الزيارة (${group.visits.length} سن) نهائياً؟ رح يترد مبلغها كرصيد للمريض، وكل الأسنان ترجع ألوانها.`)) return
-    setBusy(true)
-    try {
-      await Promise.all(
-        group.visits
-          .filter((v) => v.session_id)
-          .map((v) => api.post(`/treatment-plans/${v.plan_id}/items/${v.item_id}/sessions/${v.session_id}/cancel`)),
-      )
-      setOpenId(null)
-      load()
-      onChanged?.()
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function collect(v: Visit) {
-    const cashboxId = payCashboxId[v.session_id]
-    const amount = Number(payAmount[v.session_id])
-    if (!cashboxId || !amount) return
-    const box = cashboxes.find((c) => c.id === Number(cashboxId))
+  async function collect(key: string, v: Visit) {
+    const boxId = payCashboxId[key]
+    const amount = Number(payAmount[key])
+    if (!boxId || !amount) return
+    const box = cashboxes.find((c) => c.id === Number(boxId))
     if (!box) return
     setBusy(true)
     try {
@@ -259,7 +204,7 @@ export default function VisitHistoryPanel({
             const totalPrice = group.visits.reduce((sum, v) => sum + Number(v.price), 0)
 
             if (isSingle) {
-              return <VisitRow key={group.key} v={first} />
+              return <VisitRow key={group.key} rowKey={group.key} v={first} />
             }
 
             return (
@@ -286,18 +231,6 @@ export default function VisitHistoryPanel({
                     {first.doctor_name && <span className="text-xs text-muted">— {first.doctor_name}</span>}
                   </div>
                   <div className="flex items-center gap-3">
-                    {canManage && first.is_quick_visit && first.plan_id && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setEditingPlanId(first.plan_id)
-                        }}
-                        title="تعديل الزيارة كاملة"
-                        className="text-ink/40 hover:text-accent"
-                      >
-                        <FontAwesomeIcon icon={faPen} />
-                      </button>
-                    )}
                     <span className="text-ink">{totalPrice.toFixed(2)} ₪</span>
                     <Badge variant={INVOICE_STATUS_VARIANTS[first.invoice_status]}>{INVOICE_STATUS_LABELS[first.invoice_status]}</Badge>
                     <span className="text-xs text-muted">{first.date}</span>
@@ -312,20 +245,8 @@ export default function VisitHistoryPanel({
 
                 {isExpanded && (
                   <div className="space-y-1 border-t border-ink/10 p-2">
-                    {canManage && (
-                      <div className="flex justify-end px-1">
-                        <button
-                          onClick={() => deleteGroup(group)}
-                          disabled={busy}
-                          className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-danger hover:bg-danger-soft disabled:opacity-60"
-                        >
-                          <FontAwesomeIcon icon={faTrash} />
-                          حذف الكل ({group.visits.length})
-                        </button>
-                      </div>
-                    )}
-                    {group.visits.map((v) => (
-                      <VisitRow key={v.session_id ?? `${v.item_id}-${v.tooth_number}`} v={v} nested />
+                    {group.visits.map((v, i) => (
+                      <VisitRow key={`${group.key}-${i}`} rowKey={`${group.key}-${i}`} v={v} nested />
                     ))}
                   </div>
                 )}
@@ -335,33 +256,21 @@ export default function VisitHistoryPanel({
         </div>
       )}
     </Card>
-
-    {editingPlanId && (
-      <EditVisitModal
-        planId={editingPlanId}
-        patientId={patientId}
-        patientName={patientName ?? ''}
-        onClose={() => setEditingPlanId(null)}
-        onDone={() => {
-          load()
-          onChanged?.()
-        }}
-      />
-    )}
     </div>
   )
 
-  function VisitRow({ v, nested = false }: { v: Visit; nested?: boolean }) {
+  function VisitRow({ rowKey, v, nested = false }: { rowKey: string; v: Visit; nested?: boolean }) {
     const teeth = visitTeeth(v)
-    const diagramKey = `visit-${v.session_id ?? `${v.item_id}-${v.tooth_number}`}`
+    const diagramKey = `visit-${rowKey}`
     return (
       <div className={`relative ${nested ? 'rounded-lg bg-background/60' : 'rounded-lg border border-ink/10'}`}>
         <div
-          onClick={() => open(v)}
+          onClick={() => open(rowKey, v)}
           className="flex w-full cursor-pointer items-center justify-between px-3 py-2 text-sm hover:bg-background"
         >
           <div className="flex items-center gap-2">
             <span className="font-medium text-ink">{v.service_name ?? 'خدمة'}</span>
+            {v.step_title && <span className="text-xs text-muted">— {v.step_title}</span>}
             {teeth.length > 0 && (
               <button
                 onClick={(e) => {
@@ -377,18 +286,6 @@ export default function VisitHistoryPanel({
             {!nested && v.doctor_name && <span className="text-xs text-muted">— {v.doctor_name}</span>}
           </div>
           <div className="flex items-center gap-3">
-            {!nested && canManage && v.is_quick_visit && v.plan_id && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setEditingPlanId(v.plan_id)
-                }}
-                title="تعديل الزيارة كاملة"
-                className="text-ink/40 hover:text-accent"
-              >
-                <FontAwesomeIcon icon={faPen} />
-              </button>
-            )}
             <span className="text-ink">{v.price} ₪</span>
             {!nested && <Badge variant={INVOICE_STATUS_VARIANTS[v.invoice_status]}>{INVOICE_STATUS_LABELS[v.invoice_status]}</Badge>}
             <span className="text-xs text-muted">{v.date}</span>
@@ -401,57 +298,12 @@ export default function VisitHistoryPanel({
           </div>
         )}
 
-        {openId === v.session_id && (
+        {openKey === rowKey && (
                 <div className="space-y-3 border-t border-ink/10 p-3">
-                  {!v.session_id ? (
-                    <p className="text-xs text-ink/50">
-                      {v.note || 'زيارة قديمة مسجّلة قبل ربط الزيارات بالجلسات — غير قابلة للتعديل، بس تقدر تحصّل دفعتها تحت.'}
-                    </p>
-                  ) : canManage ? (
-                    <>
-                      <div className="flex items-end gap-2">
-                        <div>
-                          <label className="mb-1 block text-[11px] text-muted">السعر</label>
-                          <input
-                            type="number"
-                            value={editPrice[v.session_id] ?? ''}
-                            onChange={(e) => setEditPrice({ ...editPrice, [v.session_id]: e.target.value })}
-                            className="w-24 rounded-lg border border-ink/10 px-2 py-1 text-sm"
-                          />
-                        </div>
-                        <div className="flex-1">
-                          <label className="mb-1 block text-[11px] text-muted">ملاحظة</label>
-                          <input
-                            value={editNote[v.session_id] ?? ''}
-                            onChange={(e) => setEditNote({ ...editNote, [v.session_id]: e.target.value })}
-                            placeholder="ملاحظة عن هالزيارة..."
-                            className="w-full rounded-lg border border-ink/10 px-2 py-1 text-sm"
-                          />
-                        </div>
-                        <button
-                          onClick={() => saveEdit(v)}
-                          disabled={busy}
-                          className="flex items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-xs text-white hover:bg-accent-hover disabled:opacity-60"
-                        >
-                          <FontAwesomeIcon icon={faSave} />
-                          حفظ
-                        </button>
-                        <button
-                          onClick={() => deleteVisit(v)}
-                          disabled={busy}
-                          className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs text-danger hover:bg-danger-soft disabled:opacity-60"
-                        >
-                          <FontAwesomeIcon icon={faTrash} />
-                          حذف
-                        </button>
-                      </div>
-                    </>
-                  ) : (
-                    v.note && <p className="text-sm text-ink">{v.note}</p>
-                  )}
+                  {v.note && <p className="text-sm text-ink">{v.note}</p>}
 
                   <div className="border-t border-ink/5 pt-2">
-                    {prescribingFor === v.session_id ? (
+                    {prescribingFor === rowKey ? (
                       <div className="space-y-2">
                         {medicalAlerts.length > 0 && (
                           <div className="flex items-start gap-2 rounded-lg bg-danger-soft px-3 py-2 text-xs text-danger">
@@ -460,16 +312,16 @@ export default function VisitHistoryPanel({
                           </div>
                         )}
                         <textarea
-                          value={medsText[v.session_id] ?? ''}
-                          onChange={(e) => setMedsText({ ...medsText, [v.session_id]: e.target.value })}
+                          value={medsText[rowKey] ?? ''}
+                          onChange={(e) => setMedsText({ ...medsText, [rowKey]: e.target.value })}
                           placeholder={'الأدوية...\nمثال: Amoxicillin 500mg — كل 8 ساعات لمدة 5 أيام'}
                           rows={3}
                           className="w-full rounded-lg border border-ink/10 px-2 py-1.5 text-sm"
                         />
                         <div className="flex gap-2">
                           <button
-                            onClick={() => printPrescriptionFor(v)}
-                            disabled={!(medsText[v.session_id] ?? '').trim()}
+                            onClick={() => printPrescriptionFor(rowKey, v)}
+                            disabled={!(medsText[rowKey] ?? '').trim()}
                             className="flex items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-xs text-white hover:bg-accent-hover disabled:opacity-40"
                           >
                             <FontAwesomeIcon icon={faPrint} />
@@ -482,7 +334,7 @@ export default function VisitHistoryPanel({
                       </div>
                     ) : (
                       <button
-                        onClick={() => setPrescribingFor(v.session_id)}
+                        onClick={() => setPrescribingFor(rowKey)}
                         className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-ink/60 hover:bg-background hover:text-accent"
                       >
                         <FontAwesomeIcon icon={faPrint} />
@@ -497,8 +349,8 @@ export default function VisitHistoryPanel({
                         <label className="mb-1 block text-[11px] text-muted">الصندوق</label>
                         <SearchableSelect
                           options={cashboxes.map((c) => ({ value: String(c.id), label: c.name, sublabel: c.currency }))}
-                          value={payCashboxId[v.session_id] ?? ''}
-                          onChange={(value) => setPayCashboxId({ ...payCashboxId, [v.session_id]: value })}
+                          value={payCashboxId[rowKey] ?? ''}
+                          onChange={(value) => setPayCashboxId({ ...payCashboxId, [rowKey]: value })}
                           placeholder="الصندوق..."
                         />
                       </div>
@@ -506,13 +358,13 @@ export default function VisitHistoryPanel({
                         <label className="mb-1 block text-[11px] text-muted">المبلغ</label>
                         <input
                           type="number"
-                          value={payAmount[v.session_id] ?? ''}
-                          onChange={(e) => setPayAmount({ ...payAmount, [v.session_id]: e.target.value })}
+                          value={payAmount[rowKey] ?? ''}
+                          onChange={(e) => setPayAmount({ ...payAmount, [rowKey]: e.target.value })}
                           className="w-24 rounded-lg border border-ink/10 px-2 py-1 text-sm"
                         />
                       </div>
                       <button
-                        onClick={() => collect(v)}
+                        onClick={() => collect(rowKey, v)}
                         disabled={busy}
                         className="flex items-center gap-1 rounded-lg bg-success-soft px-3 py-1.5 text-xs font-medium text-success hover:opacity-80 disabled:opacity-60"
                       >

@@ -22,7 +22,12 @@ class AppointmentResource extends JsonResource
             'status' => $this->status,
             'created_via' => $this->created_via,
             'notes' => $this->notes,
-            'treatment_plan' => $this->whenLoaded('treatmentPlan', fn () => $this->treatmentPlan ? new TreatmentPlanResource($this->treatmentPlan) : null),
+            'work_items' => $this->whenLoaded('workItems', fn () => $this->workItems->map(fn ($w) => [
+                'id' => $w->id,
+                'service_name' => $w->service?->name,
+                'doctor_name' => $w->doctor?->full_name,
+                'status' => $w->status,
+            ])),
         ];
     }
 }

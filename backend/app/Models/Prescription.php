@@ -11,7 +11,7 @@ class Prescription extends Model
     use BelongsToClinic;
 
     protected $fillable = [
-        'clinic_id', 'patient_id', 'doctor_id', 'plan_item_session_id', 'medications', 'notes',
+        'clinic_id', 'patient_id', 'doctor_id', 'medications', 'notes',
     ];
 
     public function patient(): BelongsTo

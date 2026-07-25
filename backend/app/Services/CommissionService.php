@@ -16,7 +16,7 @@ class CommissionService
      * "completed" (the only basis implemented so far) means the commission
      * posts the moment the procedure is marked done.
      */
-    public function computeForFinding(ToothFinding $finding): ?DoctorTransaction
+    public function computeForFinding(ToothFinding $finding, ?float $baseAmount = null): ?DoctorTransaction
     {
         if (! $finding->service_id || ! $finding->doctor_id) {
             return null;
@@ -42,7 +42,7 @@ class CommissionService
             return null;
         }
 
-        $baseAmount = $finding->service->priceForBranch($finding->patient->branch);
+        $baseAmount ??= $finding->service->priceForBranch($finding->patient->branch);
         $commissionIls = round($baseAmount * $percent / 100, 2);
 
         return DoctorTransaction::updateOrCreate(

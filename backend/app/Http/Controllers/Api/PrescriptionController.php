@@ -32,7 +32,6 @@ class PrescriptionController extends Controller
         $data = $request->validate([
             'patient_id' => ['required', 'integer', 'exists:patients,id'],
             'doctor_id' => ['nullable', 'integer', 'exists:doctors,id'],
-            'plan_item_session_id' => ['nullable', 'integer', 'exists:plan_item_sessions,id'],
             'medications' => ['required', 'string'],
             'notes' => ['nullable', 'string'],
         ]);

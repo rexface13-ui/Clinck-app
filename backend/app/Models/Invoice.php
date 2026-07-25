@@ -12,7 +12,7 @@ class Invoice extends Model
     use BelongsToClinic;
 
     protected $fillable = [
-        'clinic_id', 'patient_id', 'treatment_plan_id', 'invoice_number',
+        'clinic_id', 'patient_id', 'invoice_number',
         'status', 'total_amount_ils', 'issued_at',
     ];
 
@@ -27,11 +27,6 @@ class Invoice extends Model
     public function patient(): BelongsTo
     {
         return $this->belongsTo(Patient::class);
-    }
-
-    public function treatmentPlan(): BelongsTo
-    {
-        return $this->belongsTo(TreatmentPlan::class);
     }
 
     public function lines(): HasMany

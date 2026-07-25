@@ -7,13 +7,11 @@ use App\Http\Requests\Dental\StoreToothFindingRequest;
 use App\Http\Resources\ToothFindingResource;
 use App\Http\Resources\ToothStateResource;
 use App\Models\Patient;
-use App\Models\PlanItem;
 use App\Models\ToothFinding;
 use App\Services\CommissionService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\Rule;
 
 class ToothChartController extends Controller
 {
@@ -31,7 +29,7 @@ class ToothChartController extends Controller
 
         if (! $asOf) {
             $states = $patient->toothStates()->get();
-            $findings = $patient->toothFindings()->orderByDesc('recorded_at')->with(['service', 'doctor', 'planItemSession.planItem', 'planItemSession.invoiceLine'])->get();
+            $findings = $patient->toothFindings()->orderByDesc('recorded_at')->with(['service', 'doctor', 'workItemToothStep.step', 'workItemToothStep.invoiceLine'])->get();
 
             return [
                 'tooth_states' => ToothStateResource::collection($states),
@@ -110,14 +108,6 @@ class ToothChartController extends Controller
             'doctor_id' => ['sometimes', 'nullable', 'exists:doctors,id'],
             'marks_missing' => ['sometimes', 'boolean'],
             'performed_externally' => ['sometimes', 'boolean'],
-            'plan_item_session_id' => [
-                'sometimes', 'nullable',
-                Rule::exists('plan_item_sessions', 'id')->where(
-                    fn ($q) => $q->whereIn('plan_item_id', PlanItem::whereHas(
-                        'treatmentPlan', fn ($q2) => $q2->where('patient_id', $patient->id)
-                    )->pluck('id'))
-                ),
-            ],
         ]);
 
         DB::transaction(function () use ($data, $finding, $patient, $commissions) {

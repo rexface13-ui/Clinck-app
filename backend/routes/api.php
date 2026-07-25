@@ -35,7 +35,7 @@ use App\Http\Controllers\Api\StockMovementController;
 use App\Http\Controllers\Api\SupplierController;
 use App\Http\Controllers\Api\TelegramLinkController;
 use App\Http\Controllers\Api\ToothChartController;
-use App\Http\Controllers\Api\TreatmentPlanController;
+use App\Http\Controllers\Api\WorkItemController;
 use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\BootstrapController;
 use Illuminate\Support\Facades\Route;
@@ -90,24 +90,16 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('backups/{filename}/download', [BackupController::class, 'download']);
     Route::post('backups/restore', [BackupController::class, 'restore']);
 
-    // Treatment plans
-    Route::get('treatment-plans', [TreatmentPlanController::class, 'index']);
-    Route::post('treatment-plans', [TreatmentPlanController::class, 'store']);
-    Route::get('treatment-plans/{treatmentPlan}', [TreatmentPlanController::class, 'show']);
-    Route::patch('treatment-plans/{treatmentPlan}', [TreatmentPlanController::class, 'update']);
-    Route::delete('treatment-plans/{treatmentPlan}', [TreatmentPlanController::class, 'destroy']);
-    Route::post('treatment-plans/{treatmentPlan}/items', [TreatmentPlanController::class, 'addItem']);
-    Route::patch('treatment-plans/{treatmentPlan}/items/{item}/teeth', [TreatmentPlanController::class, 'updateItemTeeth']);
-    Route::delete('treatment-plans/{treatmentPlan}/items/{item}', [TreatmentPlanController::class, 'removeItem']);
-    Route::post('treatment-plans/{treatmentPlan}/items/{item}/cancel', [TreatmentPlanController::class, 'cancelItem']);
-    Route::post('treatment-plans/{treatmentPlan}/items/{item}/sessions/{session}/complete', [TreatmentPlanController::class, 'completeSession']);
-    Route::post('treatment-plans/{treatmentPlan}/items/{item}/sessions/{session}/cancel', [TreatmentPlanController::class, 'cancelSession']);
-    Route::patch('treatment-plans/{treatmentPlan}/items/{item}/sessions/{session}', [TreatmentPlanController::class, 'updateSession']);
-    Route::post('treatment-plans/{treatmentPlan}/rebill', [TreatmentPlanController::class, 'rebill']);
-    Route::post('treatment-plans/{treatmentPlan}/record-session', [TreatmentPlanController::class, 'recordSession']);
-    Route::post('treatment-plans/{treatmentPlan}/cancel', [TreatmentPlanController::class, 'cancel']);
-    Route::post('treatment-plans/{treatmentPlan}/approve', [TreatmentPlanController::class, 'approve']);
-    Route::post('treatment-plans/{treatmentPlan}/schedule-sessions', [TreatmentPlanController::class, 'scheduleSessions']);
+    // Work planning (تخطيط العمل)
+    Route::get('work-items', [WorkItemController::class, 'index']);
+    Route::post('work-items', [WorkItemController::class, 'store']);
+    Route::get('work-items/{workItem}', [WorkItemController::class, 'show']);
+    Route::patch('work-items/{workItem}/tooth-steps/{toothStep}', [WorkItemController::class, 'updateToothStep']);
+    Route::post('work-items/{workItem}/apply-to-all', [WorkItemController::class, 'applyToAll']);
+    Route::post('work-items/checkout', [WorkItemController::class, 'checkout']);
+    Route::post('work-items/{workItem}/schedule', [WorkItemController::class, 'schedule']);
+    Route::delete('work-items/{workItem}', [WorkItemController::class, 'destroy']);
+    Route::put('services/{service}/steps', [ServiceController::class, 'updateSteps']);
 
     // Billing / ledger
     Route::get('patients/{patient}/invoices', [PatientBillingController::class, 'invoices']);

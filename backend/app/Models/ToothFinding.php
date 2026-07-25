@@ -12,7 +12,7 @@ class ToothFinding extends Model
 
     protected $fillable = [
         'clinic_id', 'patient_id', 'tooth_number', 'surfaces', 'finding_type',
-        'status', 'marks_missing', 'performed_externally', 'service_id', 'plan_item_session_id',
+        'status', 'marks_missing', 'performed_externally', 'service_id', 'work_item_tooth_step_id',
         'doctor_id', 'note', 'recorded_at',
     ];
 
@@ -36,8 +36,8 @@ class ToothFinding extends Model
         return $this->belongsTo(Doctor::class);
     }
 
-    public function planItemSession(): BelongsTo
+    public function workItemToothStep(): BelongsTo
     {
-        return $this->belongsTo(PlanItemSession::class);
+        return $this->belongsTo(WorkItemToothStep::class);
     }
 }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, useSearchParams, Link } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import {
   faArrowRight,
@@ -16,16 +16,15 @@ import {
 } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import ToothChart from '../components/ToothChart'
-import TreatmentPlanPanel from '../components/TreatmentPlanPanel'
+import WorkPlanningPanel from '../components/WorkPlanningPanel'
 import PatientLedgerPanel from '../components/PatientLedgerPanel'
 import VisitHistoryPanel from '../components/VisitHistoryPanel'
 import DatePicker from '../components/DatePicker'
-import CompleteVisitModal from '../components/CompleteVisitModal'
 import AppointmentDetailModal from '../components/AppointmentDetailModal'
 import MedicalHistoryField from '../components/MedicalHistoryField'
 import { Card, Badge, Button, Tabs, Modal, Input } from '../components/ui'
 import { useAuth } from '../contexts/AuthContext'
-import type { PatientProfile, Service, Ledger, Doctor, TreatmentPlan } from '../types'
+import type { PatientProfile, Service, Ledger, Doctor } from '../types'
 
 const STATUS_LABELS: Record<string, string> = {
   scheduled: 'مجدول',
@@ -43,6 +42,7 @@ function isToday(iso: string): boolean {
 
 export default function PatientProfilePage() {
   const { id } = useParams()
+  const [searchParams] = useSearchParams()
   const { can } = useAuth()
   const canViewBilling = can('billing.view')
   const [profile, setProfile] = useState<PatientProfile | null>(null)
@@ -55,19 +55,14 @@ export default function PatientProfilePage() {
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
   const attachmentInputRef = useRef<HTMLInputElement>(null)
   const [updatingVisit, setUpdatingVisit] = useState(false)
-  const [pickingForPlanId, setPickingForPlanId] = useState<number | null>(null)
-  const [activeTab, setActiveTab] = useState('overview')
-  const [pickedTooth, setPickedTooth] = useState<{ planId: number; toothNumbers: number[] } | null>(null)
-  const [busyToothNumbers, setBusyToothNumbers] = useState<Map<number, string[]>>(new Map())
+  const [activeTab, setActiveTab] = useState(searchParams.get('tab') === 'work' ? 'work' : 'overview')
   const [doctors, setDoctors] = useState<Doctor[]>([])
   const [editingAppointmentId, setEditingAppointmentId] = useState<number | null>(null)
   const [editForm, setEditForm] = useState({ date: '', time: '', doctor_id: '' })
   const [editError, setEditError] = useState<string | null>(null)
   const [savingEdit, setSavingEdit] = useState(false)
-  const [completingVisit, setCompletingVisit] = useState<{ id: number; doctorId: number | null } | null>(null)
   const [openAppointmentId, setOpenAppointmentId] = useState<number | null>(null)
-  const [startingWalkIn, setStartingWalkIn] = useState(false)
-  const [plansRefreshSignal, setPlansRefreshSignal] = useState(0)
+  const [refreshSignal, setRefreshSignal] = useState(0)
   const [editingPatient, setEditingPatient] = useState(false)
   const [patientForm, setPatientForm] = useState({
     full_name: '',
@@ -84,7 +79,7 @@ export default function PatientProfilePage() {
     if (canViewBilling) {
       api.get(`/patients/${id}/ledger`).then((res) => setLedger(res.data))
     }
-    setPlansRefreshSignal((n) => n + 1)
+    setRefreshSignal((n) => n + 1)
   }
 
   useEffect(() => {
@@ -124,26 +119,6 @@ export default function PatientProfilePage() {
     } finally {
       setSavingEdit(false)
     }
-  }
-
-  function handlePlansLoaded(plans: TreatmentPlan[]) {
-    const planStatusLabel: Record<TreatmentPlan['status'], string> = { draft: 'مسودة', approved: 'معتمدة', cancelled: 'ملغاة' }
-    const busy = new Map<number, string[]>()
-    for (const plan of plans) {
-      if (plan.status === 'cancelled') continue
-      for (const item of plan.items) {
-        // Only the teeth still left to work on — a tooth already finished
-        // shouldn't keep warning "busy with a plan" forever.
-        const pool = item.tooth_numbers && item.tooth_numbers.length > 0 ? item.tooth_numbers : item.tooth_number ? [item.tooth_number] : []
-        const teeth = item.remaining_teeth ?? pool
-        if (teeth.length === 0) continue
-        const detail = `${item.service_name ?? 'خدمة'} — خطة ${planStatusLabel[plan.status]}${plan.doctor_name ? ` (${plan.doctor_name})` : ''}`
-        for (const tooth of teeth) {
-          busy.set(tooth, [...(busy.get(tooth) ?? []), detail])
-        }
-      }
-    }
-    setBusyToothNumbers(busy)
   }
 
   async function deleteAppointment(appointmentId: number) {
@@ -191,24 +166,6 @@ export default function PatientProfilePage() {
       load()
     } finally {
       setSavingPatient(false)
-    }
-  }
-
-  async function startWalkInVisit() {
-    setStartingWalkIn(true)
-    try {
-      const now = new Date()
-      const ends = new Date(now.getTime() + 30 * 60000)
-      const res = await api.post('/appointments', {
-        branch_id: patient.branch_id,
-        patient_id: Number(id),
-        doctor_id: null,
-        starts_at: now.toISOString(),
-        ends_at: ends.toISOString(),
-      })
-      setCompletingVisit({ id: res.data.data.id, doctorId: null })
-    } finally {
-      setStartingWalkIn(false)
     }
   }
 
@@ -323,9 +280,9 @@ export default function PatientProfilePage() {
             <FontAwesomeIcon icon={faPen} />
             تعديل
           </button>
-          <Button variant="secondary" onClick={startWalkInVisit} disabled={startingWalkIn}>
+          <Button variant="secondary" onClick={() => setActiveTab('work')}>
             <FontAwesomeIcon icon={faCheck} />
-            {startingWalkIn ? 'جارِ التسجيل...' : 'اجاني هلق (بدون موعد)'}
+            اجاني هلق (بدون موعد)
           </Button>
           <Link to={`/appointments?patient_id=${patient.id}`}>
             <Button>
@@ -346,9 +303,8 @@ export default function PatientProfilePage() {
           </div>
           <div className="flex flex-wrap gap-2">
             <button
-              onClick={() => setVisitOutcome(todayAppointment.id, 'done')}
-              disabled={updatingVisit}
-              className="flex items-center gap-2 rounded-xl bg-success-soft px-3 py-2 text-sm font-medium text-success hover:opacity-80 disabled:opacity-50"
+              onClick={() => setActiveTab('work')}
+              className="flex items-center gap-2 rounded-xl bg-success-soft px-3 py-2 text-sm font-medium text-success hover:opacity-80"
             >
               <FontAwesomeIcon icon={faCheck} />
               تمت الزيارة
@@ -371,7 +327,7 @@ export default function PatientProfilePage() {
             </button>
           </div>
           <p className="w-full text-xs text-muted">
-            بعد تسجيل "تمت الزيارة" — استخدم "تحصيل دفعة" بكشف الحساب تحت لتسجيل المبلغ المدفوع (كامل، جزئي، أو بالدين لو ما انحصّل شي).
+            "تمت الزيارة" بتوديك لتبويب "تخطيط العمل" — سجّل الشغل هناك وبينربط بهالموعد تلقائياً.
           </p>
         </Card>
       )}
@@ -457,36 +413,21 @@ export default function PatientProfilePage() {
                     services={services}
                     doctors={doctors}
                     onChanged={load}
-                    pickMode={pickingForPlanId !== null}
-                    onPickTooth={(toothNumbers) => {
-                      if (pickingForPlanId === null) return
-                      setPickedTooth({ planId: pickingForPlanId, toothNumbers })
-                      setPickingForPlanId(null)
-                      setActiveTab('plans')
-                    }}
-                    busyToothNumbers={busyToothNumbers}
                   />
                 </div>
               </div>
             ),
           },
           {
-            key: 'plans',
-            label: 'خطط علاجية',
+            key: 'work',
+            label: 'تخطيط العمل',
             content: (
-              <TreatmentPlanPanel
+              <WorkPlanningPanel
                 patientId={patient.id}
                 patientName={patient.full_name}
                 isChild={patient.is_child}
-                pickedTooth={pickedTooth}
-                onToothConsumed={() => setPickedTooth(null)}
-                onRequestPickTooth={(planId) => {
-                  setPickingForPlanId((cur) => (cur === planId ? null : planId))
-                  setActiveTab('overview')
-                }}
-                pickingForPlanId={pickingForPlanId}
-                onPlansLoaded={handlePlansLoaded}
-                refreshSignal={plansRefreshSignal}
+                medicalAlerts={patient.medical_alerts}
+                onChanged={load}
               />
             ),
           },
@@ -508,7 +449,7 @@ export default function PatientProfilePage() {
                 {
                   key: 'ledger',
                   label: 'الحساب',
-                  content: <PatientLedgerPanel patientId={patient.id} refreshSignal={plansRefreshSignal} />,
+                  content: <PatientLedgerPanel patientId={patient.id} refreshSignal={refreshSignal} />,
                 },
               ]
             : []),
@@ -532,7 +473,7 @@ export default function PatientProfilePage() {
                     <div className="flex items-center gap-3">
                       {(a.status === 'scheduled' || a.status === 'confirmed') && (
                         <button
-                          onClick={() => setCompletingVisit({ id: a.id, doctorId: a.doctor_id })}
+                          onClick={() => setActiveTab('work')}
                           className="rounded-lg bg-accent-soft px-2.5 py-1 text-xs font-medium text-accent hover:bg-accent hover:text-white"
                         >
                           تمّت الزيارة
@@ -714,16 +655,6 @@ export default function PatientProfilePage() {
         ]}
       />
 
-      {completingVisit && (
-        <CompleteVisitModal
-          appointmentId={completingVisit.id}
-          patientId={patient.id}
-          patientName={patient.full_name}
-          doctorId={completingVisit.doctorId}
-          onClose={() => setCompletingVisit(null)}
-          onDone={load}
-        />
-      )}
       {openAppointmentId && (
         <AppointmentDetailModal
           appointmentId={openAppointmentId}

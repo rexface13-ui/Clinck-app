@@ -8,9 +8,7 @@ use App\Http\Requests\Appointment\UpdateAppointmentRequest;
 use App\Http\Resources\AppointmentResource;
 use App\Models\ActivityLog;
 use App\Models\Appointment;
-use App\Models\PlanItemSession;
-use App\Models\TreatmentPlan;
-use App\Services\TreatmentPlanService;
+use App\Models\WorkItem;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -66,7 +64,7 @@ class AppointmentController extends Controller
     {
         $this->authorize('view', $appointment);
 
-        return new AppointmentResource($appointment->load(['patient', 'doctor', 'treatmentPlan.items.service', 'treatmentPlan.doctor']));
+        return new AppointmentResource($appointment->load(['patient', 'doctor', 'workItems.service', 'workItems.doctor']));
     }
 
     public function update(UpdateAppointmentRequest $request, Appointment $appointment)
@@ -78,9 +76,18 @@ class AppointmentController extends Controller
         return new AppointmentResource($appointment->fresh(['patient', 'doctor']));
     }
 
-    public function destroy(Appointment $appointment, TreatmentPlanService $planService)
+    public function destroy(Appointment $appointment)
     {
         $this->authorize('delete', $appointment);
+
+        // A work item that already billed something under this appointment
+        // can't be silently unwound by deleting the appointment — the charge
+        // stays real either way. Block it instead of leaving an orphaned
+        // invoice with no visible link back to a visit.
+        $hasBilledWork = WorkItem::where('appointment_id', $appointment->id)
+            ->whereHas('toothSteps', fn ($q) => $q->whereNotNull('invoice_line_id'))
+            ->exists();
+        abort_if($hasBilledWork, 422, 'ما فيك تحذف هالموعد — في شغل محسوب عليه. عدّل الفاتورة من ملف المريض أولاً.');
 
         $appointment->loadMissing(['patient:id,full_name', 'doctor:id,full_name']);
         ActivityLog::record('appointment.deleted', sprintf(
@@ -90,30 +97,11 @@ class AppointmentController extends Controller
             $appointment->starts_at->format('d/m/Y H:i'),
         ));
 
-        DB::transaction(function () use ($appointment, $planService) {
-            // Deleting an appointment that a treatment-plan session had booked
-            // must undo everything tied to that session: cancelSession()
-            // reverses its own charge (if it had already been billed as
-            // "done"), rolls back its tooth finding/commission, and clears
-            // the booking — without touching the item's other sessions.
-            $sessions = PlanItemSession::where('appointment_id', $appointment->id)->get();
-            foreach ($sessions as $session) {
-                $planService->cancelSession($session);
-            }
-
-            // A "زيارة الآن" visit creates the appointment and its treatment
-            // plan together as one unit (see CompleteVisitModal). Deleting
-            // that appointment must undo the plan too, or the invoice/charge
-            // it generated is silently orphaned — the account would keep
-            // showing a debt with no visible way to trace or reverse it.
-            $plan = TreatmentPlan::where('appointment_id', $appointment->id)->first();
-            if ($plan) {
-                if ($plan->status === 'approved') {
-                    $planService->cancel($plan);
-                } elseif ($plan->status === 'draft') {
-                    $plan->delete();
-                }
-            }
+        DB::transaction(function () use ($appointment) {
+            // Any not-yet-billed work item this appointment was scheduled for
+            // just loses that link — the work itself (if any progress was
+            // saved) stays, it just needs a new appointment to continue.
+            WorkItem::where('appointment_id', $appointment->id)->update(['appointment_id' => null]);
 
             $appointment->delete();
         });

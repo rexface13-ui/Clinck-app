@@ -6,7 +6,7 @@ import { formatDate } from '../lib/formatDate'
 import { printDocument, metaRow } from '../lib/print'
 import { useClinicProfile } from '../lib/useClinicProfile'
 import { Card, PageHeader, Button, Tabs } from '../components/ui'
-import type { Patient, Ledger, TreatmentPlan } from '../types'
+import type { Patient, Ledger, WorkItem } from '../types'
 
 function PatientPicker({ patient, onPick }: { patient: Patient | null; onPick: (p: Patient) => void }) {
   const [query, setQuery] = useState('')
@@ -210,60 +210,60 @@ function AppointmentCardTab({ patient }: { patient: Patient | null }) {
   )
 }
 
-function TreatmentPlanTab({ patient }: { patient: Patient | null }) {
+function WorkPlanTab({ patient }: { patient: Patient | null }) {
   const clinic = useClinicProfile()
-  const [plans, setPlans] = useState<TreatmentPlan[]>([])
-  const [planId, setPlanId] = useState('')
+  const [items, setItems] = useState<WorkItem[]>([])
+  const [itemId, setItemId] = useState('')
 
   useEffect(() => {
     if (!patient) return
-    api.get('/treatment-plans', { params: { patient_id: patient.id } }).then((res) => setPlans(res.data.data))
+    api.get('/work-items', { params: { patient_id: patient.id, status: 'in_progress' } }).then((res) => setItems(res.data.data))
   }, [patient])
 
-  const plan = plans.find((p) => String(p.id) === planId)
+  const item = items.find((p) => String(p.id) === itemId)
 
   function print() {
-    if (!patient || !plan) return
-    const rows = plan.items
-      .map((item) => `<tr><td>${item.service_name ?? 'خدمة'}</td><td>${item.tooth_number ?? (item.tooth_numbers?.join('، ') ?? '—')}</td><td>${Number(item.unit_price).toFixed(2)} ₪</td></tr>`)
+    if (!patient || !item) return
+    const rows = item.steps
+      .map((step) => `<tr><td>${step.title}</td><td>${item.teeth.join('، ')}</td><td>${Number(step.price).toFixed(2)} ₪</td></tr>`)
       .join('')
-    const total = plan.items.reduce((s, i) => s + Number(i.unit_price), 0)
+    const total = item.steps.reduce((s, st) => s + Number(st.price) * (item.price_per_tooth ? item.teeth.length : 1), 0)
     const body = `
       ${metaRow([
         ['المريض', patient.full_name],
-        ['الطبيب', plan.doctor_name ?? '—'],
+        ['الطبيب', item.doctor_name ?? '—'],
         ['التاريخ', formatDate(new Date().toISOString())],
       ])}
       <table>
-        <thead><tr><th>الخدمة</th><th>السن</th><th>السعر</th></tr></thead>
+        <thead><tr><th>الخطوة</th><th>الأسنان</th><th>السعر</th></tr></thead>
         <tbody>${rows}</tbody>
-        <tfoot><tr class="total-row"><td colspan="2">الإجمالي</td><td>${total.toFixed(2)} ₪</td></tr></tfoot>
+        <tfoot><tr class="total-row"><td colspan="2">الإجمالي التقديري</td><td>${total.toFixed(2)} ₪</td></tr></tfoot>
       </table>
       <p style="font-size:12px;color:#555;margin-top:16px;">بالتوقيع أدناه، المريض موافق على خطة العلاج المذكورة أعلاه وأسعارها.</p>
       <div class="signature"><div>توقيع المريض / ولي الأمر</div><div>توقيع الطبيب</div></div>
     `
-    printDocument('خطة علاج — موافقة المريض', body, clinic)
+    printDocument(`خطة علاج — ${item.service_name ?? ''}`, body, clinic)
   }
 
   return (
     <Card className="max-w-2xl p-6">
       {!patient ? (
         <p className="text-sm text-danger">اختر مريض أول.</p>
-      ) : plans.length === 0 ? (
-        <p className="text-sm text-muted">ما عند هالمريض خطط علاج.</p>
+      ) : items.length === 0 ? (
+        <p className="text-sm text-muted">ما عند هالمريض شغل قيد التنفيذ.</p>
       ) : (
         <>
-          <label className="mb-1 block text-xs text-muted">اختر الخطة</label>
-          <select value={planId} onChange={(e) => setPlanId(e.target.value)} className="mb-4 w-full max-w-sm rounded-xl border border-border bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none">
+          <label className="mb-1 block text-xs text-muted">اختر الشغل</label>
+          <select value={itemId} onChange={(e) => setItemId(e.target.value)} className="mb-4 w-full max-w-sm rounded-xl border border-border bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none">
             <option value="">اختر...</option>
-            {plans.map((p) => (
+            {items.map((p) => (
               <option key={p.id} value={p.id}>
-                خطة #{p.id} — {p.created_at} ({p.items.length} خدمة)
+                {p.service_name} — أسنان {p.teeth.join('، ')}
               </option>
             ))}
           </select>
           <div>
-            <Button onClick={print} disabled={!plan}>
+            <Button onClick={print} disabled={!item}>
               <FontAwesomeIcon icon={faPrint} />
               طباعة للتوقيع
             </Button>
@@ -292,7 +292,7 @@ export default function PrintPage() {
           { key: 'prescription', label: 'وصفة طبية', content: <PrescriptionTab patient={patient} /> },
           { key: 'ledger', label: 'كشف حساب', content: <LedgerTab patient={patient} /> },
           { key: 'appointment', label: 'بطاقة موعد', content: <AppointmentCardTab patient={patient} /> },
-          { key: 'plan', label: 'خطة علاج للتوقيع', content: <TreatmentPlanTab patient={patient} /> },
+          { key: 'plan', label: 'خطة علاج للتوقيع', content: <WorkPlanTab patient={patient} /> },
         ]}
       />
     </div>

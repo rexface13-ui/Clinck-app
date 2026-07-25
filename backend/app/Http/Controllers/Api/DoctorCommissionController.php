@@ -26,17 +26,17 @@ class DoctorCommissionController extends Controller
         $commissionTransactions = DoctorTransaction::where('doctor_id', $doctor->id)
             ->where('type', 'commission')
             ->whereDate('period_month', $month->toDateString())
-            ->with(['toothFinding.patient', 'toothFinding.service', 'toothFinding.planItemSession'])
+            ->with(['toothFinding.patient', 'toothFinding.service', 'toothFinding.workItemToothStep'])
             ->orderBy('created_at')
             ->get();
 
-        // The invoice line (if any) tied to each session, keyed by session
+        // The invoice line (if any) tied to each tooth-step, keyed by tooth-step
         // id — one query up front instead of N+1 per transaction below.
-        $sessionIds = $commissionTransactions->pluck('toothFinding.plan_item_session_id')->filter()->values();
-        $invoiceLinesBySession = InvoiceLine::whereIn('plan_item_session_id', $sessionIds)
+        $toothStepIds = $commissionTransactions->pluck('toothFinding.work_item_tooth_step_id')->filter()->values();
+        $invoiceLinesBySession = InvoiceLine::whereIn('work_item_tooth_step_id', $toothStepIds)
             ->with('invoice.payments')
             ->get()
-            ->keyBy('plan_item_session_id');
+            ->keyBy('work_item_tooth_step_id');
 
         $payouts = DoctorTransaction::where('doctor_id', $doctor->id)
             ->where('type', 'settlement')
@@ -61,7 +61,7 @@ class DoctorCommissionController extends Controller
             'remaining_ils' => round($totalDue - $paidTotal, 2),
             'transactions' => $commissionTransactions->map(function (DoctorTransaction $t) use ($invoiceLinesBySession) {
                 $finding = $t->toothFinding;
-                $line = $finding?->plan_item_session_id ? $invoiceLinesBySession->get($finding->plan_item_session_id) : null;
+                $line = $finding?->work_item_tooth_step_id ? $invoiceLinesBySession->get($finding->work_item_tooth_step_id) : null;
                 $invoice = $line?->invoice;
 
                 return [

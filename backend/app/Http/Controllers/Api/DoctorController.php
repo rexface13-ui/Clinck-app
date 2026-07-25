@@ -8,7 +8,7 @@ use App\Http\Requests\Doctor\UpdateDoctorRequest;
 use App\Http\Resources\DoctorResource;
 use App\Models\Doctor;
 use App\Models\DoctorTransaction;
-use App\Models\TreatmentPlan;
+use App\Models\WorkItem;
 
 class DoctorController extends Controller
 {
@@ -60,16 +60,16 @@ class DoctorController extends Controller
 
         // appointments.doctor_id is set-null on delete — appointments stay
         // (as "بدون طبيب") instead of being wiped, so they don't block
-        // deletion. treatment_plans/doctor_transactions still cascade-delete
+        // deletion. work_items/doctor_transactions still cascade-delete
         // at the DB level, and those carry real billed/financial history, so
-        // those still block: deleting a doctor with a billed plan or a
+        // those still block: deleting a doctor with billed work or a
         // commission would silently erase it while the patient's charge
         // stays on the ledger with nothing left to trace it back to.
         abort_if(
-            TreatmentPlan::where('doctor_id', $doctor->id)->exists()
+            WorkItem::where('doctor_id', $doctor->id)->exists()
                 || DoctorTransaction::where('doctor_id', $doctor->id)->exists(),
             422,
-            'هذا الطبيب له خطط علاج أو عمولات — لا يمكن حذفه نهائياً حفاظاً على السجل المالي. عطّله من "تعديل" بدلاً من ذلك.',
+            'هذا الطبيب عنده شغل مسجّل أو عمولات — لا يمكن حذفه نهائياً حفاظاً على السجل المالي. عطّله من "تعديل" بدلاً من ذلك.',
         );
 
         $doctor->delete();
