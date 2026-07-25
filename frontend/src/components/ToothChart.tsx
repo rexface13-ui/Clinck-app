@@ -3,7 +3,9 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faPen, faTrash } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
+import { ToothCrown, ToothDefs } from './ToothCrown'
 import {
+  DEFAULT_TOOTH_FILL,
   LOWER_ARCH,
   LOWER_PERMANENT,
   LOWER_PRIMARY,
@@ -14,6 +16,7 @@ import {
   VIEWBOX,
   archPosition,
   cuspPositions,
+  fadeHex,
   primaryCanonicalIndex,
   toothCrownPath,
   toothShapeType,
@@ -124,10 +127,41 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
   function toothColor(tooth: number): string {
     if (stateByTooth.get(tooth) === 'missing') return STATUS_COLOR.missing
     const finding = activeFindingByTooth.get(tooth)
-    if (finding && (finding.status === 'planned' || finding.status === 'in_progress')) return STATUS_COLOR.planned
-    if (finding && finding.status === 'done') return STATUS_COLOR.done
-    return '#fff8f0'
+    if (!finding) return DEFAULT_TOOTH_FILL
+    // A service's own color is the primary signal once one's assigned — it's
+    // what lets the same chart tell a filling apart from a bridge apart from
+    // a cleaning at a glance. Falls back to the old generic planned/done
+    // colors for services that never got a color (or free-text findings).
+    if (finding.service_color) {
+      const done = finding.status === 'done'
+      return done ? finding.service_color : fadeHex(finding.service_color, 0.55)
+    }
+    if (finding.status === 'planned' || finding.status === 'in_progress') return STATUS_COLOR.planned
+    return STATUS_COLOR.done
   }
+
+  /**
+   * Bridge-style services (spans_teeth) get a connecting bar drawn across
+   * their teeth instead of (or alongside) each tooth's own crown color —
+   * grouped by (work item, service) so only teeth actually placed together
+   * under the same bridge/appliance connect, not any two teeth that happen
+   * to share a service.
+   */
+  const bridgeGroups = useMemo(() => {
+    const groups = new Map<string, { color: string; done: boolean; teeth: number[] }>()
+    toothFindings.forEach((f) => {
+      if (!f.service_spans_teeth || !f.service_id) return
+      const key = `${f.plan_id ?? 'x'}-${f.service_id}`
+      const g = groups.get(key)
+      if (g) {
+        g.teeth.push(f.tooth_number)
+        g.done = g.done && f.status === 'done'
+      } else {
+        groups.set(key, { color: f.service_color ?? STATUS_COLOR.done, done: f.status === 'done', teeth: [f.tooth_number] })
+      }
+    })
+    return Array.from(groups.values()).filter((g) => g.teeth.length > 1)
+  }, [toothFindings])
 
   /** Teeth worked on by an outside party get a dashed ring instead of the usual solid one, layered on top of whatever status color already applies. */
   function performedExternallyFor(tooth: number): boolean {
@@ -270,6 +304,7 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
           )}
         </div>
         <svg viewBox={`0 0 ${VIEWBOX.width} ${VIEWBOX.height}`} className="w-full" style={{ maxWidth: 720 }}>
+          <ToothDefs />
           <line
             x1={40}
             y1={VIEWBOX.height / 2}
@@ -280,19 +315,38 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
           />
           <line x1={UPPER_ARCH.cx} y1={20} x2={UPPER_ARCH.cx} y2={VIEWBOX.height - 20} stroke="#e2e8f0" strokeDasharray="4 4" />
 
+          {bridgeGroups.map((g, i) => {
+            const points = g.teeth
+              .map((n) => teeth.find((t) => t.number === n))
+              .filter((t): t is LaidOutTooth => !!t)
+              .sort((a, b) => a.labelX - b.labelX)
+            if (points.length < 2) return null
+            const color = g.done ? g.color : fadeHex(g.color, 0.5)
+            return (
+              <polyline
+                key={i}
+                points={points.map((p) => `${p.x},${p.y}`).join(' ')}
+                fill="none"
+                stroke={color}
+                strokeWidth={7}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                opacity={0.85}
+              />
+            )
+          })}
+
           {teeth.map((t) => (
             <g key={t.number} onClick={() => openTooth(t.number)} className="cursor-pointer">
               <g transform={`translate(${t.x},${t.y}) rotate(${t.rotationDeg})`}>
-                <path
-                  d={t.crownPath}
+                <ToothCrown
+                  crownPath={t.crownPath}
+                  cusps={t.cusps}
                   fill={toothColor(t.number)}
                   stroke={selectedTeeth.includes(t.number) ? 'var(--color-accent)' : '#c9b8a8'}
                   strokeWidth={selectedTeeth.includes(t.number) ? 2.5 : 1.2}
-                  strokeDasharray={performedExternallyFor(t.number) ? '3 2' : undefined}
+                  dashed={performedExternallyFor(t.number)}
                 />
-                {t.cusps.map((c, i) => (
-                  <circle key={i} cx={c.x} cy={c.y} r={c.r} fill="#00000010" />
-                ))}
               </g>
               {/* Label is positioned in absolute chart coordinates (not inside the rotated
                   group) so it always sits cleanly outside the ring, regardless of this

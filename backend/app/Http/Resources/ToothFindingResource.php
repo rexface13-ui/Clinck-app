@@ -23,6 +23,8 @@ class ToothFindingResource extends JsonResource
             'plan_id' => $this->whenLoaded('workItemToothStep', fn () => $this->workItemToothStep?->work_item_id),
             'service_id' => $this->service_id,
             'service_name' => $this->whenLoaded('service', fn () => $this->service?->name),
+            'service_color' => $this->whenLoaded('service', fn () => $this->service?->color),
+            'service_spans_teeth' => $this->whenLoaded('service', fn () => (bool) $this->service?->spans_teeth),
             'doctor_id' => $this->doctor_id,
             'doctor_name' => $this->whenLoaded('doctor', fn () => $this->doctor?->full_name),
             'note' => $this->note,

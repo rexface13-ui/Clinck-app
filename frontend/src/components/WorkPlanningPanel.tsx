@@ -13,7 +13,9 @@ import { api } from '../lib/api'
 import DatePicker from './DatePicker'
 import { Card, Button, Select, SearchableSelect, Badge } from './ui'
 import type { BadgeVariant } from './ui'
+import { ToothCrown, ToothDefs } from './ToothCrown'
 import {
+  DEFAULT_TOOTH_FILL,
   LOWER_ARCH,
   LOWER_PERMANENT,
   LOWER_PRIMARY,
@@ -23,6 +25,7 @@ import {
   VIEWBOX,
   archPosition,
   cuspPositions,
+  fadeHex,
   primaryCanonicalIndex,
   toothCrownPath,
   toothShapeType,
@@ -107,6 +110,8 @@ export default function WorkPlanningPanel({
   const [schedulingId, setSchedulingId] = useState<number | null>(null)
   const [scheduleDate, setScheduleDate] = useState('')
   const [scheduleTime, setScheduleTime] = useState('10:00')
+  const [scheduleError, setScheduleError] = useState<string | null>(null)
+  const [scheduleSuccessId, setScheduleSuccessId] = useState<number | null>(null)
 
   function loadWorkItems() {
     api.get('/work-items', { params: { patient_id: patientId, status: 'in_progress' } }).then((res) => setWorkItems(res.data.data))
@@ -271,13 +276,46 @@ export default function WorkPlanningPanel({
   }
 
   async function submitSchedule(workItem: WorkItem) {
-    if (!scheduleDate || !scheduleTime) return
+    setScheduleError(null)
+    if (!scheduleDate || !scheduleTime) {
+      setScheduleError('لازم تحدد التاريخ والوقت.')
+      return
+    }
     const startsAt = new Date(`${scheduleDate}T${scheduleTime}:00`)
     const endsAt = new Date(startsAt.getTime() + 30 * 60000)
-    await api.post(`/work-items/${workItem.id}/schedule`, { starts_at: startsAt.toISOString(), ends_at: endsAt.toISOString() })
-    setSchedulingId(null)
-    loadWorkItems()
+    try {
+      await api.post(`/work-items/${workItem.id}/schedule`, { starts_at: startsAt.toISOString(), ends_at: endsAt.toISOString() })
+      setSchedulingId(null)
+      setScheduleDate('')
+      setScheduleSuccessId(workItem.id)
+      loadWorkItems()
+      setTimeout(() => setScheduleSuccessId(null), 4000)
+    } catch {
+      setScheduleError('صار خطأ أثناء حجز الموعد.')
+    }
   }
+
+  /**
+   * Per-tooth coloring for teeth already touched by today's in-progress work:
+   * each tooth gets its work item's service color, faded while any step on
+   * it is still incomplete and full-strength once every step on that tooth
+   * is checked off — same "planned vs done" language as the overview chart.
+   */
+  const toothWorkColor = useMemo(() => {
+    const map = new Map<number, { color: string; done: boolean }>()
+    for (const w of workItems) {
+      if (!w.service_color) continue
+      for (const toothNumber of w.teeth) {
+        const toothSteps = w.steps.flatMap((s) => s.tooth_steps.filter((ts) => ts.tooth_number === toothNumber))
+        if (toothSteps.length === 0) continue
+        const done = toothSteps.every((ts) => ts.completed)
+        const anyDone = toothSteps.some((ts) => ts.completed)
+        if (!anyDone) continue
+        map.set(toothNumber, { color: w.service_color, done })
+      }
+    }
+    return map
+  }, [workItems])
 
   const serviceOptions = services.map((s) => ({ value: String(s.id), label: s.name }))
   const doctorOptions = doctors.map((d) => ({ value: String(d.id), label: d.full_name }))
@@ -324,7 +362,10 @@ export default function WorkPlanningPanel({
                     <Badge variant={STATUS_VARIANTS[w.status]}>{STATUS_LABELS[w.status]}</Badge>
                     <span className="text-sm font-medium text-ink">{money(itemTotal(w))} ₪</span>
                     <button
-                      onClick={() => setSchedulingId(schedulingId === w.id ? null : w.id)}
+                      onClick={() => {
+                        setSchedulingId(schedulingId === w.id ? null : w.id)
+                        setScheduleError(null)
+                      }}
                       className="text-xs text-accent hover:underline"
                       title="جدولة الشغل المتبقي"
                     >
@@ -335,20 +376,30 @@ export default function WorkPlanningPanel({
                     </button>
                   </div>
 
+                  {scheduleSuccessId === w.id && (
+                    <p className="flex items-center gap-1.5 border-t border-ink/10 p-3 text-xs text-success">
+                      <FontAwesomeIcon icon={faCheck} />
+                      تم حجز موعد المتابعة.
+                    </p>
+                  )}
+
                   {schedulingId === w.id && (
-                    <div className="flex items-end gap-2 border-t border-ink/10 p-3">
-                      <div className="w-40">
-                        <DatePicker value={scheduleDate} onChange={setScheduleDate} placeholder="تاريخ المتابعة" />
+                    <div className="border-t border-ink/10 p-3">
+                      <div className="flex items-end gap-2">
+                        <div className="w-40">
+                          <DatePicker value={scheduleDate} onChange={setScheduleDate} placeholder="تاريخ المتابعة" />
+                        </div>
+                        <input
+                          type="time"
+                          value={scheduleTime}
+                          onChange={(e) => setScheduleTime(e.target.value)}
+                          className="rounded-lg border border-border px-2 py-1.5 text-sm"
+                        />
+                        <Button onClick={() => submitSchedule(w)} className="px-3 py-1.5 text-xs">
+                          حجز موعد متابعة
+                        </Button>
                       </div>
-                      <input
-                        type="time"
-                        value={scheduleTime}
-                        onChange={(e) => setScheduleTime(e.target.value)}
-                        className="rounded-lg border border-border px-2 py-1.5 text-sm"
-                      />
-                      <Button onClick={() => submitSchedule(w)} className="px-3 py-1.5 text-xs">
-                        حجز موعد متابعة
-                      </Button>
+                      {scheduleError && <p className="mt-2 text-xs text-danger">{scheduleError}</p>}
                     </div>
                   )}
 
@@ -428,19 +479,25 @@ export default function WorkPlanningPanel({
         </div>
 
         <svg viewBox={`0 0 ${VIEWBOX.width} ${VIEWBOX.height}`} className="w-full" style={{ maxWidth: 620 }}>
+          <ToothDefs />
           <line x1={40} y1={VIEWBOX.height / 2} x2={VIEWBOX.width - 40} y2={VIEWBOX.height / 2} stroke="#e2e8f0" strokeDasharray="4 4" />
           {teeth.map((t) => {
             const selected = selectedTeeth.includes(t.number)
             const isRangeAnchor = rangeStart === t.number
-            const fill = selected || isRangeAnchor ? 'var(--color-accent)' : '#fff8f0'
+            const work = toothWorkColor.get(t.number)
+            const workFill = work ? (work.done ? work.color : fadeHex(work.color, 0.55)) : null
+            const fill = workFill ?? (selected || isRangeAnchor ? 'var(--color-accent)' : DEFAULT_TOOTH_FILL)
             const stroke = selected || isRangeAnchor ? 'var(--color-accent)' : '#c9b8a8'
             return (
               <g key={t.number} onClick={() => toggleTooth(t.number)} className="cursor-pointer">
                 <g transform={`translate(${t.x},${t.y}) rotate(${t.rotationDeg})`}>
-                  <path d={t.crownPath} fill={fill} stroke={stroke} strokeWidth={selected ? 2.5 : 1.2} />
-                  {t.cusps.map((c, i) => (
-                    <circle key={i} cx={c.x} cy={c.y} r={c.r} fill="#00000010" />
-                  ))}
+                  <ToothCrown
+                    crownPath={t.crownPath}
+                    cusps={t.cusps}
+                    fill={fill}
+                    stroke={stroke}
+                    strokeWidth={selected || isRangeAnchor ? 2.5 : 1.2}
+                  />
                 </g>
                 <text x={t.labelX} y={t.labelY} textAnchor="middle" dominantBaseline="middle" fontSize="11" fill="var(--color-ink)" className="select-none">
                   {t.number}

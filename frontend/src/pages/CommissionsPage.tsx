@@ -6,6 +6,7 @@ import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import { Card, PageHeader, Badge, Button, Table, Thead, Th, Td, Tr, EmptyRow, Modal } from '../components/ui'
 import type { BadgeVariant } from '../components/ui'
+import { ToothCrown, ToothDefs } from '../components/ToothCrown'
 import { toothShapeType, toothSize, toothCrownPath, cuspPositions } from '../lib/dental'
 import type { CommissionStatement, Doctor } from '../types'
 
@@ -59,11 +60,11 @@ function ToothPreview({ toothNumber }: { toothNumber: number }) {
   const type = toothShapeType(toothNumber, isPrimary)
   const { w, h, cusps: cuspCount } = toothSize(type, isPrimary)
   const crownPath = toothCrownPath(type, w * 2.2, h * 2.2)
-  const cusps = cuspPositions(type, w * 2.2, h * 2.2)
+  const cusps = cuspCount > 0 ? cuspPositions(type, w * 2.2, h * 2.2) : []
   return (
     <svg viewBox="-40 -40 80 80" className="mx-auto" style={{ width: 90, height: 90 }}>
-      <path d={crownPath} fill="var(--color-accent-soft)" stroke="var(--color-accent)" strokeWidth={2} />
-      {cuspCount > 0 && cusps.map((c, i) => <circle key={i} cx={c.x} cy={c.y} r={c.r} fill="#00000015" />)}
+      <ToothDefs />
+      <ToothCrown crownPath={crownPath} cusps={cusps} fill="var(--color-accent-soft)" stroke="var(--color-accent)" strokeWidth={2} />
       <text x={0} y={5} textAnchor="middle" fontSize="16" fontWeight="bold" fill="var(--color-ink)">
         {toothNumber}
       </text>

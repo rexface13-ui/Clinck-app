@@ -21,6 +21,8 @@ class ServiceResource extends JsonResource
             'is_active' => $this->is_active,
             'marks_teeth_missing' => $this->marks_teeth_missing,
             'price_per_tooth' => $this->price_per_tooth,
+            'color' => $this->color,
+            'spans_teeth' => $this->spans_teeth,
             'branch_prices' => $this->whenLoaded('branchPrices', fn () => $this->branchPrices->map(fn ($p) => [
                 'id' => $p->id,
                 'branch_id' => $p->branch_id,

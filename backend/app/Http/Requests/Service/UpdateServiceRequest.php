@@ -25,6 +25,8 @@ class UpdateServiceRequest extends FormRequest
             'is_active' => ['sometimes', 'boolean'],
             'marks_teeth_missing' => ['sometimes', 'boolean'],
             'price_per_tooth' => ['sometimes', 'boolean'],
+            'color' => ['sometimes', 'nullable', 'regex:/^#[0-9a-fA-F]{6}$/'],
+            'spans_teeth' => ['sometimes', 'boolean'],
         ];
     }
 }

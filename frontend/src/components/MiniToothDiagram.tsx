@@ -1,5 +1,7 @@
 import { useMemo } from 'react'
+import { ToothCrown, ToothDefs } from './ToothCrown'
 import {
+  DEFAULT_TOOTH_FILL,
   UPPER_PERMANENT,
   LOWER_PERMANENT,
   UPPER_PRIMARY,
@@ -46,6 +48,7 @@ export default function MiniToothDiagram({ teeth, isChild = false }: { teeth: nu
 
   return (
     <svg viewBox={`0 0 ${VIEWBOX.width} ${VIEWBOX.height}`} className="w-full" style={{ maxWidth: 320 }}>
+      <ToothDefs />
       <line x1={40} y1={VIEWBOX.height / 2} x2={VIEWBOX.width - 40} y2={VIEWBOX.height / 2} stroke="#e2e8f0" strokeDasharray="4 4" />
       <line x1={UPPER_ARCH.cx} y1={20} x2={UPPER_ARCH.cx} y2={VIEWBOX.height - 20} stroke="#e2e8f0" strokeDasharray="4 4" />
       {laidOut.map((t) => {
@@ -53,7 +56,13 @@ export default function MiniToothDiagram({ teeth, isChild = false }: { teeth: nu
         return (
           <g key={t.number}>
             <g transform={`translate(${t.x},${t.y}) rotate(${t.rotationDeg})`}>
-              <path d={t.crownPath} fill={on ? 'var(--color-accent)' : '#fff8f0'} stroke={on ? 'var(--color-accent)' : '#c9b8a8'} strokeWidth={on ? 2.5 : 1.2} />
+              <ToothCrown
+                crownPath={t.crownPath}
+                cusps={[]}
+                fill={on ? 'var(--color-accent)' : DEFAULT_TOOTH_FILL}
+                stroke={on ? 'var(--color-accent)' : '#c9b8a8'}
+                strokeWidth={on ? 2.5 : 1.2}
+              />
             </g>
             <text x={t.labelX} y={t.labelY} textAnchor="middle" dominantBaseline="middle" fontSize="10" fill={on ? 'var(--color-accent)' : 'var(--color-ink)'} fontWeight={on ? 700 : 400} className="select-none">
               {t.number}

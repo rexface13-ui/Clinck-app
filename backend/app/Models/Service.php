@@ -15,6 +15,7 @@ class Service extends Model
         'clinic_id', 'service_category_id', 'name', 'default_price',
         'default_currency', 'default_sessions', 'default_interval_days',
         'default_commission_percent', 'is_active', 'marks_teeth_missing', 'price_per_tooth',
+        'color', 'spans_teeth',
     ];
 
     protected function casts(): array
@@ -25,6 +26,7 @@ class Service extends Model
             'is_active' => 'boolean',
             'marks_teeth_missing' => 'boolean',
             'price_per_tooth' => 'boolean',
+            'spans_teeth' => 'boolean',
         ];
     }
 

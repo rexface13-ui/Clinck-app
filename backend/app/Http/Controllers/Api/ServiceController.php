@@ -86,7 +86,7 @@ class ServiceController extends Controller
         $this->authorize('update', $service);
 
         $data = $request->validate([
-            'steps' => ['required', 'array'],
+            'steps' => ['present', 'array'],
             'steps.*.title' => ['required', 'string', 'max:255'],
             'steps.*.price' => ['required', 'numeric', 'min:0'],
             'steps.*.fields' => ['sometimes', 'array'],

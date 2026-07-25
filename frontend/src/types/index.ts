@@ -67,6 +67,8 @@ export interface Service {
   is_active: boolean
   marks_teeth_missing: boolean
   price_per_tooth: boolean
+  color: string | null
+  spans_teeth: boolean
   branch_prices?: { id: number; branch_id: number; price: string | null; surcharge: string }[]
   steps?: ServiceStep[]
 }
@@ -106,6 +108,8 @@ export interface ToothFinding {
   plan_id: number | null
   service_id: number | null
   service_name: string | null
+  service_color: string | null
+  service_spans_teeth: boolean
   doctor_id: number | null
   doctor_name: string | null
   note: string | null
@@ -178,6 +182,8 @@ export interface WorkItem {
   doctor_name: string | null
   service_id: number | null
   service_name: string | null
+  service_color: string | null
+  service_spans_teeth: boolean
   appointment_id: number | null
   price_per_tooth: boolean
   status: 'in_progress' | 'done' | 'cancelled'

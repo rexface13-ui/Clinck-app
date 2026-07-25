@@ -16,6 +16,8 @@ class WorkItemResource extends JsonResource
             'doctor_name' => $this->whenLoaded('doctor', fn () => $this->doctor?->full_name),
             'service_id' => $this->service_id,
             'service_name' => $this->whenLoaded('service', fn () => $this->service?->name),
+            'service_color' => $this->whenLoaded('service', fn () => $this->service?->color),
+            'service_spans_teeth' => $this->whenLoaded('service', fn () => (bool) $this->service?->spans_teeth),
             'appointment_id' => $this->appointment_id,
             'price_per_tooth' => $this->price_per_tooth,
             'status' => $this->status,

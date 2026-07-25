@@ -89,11 +89,16 @@ function StepsEditor({ steps, onChange }: { steps: StepDraft[]; onChange: (steps
   )
 }
 
+const DEFAULT_COLOR = '#3b82f6'
+const COLOR_PRESETS = ['#3b82f6', '#22c55e', '#f59e0b', '#ef4444', '#a855f7', '#06b6d4', '#ec4899', '#78716c']
+
 const emptyForm = {
   name: '',
   default_price: '',
   marks_teeth_missing: false,
   price_per_tooth: true,
+  color: DEFAULT_COLOR,
+  spans_teeth: false,
 }
 
 export default function ServicesPage() {
@@ -131,6 +136,8 @@ export default function ServicesPage() {
       default_interval_days: null,
       marks_teeth_missing: form.marks_teeth_missing,
       price_per_tooth: form.price_per_tooth,
+      color: form.color,
+      spans_teeth: form.spans_teeth,
     }
     setSaving(true)
     try {
@@ -175,6 +182,8 @@ export default function ServicesPage() {
       default_price: s.default_price,
       marks_teeth_missing: s.marks_teeth_missing,
       price_per_tooth: s.price_per_tooth,
+      color: s.color ?? DEFAULT_COLOR,
+      spans_teeth: s.spans_teeth,
     })
     setSteps(s.steps && s.steps.length > 0 ? s.steps.map((step) => ({ title: step.title, price: step.price, fields: step.fields.map((f) => f.label) })) : [])
     setError(null)
@@ -242,6 +251,39 @@ export default function ServicesPage() {
                 />
                 احسب سعر كل خطوة لكل سن لحاله (لو مطفّي، سعر الخطوة مرة وحدة بغض النظر عن عدد الأسنان)
               </label>
+              <label className="col-span-2 flex items-center gap-2 text-sm text-ink/70">
+                <input
+                  type="checkbox"
+                  checked={form.spans_teeth}
+                  onChange={(e) => setForm({ ...form, spans_teeth: e.target.checked })}
+                  className="size-3.5"
+                />
+                هاي خدمة تمتد عبر أسنان متجاورة (جسر أسنان مثلاً) — بتترسم كخط واصل بين الأسنان المحددة سوا
+              </label>
+
+              <div className="col-span-2">
+                <label className="mb-1 block text-xs text-muted">لون الخدمة على رسمة الأسنان</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    value={form.color}
+                    onChange={(e) => setForm({ ...form, color: e.target.value })}
+                    className="h-9 w-12 cursor-pointer rounded-lg border border-border bg-surface p-1"
+                  />
+                  <div className="flex flex-wrap gap-1.5">
+                    {COLOR_PRESETS.map((c) => (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => setForm({ ...form, color: c })}
+                        className={`size-6 rounded-full border-2 ${form.color === c ? 'border-ink' : 'border-transparent'}`}
+                        style={{ background: c }}
+                        title={c}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div className="mt-6">
@@ -275,6 +317,7 @@ export default function ServicesPage() {
         ) : (
           <Table>
             <Thead>
+              <Th></Th>
               <Th>الخدمة</Th>
               <Th>السعر</Th>
               <Th>الخطوات</Th>
@@ -282,11 +325,18 @@ export default function ServicesPage() {
             </Thead>
             <tbody>
               {services.length === 0 ? (
-                <EmptyRow colSpan={4}>لا توجد خدمات بعد.</EmptyRow>
+                <EmptyRow colSpan={5}>لا توجد خدمات بعد.</EmptyRow>
               ) : (
                 services.map((s) => (
                   <Tr key={s.id}>
-                    <Td>{s.name}</Td>
+                    <Td>
+                      <span
+                        className="inline-block size-4 rounded-full border border-black/10"
+                        style={{ background: s.color ?? DEFAULT_COLOR }}
+                        title={s.spans_teeth ? 'جسر/تمتد عبر أسنان' : undefined}
+                      />
+                    </Td>
+                    <Td>{s.name}{s.spans_teeth && <span className="ms-1 text-xs text-muted">(جسر)</span>}</Td>
                     <Td className="text-muted">{s.default_price} {s.default_currency}</Td>
                     <Td className="text-muted">{s.steps?.length ?? 0}</Td>
                     <Td>

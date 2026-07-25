@@ -39,6 +39,20 @@ export const STATUS_COLOR: Record<string, string> = {
   missing: 'var(--color-tooth-missing)',
 }
 
+export const DEFAULT_TOOTH_FILL = '#fff8f0'
+
+/** Mixes a hex color toward white by `amount` (0-1) — used to fade a service's color for "partially done" teeth without relying on fill-opacity (which would also fade the enamel gloss/shading layered on top). */
+export function fadeHex(hex: string, amount: number): string {
+  const m = /^#([0-9a-fA-F]{6})$/.exec(hex)
+  if (!m) return hex
+  const n = parseInt(m[1], 16)
+  const r = (n >> 16) & 255
+  const g = (n >> 8) & 255
+  const b = n & 255
+  const mix = (c: number) => Math.round(c + (255 - c) * amount)
+  return `rgb(${mix(r)}, ${mix(g)}, ${mix(b)})`
+}
+
 export type ToothShapeType = 'incisor' | 'canine' | 'premolar' | 'molar'
 
 export function toothShapeType(toothNumber: number, isPrimary: boolean): ToothShapeType {
