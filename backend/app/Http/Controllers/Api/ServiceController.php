@@ -93,6 +93,13 @@ class ServiceController extends Controller
             'steps.*.fields.*.label' => ['required', 'string', 'max:255'],
         ]);
 
+        $stepsTotal = collect($data['steps'])->sum('price');
+        abort_if(
+            $stepsTotal > (float) $service->default_price,
+            422,
+            'مجموع أسعار الخطوات (' . $stepsTotal . ') أكبر من سعر الخدمة (' . $service->default_price . ').',
+        );
+
         DB::transaction(function () use ($data, $service) {
             $service->steps()->each(function (ServiceStep $step) {
                 $step->fields()->delete();

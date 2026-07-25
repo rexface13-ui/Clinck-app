@@ -15,7 +15,7 @@ class StoreServiceRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'service_category_id' => ['required', Rule::exists('service_categories', 'id')],
+            'service_category_id' => ['nullable', Rule::exists('service_categories', 'id')],
             'name' => ['required', 'string', 'max:255'],
             'default_price' => ['required', 'numeric', 'min:0'],
             'default_currency' => ['sometimes', 'string', 'size:3'],

@@ -57,7 +57,7 @@ export interface ServiceStep {
 
 export interface Service {
   id: number
-  service_category_id: number
+  service_category_id: number | null
   name: string
   default_price: string
   default_currency: string
