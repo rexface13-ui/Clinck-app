@@ -101,7 +101,6 @@ export default function WorkPlanningPanel({
   const [rangeMode, setRangeMode] = useState(false)
   const [rangeStart, setRangeStart] = useState<number | null>(null)
   const [newServiceId, setNewServiceId] = useState('')
-  const [newPricePerTooth, setNewPricePerTooth] = useState<boolean | null>(null)
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
 
@@ -183,11 +182,9 @@ export default function WorkPlanningPanel({
         doctor_id: Number(doctorId),
         service_id: Number(newServiceId),
         tooth_numbers: selectedTeeth,
-        price_per_tooth: newPricePerTooth,
       })
       setSelectedTeeth([])
       setNewServiceId('')
-      setNewPricePerTooth(null)
       loadWorkItems()
       setActiveWorkItemId(res.data.data.id)
     } catch {
@@ -596,10 +593,7 @@ export default function WorkPlanningPanel({
             <SearchableSelect
               options={serviceOptions}
               value={newServiceId}
-              onChange={(v) => {
-                setNewServiceId(v)
-                setNewPricePerTooth(null)
-              }}
+              onChange={setNewServiceId}
               placeholder="اختر خدمة..."
             />
           </div>
@@ -608,31 +602,6 @@ export default function WorkPlanningPanel({
             بدء الشغل ({selectedTeeth.length} سن)
           </Button>
         </div>
-        {newServiceId && (
-          <div className="mt-3">
-            <label className="mb-1 block text-xs text-muted">طريقة التسعير</label>
-            <div className="flex w-fit gap-1 rounded-lg border border-border bg-white p-1">
-              {[
-                { value: true, label: 'لكل سن' },
-                { value: false, label: 'للشغل كامل' },
-              ].map((opt) => {
-                const defaultValue = services.find((s) => String(s.id) === newServiceId)?.price_per_tooth ?? true
-                const active = (newPricePerTooth ?? defaultValue) === opt.value
-                return (
-                  <button
-                    key={String(opt.value)}
-                    onClick={() => setNewPricePerTooth(opt.value)}
-                    className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
-                      active ? 'bg-accent text-white' : 'text-ink/60 hover:bg-background'
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-        )}
         {createError && <p className="mt-2 text-sm text-danger">{createError}</p>}
       </Card>
 

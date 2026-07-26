@@ -30,16 +30,16 @@ class WorkItemService
      * retroactively change what's already in progress, and pre-creates one
      * tracking row per (tooth, step) so the UI has something to check off.
      */
-    public function create(Patient $patient, ?int $doctorId, Service $service, array $teeth, ?bool $pricePerTooth = null): WorkItem
+    public function create(Patient $patient, ?int $doctorId, Service $service, array $teeth): WorkItem
     {
         abort_if(empty($teeth), 422, 'لازم تحدد سن واحد عالأقل.');
 
-        return DB::transaction(function () use ($patient, $doctorId, $service, $teeth, $pricePerTooth) {
+        return DB::transaction(function () use ($patient, $doctorId, $service, $teeth) {
             $workItem = WorkItem::create([
                 'patient_id' => $patient->id,
                 'doctor_id' => $doctorId,
                 'service_id' => $service->id,
-                'price_per_tooth' => $pricePerTooth ?? $service->price_per_tooth,
+                'price_per_tooth' => $service->price_per_tooth,
                 'status' => 'in_progress',
             ]);
 

@@ -53,13 +53,12 @@ class WorkItemController extends Controller
             'service_id' => ['required', 'integer', 'exists:services,id'],
             'tooth_numbers' => ['required', 'array', 'min:1'],
             'tooth_numbers.*' => ['integer'],
-            'price_per_tooth' => ['sometimes', 'nullable', 'boolean'],
         ]);
 
         $patient = Patient::findOrFail($data['patient_id']);
         $svc = Service::with('steps.fields')->findOrFail($data['service_id']);
 
-        $workItem = $service->create($patient, $data['doctor_id'], $svc, $data['tooth_numbers'], $data['price_per_tooth'] ?? null);
+        $workItem = $service->create($patient, $data['doctor_id'], $svc, $data['tooth_numbers']);
 
         return new WorkItemResource($workItem);
     }
