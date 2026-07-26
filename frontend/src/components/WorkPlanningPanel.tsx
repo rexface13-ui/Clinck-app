@@ -253,7 +253,13 @@ export default function WorkPlanningPanel({
       const adding = !next.has(id)
       if (adding) next.add(id)
       else next.delete(id)
-      if (adding) requestAnimationFrame(() => checkoutSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }))
+      if (adding) {
+        requestAnimationFrame(() => checkoutSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }))
+        if (!doctorId) {
+          const item = workItems.find((w) => w.id === id)
+          if (item?.doctor_id) setDoctorId(String(item.doctor_id))
+        }
+      }
       return next
     })
   }
@@ -616,6 +622,10 @@ export default function WorkPlanningPanel({
         <div ref={checkoutSectionRef}>
         <Card className="p-4">
           <h2 className="mb-3 text-sm font-medium text-ink/70">التحصيل — {checkoutIds.size} شغل محدد</h2>
+          <div className="mb-3 w-64">
+            <label className="mb-1 block text-xs text-muted">الطبيب</label>
+            <SearchableSelect options={doctorOptions} value={doctorId} onChange={setDoctorId} placeholder="اختر طبيب..." />
+          </div>
           <div className="mb-3 flex items-center justify-between text-sm">
             <span className="text-muted">الإجمالي حسب الخطوات المنجزة</span>
             <span className="text-ink">{money(checkoutTotal)} ₪</span>
