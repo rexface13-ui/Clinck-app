@@ -41,6 +41,23 @@ export default function PurchaseInvoicesPage() {
   const [payCheck, setPayCheck] = useState({ check_number: '', bank_name: '', due_date: '' })
   const [notesDraft, setNotesDraft] = useState('')
   const [savingNotes, setSavingNotes] = useState(false)
+  const [filterStatus, setFilterStatus] = useState<'' | 'draft' | 'confirmed'>('')
+  const [filterFrom, setFilterFrom] = useState('')
+  const [filterTo, setFilterTo] = useState('')
+  const [invoiceSearch, setInvoiceSearch] = useState('')
+
+  function loadInvoices() {
+    api
+      .get('/purchase-invoices', {
+        params: {
+          status: filterStatus || undefined,
+          from: filterFrom || undefined,
+          to: filterTo || undefined,
+          search: invoiceSearch || undefined,
+        },
+      })
+      .then((res) => setInvoices(res.data))
+  }
 
   function loadAll() {
     api.get('/suppliers').then((res) => setSuppliers(res.data))
@@ -51,10 +68,12 @@ export default function PurchaseInvoicesPage() {
       const ils = res.data.find((c: Cashbox) => c.currency === 'ILS')
       if (ils) setPayCashboxId(String(ils.id))
     })
-    api.get('/purchase-invoices').then((res) => setInvoices(res.data))
+    loadInvoices()
   }
 
   useEffect(loadAll, [])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(loadInvoices, [filterStatus, filterFrom, filterTo, invoiceSearch])
 
   useEffect(() => {
     if (searchParams.get('new') === '1') {
@@ -302,6 +321,36 @@ export default function PurchaseInvoicesPage() {
                   فاتورة جديدة لـ{selectedSupplier.name}
                 </Button>
               )}
+
+              <Card className="mb-3 space-y-2 p-3">
+                <div className="relative">
+                  <FontAwesomeIcon icon={faMagnifyingGlass} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted" />
+                  <input
+                    value={invoiceSearch}
+                    onChange={(e) => setInvoiceSearch(e.target.value)}
+                    placeholder="بحث برقم الفاتورة..."
+                    className="w-full rounded-xl border border-border bg-surface py-2 pe-3 ps-9 text-sm focus:border-accent focus:outline-none"
+                  />
+                </div>
+                <div className="flex gap-1 rounded-lg border border-border bg-white p-1">
+                  {(['', 'draft', 'confirmed'] as const).map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => setFilterStatus(s)}
+                      className={`flex-1 rounded-md py-1.5 text-xs font-medium transition-colors ${
+                        filterStatus === s ? 'bg-accent text-white' : 'text-ink/60 hover:bg-background'
+                      }`}
+                    >
+                      {s === '' ? 'الكل' : STATUS_LABELS[s]}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <DatePicker value={filterFrom} onChange={setFilterFrom} placeholder="من تاريخ" />
+                  <DatePicker value={filterTo} onChange={setFilterTo} placeholder="إلى تاريخ" />
+                </div>
+              </Card>
+
               <Card>
                 {supplierInvoices.length === 0 ? (
                   <p className="p-6 text-center text-sm text-muted">لا توجد فواتير لهذا المورد.</p>

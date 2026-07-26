@@ -33,7 +33,21 @@ class ExpenseController extends Controller
     {
         abort_unless($request->user()->can('cash.view'), 403);
 
-        return Expense::with(['category', 'cashbox'])->orderByDesc('spent_at')->limit(200)->get()->map(fn ($e) => [
+        $query = Expense::with(['category', 'cashbox'])->orderByDesc('spent_at');
+
+        if ($request->filled('from')) $query->whereDate('spent_at', '>=', $request->date('from'));
+        if ($request->filled('to')) $query->whereDate('spent_at', '<=', $request->date('to'));
+        if ($request->filled('expense_category_id')) $query->where('expense_category_id', $request->integer('expense_category_id'));
+        if ($request->filled('cashbox_id')) $query->where('cashbox_id', $request->integer('cashbox_id'));
+        if ($request->filled('search')) {
+            $term = $request->string('search');
+            $query->where(function ($q) use ($term) {
+                $q->where('description', 'like', "%{$term}%")
+                    ->orWhereHas('category', fn ($c) => $c->where('name', 'like', "%{$term}%"));
+            });
+        }
+
+        return $query->limit(500)->get()->map(fn ($e) => [
             'id' => $e->id,
             'expense_category_id' => $e->expense_category_id,
             'category' => $e->category->name,

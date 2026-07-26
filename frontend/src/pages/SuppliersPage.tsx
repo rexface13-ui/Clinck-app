@@ -92,6 +92,7 @@ export default function SuppliersPage() {
       })
       setPayForm({ cashbox_id: '', amount: '', currency: 'ILS' })
       loadLedger(selected)
+      loadSuppliers()
     } finally {
       setBusy(false)
     }
@@ -130,25 +131,34 @@ export default function SuppliersPage() {
             />
           </div>
 
-          <Card>
-            {filteredSuppliers.length === 0 ? (
-              <p className="p-6 text-center text-sm text-muted">{search ? 'لا توجد نتائج مطابقة.' : 'لا يوجد موردون.'}</p>
-            ) : (
-              filteredSuppliers.map((s) => (
-                <button
-                  key={s.id}
-                  onClick={() => loadLedger(s)}
-                  className={`flex w-full items-center gap-3 border-b border-border/70 p-4 text-right text-sm last:border-0 hover:bg-background ${selected?.id === s.id ? 'bg-background' : ''}`}
-                >
-                  <FontAwesomeIcon icon={faTruck} className="text-ink/40" />
-                  <div>
-                    <p className="font-medium text-ink">{s.name}</p>
-                    <p className="text-xs text-muted">{s.phone ?? '—'}</p>
-                  </div>
-                </button>
-              ))
-            )}
-          </Card>
+          {filteredSuppliers.length === 0 ? (
+            <Card className="p-6 text-center text-sm text-muted">{search ? 'لا توجد نتائج مطابقة.' : 'لا يوجد موردون.'}</Card>
+          ) : (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-1">
+              {filteredSuppliers.map((s) => {
+                const owed = Number(s.outstanding_ils)
+                return (
+                  <button
+                    key={s.id}
+                    onClick={() => loadLedger(s)}
+                    className={`rounded-xl border p-4 text-right transition-colors hover:border-accent ${
+                      selected?.id === s.id ? 'border-accent bg-accent-soft' : 'border-border bg-surface'
+                    } ${!s.is_active ? 'opacity-60' : ''}`}
+                  >
+                    <div className="mb-2 flex items-center gap-2">
+                      <FontAwesomeIcon icon={faTruck} className="text-ink/40" />
+                      <p className="font-medium text-ink">{s.name}</p>
+                    </div>
+                    <p className="mb-2 text-xs text-muted">{s.phone ?? '—'}</p>
+                    <div className="flex items-center justify-between border-t border-border/70 pt-2">
+                      <span className="text-xs text-muted">المستحق</span>
+                      <span className={`text-sm font-semibold ${owed > 0 ? 'text-danger' : 'text-ink'}`}>{owed.toFixed(2)} ₪</span>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          )}
         </div>
 
         <div className="col-span-2">

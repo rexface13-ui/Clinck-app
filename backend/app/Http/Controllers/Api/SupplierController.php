@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Cashbox;
 use App\Models\Supplier;
+use App\Models\SupplierTransaction;
 use App\Services\SupplierService;
 use Illuminate\Http\Request;
 
@@ -14,7 +15,21 @@ class SupplierController extends Controller
     {
         abort_unless($request->user()->can('suppliers.view'), 403);
 
-        return Supplier::orderBy('name')->get();
+        $suppliers = Supplier::orderBy('name')->get();
+
+        // One grouped query for every supplier's running balance instead of
+        // an N+1 ledger() call per card — purchases/check_bounced already
+        // carry a positive amount_ils and payments/check_endorsed a
+        // negative one (see SupplierService), so a plain sum is the balance.
+        $balances = SupplierTransaction::whereIn('supplier_id', $suppliers->pluck('id'))
+            ->selectRaw('supplier_id, SUM(amount_ils) as total')
+            ->groupBy('supplier_id')
+            ->pluck('total', 'supplier_id');
+
+        return $suppliers->map(fn ($s) => [
+            ...$s->toArray(),
+            'outstanding_ils' => round((float) ($balances[$s->id] ?? 0), 2),
+        ]);
     }
 
     public function store(Request $request)

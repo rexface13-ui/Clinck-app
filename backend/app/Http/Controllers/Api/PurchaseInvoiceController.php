@@ -32,8 +32,24 @@ class PurchaseInvoiceController extends Controller
         if ($request->filled('supplier_id')) {
             $query->where('supplier_id', $request->input('supplier_id'));
         }
+        if ($request->filled('status')) {
+            $query->where('status', $request->input('status'));
+        }
+        if ($request->filled('from')) {
+            $query->whereDate('issued_at', '>=', $request->date('from'));
+        }
+        if ($request->filled('to')) {
+            $query->whereDate('issued_at', '<=', $request->date('to'));
+        }
+        if ($request->filled('search')) {
+            $term = $request->input('search');
+            $query->where(function ($q) use ($term) {
+                $q->where('invoice_number', 'like', "%{$term}%")
+                    ->orWhereHas('supplier', fn ($s) => $s->where('name', 'like', "%{$term}%"));
+            });
+        }
 
-        return $query->get();
+        return $query->limit(500)->get();
     }
 
     public function store(Request $request)

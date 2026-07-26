@@ -281,7 +281,7 @@ export interface IncomeCategory {
 export interface CashEntry {
   id: number
   expense_category_id?: number
-  income_category_id?: number
+  income_category_id?: number | null
   category: string
   cashbox_id: number
   cashbox: string
@@ -291,6 +291,10 @@ export interface CashEntry {
   description: string | null
   spent_at?: string
   received_at?: string
+  /** Incomes only — 'income' is a manual entry (editable/deletable here), 'payment' is a patient payment collection (read-only, managed from the patient's ledger). */
+  kind?: 'income' | 'payment'
+  source_id?: number | null
+  editable?: boolean
 }
 
 export interface Supplier {
@@ -298,6 +302,7 @@ export interface Supplier {
   name: string
   phone: string | null
   is_active: boolean
+  outstanding_ils: number
 }
 
 export interface SupplierLedgerRow {
