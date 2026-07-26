@@ -91,6 +91,10 @@ export default function WorkPlanningPanel({
   const [services, setServices] = useState<Service[]>([])
   const [cashboxes, setCashboxes] = useState<Cashbox[]>([])
   const [branches, setBranches] = useState<Branch[]>([])
+  const [walkInStartTime, setWalkInStartTime] = useState(() => {
+    const now = new Date()
+    return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+  })
   const [walkInDurationHours, setWalkInDurationHours] = useState(0)
   const [walkInDurationMinutes, setWalkInDurationMinutes] = useState(30)
   const [doctorId, setDoctorId] = useState('')
@@ -278,7 +282,9 @@ export default function WorkPlanningPanel({
       let effectiveAppointmentId = appointmentId ?? null
       if (!effectiveAppointmentId) {
         const mainBranch = branches.find((b) => b.is_main) ?? branches[0]
-        const startsAt = new Date()
+        const now = new Date()
+        const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+        const startsAt = new Date(`${todayIso}T${walkInStartTime}:00`)
         const endsAt = new Date(startsAt.getTime() + walkInDuration * 60000)
         const apptRes = await api.post('/appointments', {
           branch_id: mainBranch?.id,
@@ -686,8 +692,14 @@ export default function WorkPlanningPanel({
 
           {!appointmentId && (
             <div className="mb-3">
-              <label className="mb-1 block text-xs text-muted">مدة الزيارة (ما في موعد محجوز اليوم)</label>
+              <label className="mb-1 block text-xs text-muted">وقت البدء والمدة (ما في موعد محجوز اليوم)</label>
               <div className="flex items-center gap-2">
+                <input
+                  type="time"
+                  value={walkInStartTime}
+                  onChange={(e) => setWalkInStartTime(e.target.value)}
+                  className="rounded-lg border border-border px-2 py-1.5 text-sm"
+                />
                 <input
                   type="number"
                   min={0}
