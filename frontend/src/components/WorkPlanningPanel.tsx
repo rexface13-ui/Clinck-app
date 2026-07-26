@@ -19,6 +19,7 @@ import {
   LOWER_ARCH,
   LOWER_PERMANENT,
   LOWER_PRIMARY,
+  STATUS_COLOR,
   UPPER_ARCH,
   UPPER_PERMANENT,
   UPPER_PRIMARY,
@@ -32,7 +33,7 @@ import {
   toothSize,
   type ArchConfig,
 } from '../lib/dental'
-import type { Branch, Cashbox, Doctor, Service, WorkItem } from '../types'
+import type { Branch, Cashbox, Doctor, Service, ToothFinding, ToothState, WorkItem } from '../types'
 
 interface LaidOutTooth {
   number: number
@@ -78,6 +79,9 @@ export default function WorkPlanningPanel({
   medicalAlerts = [],
   onChanged,
   appointmentId,
+  defaultDoctorId,
+  toothStates = [],
+  toothFindings = [],
 }: {
   patientId: number
   patientName: string
@@ -86,6 +90,11 @@ export default function WorkPlanningPanel({
   onChanged?: () => void
   /** Today's already-booked appointment this session belongs to, if any — when absent (walk-in with no booking), checkout asks for a visit duration and books one on the fly. */
   appointmentId?: number
+  /** Doctor the appointment was booked with, if any — pre-fills the supervising-doctor field so a scheduled, arrived patient doesn't need it re-picked, but it stays editable. */
+  defaultDoctorId?: number | null
+  /** Same chart data as the overview tab — shown on the tooth-picker here too so existing work/findings are visible while selecting teeth, not just today's in-progress items. */
+  toothStates?: ToothState[]
+  toothFindings?: ToothFinding[]
 }) {
   const [doctors, setDoctors] = useState<Doctor[]>([])
   const [services, setServices] = useState<Service[]>([])
@@ -97,7 +106,7 @@ export default function WorkPlanningPanel({
   })
   const [walkInDurationHours, setWalkInDurationHours] = useState(0)
   const [walkInDurationMinutes, setWalkInDurationMinutes] = useState(30)
-  const [doctorId, setDoctorId] = useState('')
+  const [doctorId, setDoctorId] = useState(defaultDoctorId ? String(defaultDoctorId) : '')
   const [workItems, setWorkItems] = useState<WorkItem[]>([])
   const [activeWorkItemId, setActiveWorkItemId] = useState<number | null>(null)
 
@@ -375,6 +384,59 @@ export default function WorkPlanningPanel({
     return map
   }, [workItems])
 
+  const stateByTooth = useMemo(() => {
+    const map = new Map<number, string>()
+    toothStates.forEach((s) => map.set(s.tooth_number, s.status))
+    return map
+  }, [toothStates])
+
+  const activeFindingByTooth = useMemo(() => {
+    const map = new Map<number, ToothFinding>()
+    toothFindings.forEach((f) => {
+      if (f.service_id && !map.has(f.tooth_number)) map.set(f.tooth_number, f)
+    })
+    return map
+  }, [toothFindings])
+
+  const bridgeGroups = useMemo(() => {
+    const groups = new Map<string, { color: string; done: boolean; teeth: number[] }>()
+    toothFindings.forEach((f) => {
+      if (!f.service_spans_teeth || !f.service_id) return
+      const key = `${f.plan_id ?? 'x'}-${f.service_id}`
+      const g = groups.get(key)
+      if (g) {
+        g.teeth.push(f.tooth_number)
+        g.done = g.done && f.status === 'done'
+      } else {
+        groups.set(key, { color: f.service_color ?? STATUS_COLOR.done, done: f.status === 'done', teeth: [f.tooth_number] })
+      }
+    })
+    return Array.from(groups.values()).filter((g) => g.teeth.length > 1)
+  }, [toothFindings])
+
+  /**
+   * Combined fill for the tooth-picker: today's live in-progress work (most
+   * relevant, changes as you check steps off) wins over an existing chart
+   * finding, which wins over "missing", which falls back to the plain
+   * default — same layering the overview tab uses, so this chart isn't a
+   * blank slate next to a patient who already has a full dental history.
+   */
+  function pickerToothColor(tooth: number): string {
+    const work = toothWorkColor.get(tooth)
+    if (work) return work.done ? work.color : fadeHex(work.color, 0.55)
+    if (stateByTooth.get(tooth) === 'missing') return STATUS_COLOR.missing
+    const finding = activeFindingByTooth.get(tooth)
+    if (finding) {
+      if (finding.service_color) {
+        const done = finding.status === 'done'
+        return done ? finding.service_color : fadeHex(finding.service_color, 0.55)
+      }
+      if (finding.status === 'planned' || finding.status === 'in_progress') return STATUS_COLOR.planned
+      return STATUS_COLOR.done
+    }
+    return DEFAULT_TOOTH_FILL
+  }
+
   const serviceOptions = services.map((s) => ({ value: String(s.id), label: s.name }))
   const doctorOptions = doctors.map((d) => ({ value: String(d.id), label: d.full_name }))
 
@@ -574,12 +636,30 @@ export default function WorkPlanningPanel({
         <svg viewBox={`0 0 ${VIEWBOX.width} ${VIEWBOX.height}`} className="w-full" style={{ maxWidth: 620 }}>
           <ToothDefs />
           <line x1={40} y1={VIEWBOX.height / 2} x2={VIEWBOX.width - 40} y2={VIEWBOX.height / 2} stroke="#e2e8f0" strokeDasharray="4 4" />
+          {bridgeGroups.map((g, i) => {
+            const points = g.teeth
+              .map((n) => teeth.find((t) => t.number === n))
+              .filter((t): t is LaidOutTooth => !!t)
+              .sort((a, b) => a.labelX - b.labelX)
+            if (points.length < 2) return null
+            const color = g.done ? g.color : fadeHex(g.color, 0.5)
+            return (
+              <polyline
+                key={i}
+                points={points.map((p) => `${p.x},${p.y}`).join(' ')}
+                fill="none"
+                stroke={color}
+                strokeWidth={7}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                opacity={0.85}
+              />
+            )
+          })}
           {teeth.map((t) => {
             const selected = selectedTeeth.includes(t.number)
             const isRangeAnchor = rangeStart === t.number
-            const work = toothWorkColor.get(t.number)
-            const workFill = work ? (work.done ? work.color : fadeHex(work.color, 0.55)) : null
-            const fill = workFill ?? (selected || isRangeAnchor ? 'var(--color-accent)' : DEFAULT_TOOTH_FILL)
+            const fill = selected || isRangeAnchor ? 'var(--color-accent)' : pickerToothColor(t.number)
             const stroke = selected || isRangeAnchor ? 'var(--color-accent)' : '#c9b8a8'
             return (
               <g key={t.number} onClick={() => toggleTooth(t.number)} className="cursor-pointer">

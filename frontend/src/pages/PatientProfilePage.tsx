@@ -436,6 +436,9 @@ export default function PatientProfilePage() {
                 medicalAlerts={patient.medical_alerts}
                 onChanged={load}
                 appointmentId={todayAppointment?.id}
+                defaultDoctorId={todayAppointment?.doctor_id}
+                toothStates={tooth_states}
+                toothFindings={tooth_findings}
               />
             ),
           },
