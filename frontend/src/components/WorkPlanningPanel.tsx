@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import {
   faCheck,
@@ -101,11 +101,13 @@ export default function WorkPlanningPanel({
   const [rangeMode, setRangeMode] = useState(false)
   const [rangeStart, setRangeStart] = useState<number | null>(null)
   const [newServiceId, setNewServiceId] = useState('')
+  const [newPricePerTooth, setNewPricePerTooth] = useState<boolean | null>(null)
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
 
   const [checkoutIds, setCheckoutIds] = useState<Set<number>>(new Set())
   const [discount, setDiscount] = useState('')
+  const checkoutSectionRef = useRef<HTMLDivElement>(null)
   const [payMode, setPayMode] = useState<'now' | 'defer'>('now')
   const [cashboxId, setCashboxId] = useState('')
   const [method, setMethod] = useState<'cash' | 'card' | 'transfer'>('cash')
@@ -177,9 +179,11 @@ export default function WorkPlanningPanel({
         doctor_id: Number(doctorId),
         service_id: Number(newServiceId),
         tooth_numbers: selectedTeeth,
+        price_per_tooth: newPricePerTooth,
       })
       setSelectedTeeth([])
       setNewServiceId('')
+      setNewPricePerTooth(null)
       loadWorkItems()
       setActiveWorkItemId(res.data.data.id)
     } catch {
@@ -240,8 +244,10 @@ export default function WorkPlanningPanel({
   function toggleCheckoutId(id: number) {
     setCheckoutIds((prev) => {
       const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
+      const adding = !next.has(id)
+      if (adding) next.add(id)
+      else next.delete(id)
+      if (adding) requestAnimationFrame(() => checkoutSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }))
       return next
     })
   }
@@ -381,34 +387,42 @@ export default function WorkPlanningPanel({
               const of = w.steps.reduce((s, st) => s + st.tooth_steps.length, 0)
               return (
                 <div key={w.id} className="rounded-lg border border-ink/10">
-                  <div className="flex items-center gap-3 px-3 py-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={checkoutIds.has(w.id)}
-                      onChange={() => toggleCheckoutId(w.id)}
-                      className="size-4 accent-accent"
-                      title="ضمن التحصيل الحالي"
-                    />
-                    <button onClick={() => setActiveWorkItemId(activeWorkItemId === w.id ? null : w.id)} className="flex-1 text-start hover:text-accent">
+                  <div className="flex flex-wrap items-center gap-3 px-3 py-2 text-sm">
+                    <button onClick={() => setActiveWorkItemId(activeWorkItemId === w.id ? null : w.id)} className="text-start hover:text-accent">
                       <span className="font-medium text-ink">{w.service_name}</span>
                       <span className="text-xs text-muted"> — أسنان {w.teeth.join('، ')} — {w.doctor_name ?? 'بدون طبيب'}</span>
                     </button>
                     <span className="text-xs text-muted">{done}/{of} خطوة</span>
                     <Badge variant={STATUS_VARIANTS[w.status]}>{STATUS_LABELS[w.status]}</Badge>
                     <span className="text-sm font-medium text-ink">{money(itemTotal(w))} ₪</span>
-                    <button
-                      onClick={() => {
-                        setSchedulingId(schedulingId === w.id ? null : w.id)
-                        setScheduleError(null)
-                      }}
-                      className="text-xs text-accent hover:underline"
-                      title="جدولة الشغل المتبقي"
-                    >
-                      <FontAwesomeIcon icon={faCalendarPlus} />
-                    </button>
-                    <button onClick={() => cancelWorkItem(w)} className="text-danger hover:underline">
-                      <FontAwesomeIcon icon={faTrash} />
-                    </button>
+                    <div className="ms-auto flex flex-wrap items-center gap-2">
+                      <button
+                        onClick={() => toggleCheckoutId(w.id)}
+                        className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium ${
+                          checkoutIds.has(w.id) ? 'bg-accent text-white' : 'bg-accent-soft text-accent hover:opacity-80'
+                        }`}
+                      >
+                        <FontAwesomeIcon icon={faCheck} />
+                        {checkoutIds.has(w.id) ? 'محدد للتحصيل' : 'تحديد للتحصيل'}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setSchedulingId(schedulingId === w.id ? null : w.id)
+                          setScheduleError(null)
+                        }}
+                        className="flex items-center gap-1.5 rounded-lg bg-background px-2.5 py-1.5 text-xs font-medium text-ink/70 hover:text-accent"
+                      >
+                        <FontAwesomeIcon icon={faCalendarPlus} />
+                        جدولة الباقي
+                      </button>
+                      <button
+                        onClick={() => cancelWorkItem(w)}
+                        className="flex items-center gap-1.5 rounded-lg bg-background px-2.5 py-1.5 text-xs font-medium text-danger hover:bg-danger-soft"
+                      >
+                        <FontAwesomeIcon icon={faTrash} />
+                        إلغاء
+                      </button>
+                    </div>
                   </div>
 
                   {scheduleSuccessId === w.id && (
@@ -566,8 +580,41 @@ export default function WorkPlanningPanel({
         <div className="mt-3 flex flex-wrap items-end gap-3">
           <div className="w-64">
             <label className="mb-1 block text-xs text-muted">الخدمة</label>
-            <SearchableSelect options={serviceOptions} value={newServiceId} onChange={setNewServiceId} placeholder="اختر خدمة..." />
+            <SearchableSelect
+              options={serviceOptions}
+              value={newServiceId}
+              onChange={(v) => {
+                setNewServiceId(v)
+                setNewPricePerTooth(null)
+              }}
+              placeholder="اختر خدمة..."
+            />
           </div>
+          {newServiceId && (
+            <div>
+              <label className="mb-1 block text-xs text-muted">طريقة التسعير</label>
+              <div className="flex gap-1 rounded-lg border border-border bg-white p-1">
+                {[
+                  { value: true, label: 'لكل سن' },
+                  { value: false, label: 'للشغل كامل' },
+                ].map((opt) => {
+                  const defaultValue = services.find((s) => String(s.id) === newServiceId)?.price_per_tooth ?? true
+                  const active = (newPricePerTooth ?? defaultValue) === opt.value
+                  return (
+                    <button
+                      key={String(opt.value)}
+                      onClick={() => setNewPricePerTooth(opt.value)}
+                      className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                        active ? 'bg-accent text-white' : 'text-ink/60 hover:bg-background'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
           <Button onClick={createWorkItem} loading={creating} disabled={creating}>
             <FontAwesomeIcon icon={faPlus} />
             بدء الشغل ({selectedTeeth.length} سن)
@@ -577,27 +624,30 @@ export default function WorkPlanningPanel({
       </Card>
 
       {checkoutIds.size > 0 && (
+        <div ref={checkoutSectionRef}>
         <Card className="p-4">
           <h2 className="mb-3 text-sm font-medium text-ink/70">التحصيل — {checkoutIds.size} شغل محدد</h2>
           <div className="mb-3 flex items-center justify-between text-sm">
-            <span className="text-muted">الإجمالي قبل الخصم</span>
+            <span className="text-muted">الإجمالي حسب الخطوات المنجزة</span>
             <span className="text-ink">{money(checkoutTotal)} ₪</span>
           </div>
           <div className="mb-3 flex items-center gap-2">
-            <span className="text-sm text-ink/70">خصم</span>
+            <span className="text-sm text-ink/70">السعر النهائي (عدّله يدوياً لو بدك تخصم)</span>
             <input
               type="number"
-              value={discount}
-              onChange={(e) => setDiscount(e.target.value)}
-              placeholder="0"
-              className="w-28 rounded-lg border border-border px-2 py-1.5 text-sm"
+              value={finalTotal === checkoutTotal && discount === '' ? '' : finalTotal}
+              onChange={(e) => {
+                const typed = e.target.value === '' ? checkoutTotal : Math.max(0, Number(e.target.value))
+                setDiscount(String(Math.max(0, checkoutTotal - typed)))
+              }}
+              placeholder={String(checkoutTotal)}
+              className="w-28 rounded-lg border border-border px-2 py-1.5 text-sm font-semibold"
             />
             <span className="text-xs text-muted">₪</span>
           </div>
-          <div className="mb-4 flex justify-between border-t border-border/70 pt-2 text-sm font-semibold text-ink">
-            <span>الإجمالي بعد الخصم</span>
-            <span>{money(finalTotal)} ₪</span>
-          </div>
+          {discountAmount > 0 && (
+            <p className="mb-3 text-xs text-muted">خصم {money(discountAmount)} ₪ عن السعر الأصلي.</p>
+          )}
 
           {!appointmentId && (
             <div className="mb-3">
@@ -670,6 +720,7 @@ export default function WorkPlanningPanel({
             تأكيد الحفظ والتحصيل
           </Button>
         </Card>
+        </div>
       )}
     </div>
   )
