@@ -122,9 +122,13 @@ export default function WorkPlanningPanel({
   const [scheduleDurationMinutes, setScheduleDurationMinutes] = useState(30)
   const [scheduleError, setScheduleError] = useState<string | null>(null)
   const [scheduleSuccessId, setScheduleSuccessId] = useState<number | null>(null)
+  const [pendingScheduleIds, setPendingScheduleIds] = useState<number[]>([])
 
   function loadWorkItems() {
-    api.get('/work-items', { params: { patient_id: patientId, status: 'in_progress' } }).then((res) => setWorkItems(res.data.data))
+    return api.get('/work-items', { params: { patient_id: patientId, status: 'in_progress' } }).then((res) => {
+      setWorkItems(res.data.data)
+      return res.data.data as WorkItem[]
+    })
   }
 
   useEffect(() => {
@@ -297,10 +301,12 @@ export default function WorkPlanningPanel({
         appointment_id: effectiveAppointmentId,
       })
       setCheckoutResult(`تمّ الحفظ — الإجمالي ${money(res.data.total_ils)} ₪`)
+      const checkedOutIds = Array.from(checkoutIds)
       setCheckoutIds(new Set())
       setDiscount('')
       setActiveWorkItemId(null)
-      loadWorkItems()
+      const freshItems = await loadWorkItems()
+      setPendingScheduleIds(freshItems.filter((w) => checkedOutIds.includes(w.id)).map((w) => w.id))
       onChanged?.()
       setTimeout(() => setCheckoutResult(null), 4000)
     } catch (err) {
@@ -329,6 +335,7 @@ export default function WorkPlanningPanel({
       setSchedulingId(null)
       setScheduleDate('')
       setScheduleSuccessId(workItem.id)
+      setPendingScheduleIds((prev) => prev.filter((id) => id !== workItem.id))
       loadWorkItems()
       setTimeout(() => setScheduleSuccessId(null), 4000)
     } catch {
@@ -403,17 +410,7 @@ export default function WorkPlanningPanel({
                         }`}
                       >
                         <FontAwesomeIcon icon={faCheck} />
-                        {checkoutIds.has(w.id) ? 'محدد للتحصيل' : 'تحديد للتحصيل'}
-                      </button>
-                      <button
-                        onClick={() => {
-                          setSchedulingId(schedulingId === w.id ? null : w.id)
-                          setScheduleError(null)
-                        }}
-                        className="flex items-center gap-1.5 rounded-lg bg-background px-2.5 py-1.5 text-xs font-medium text-ink/70 hover:text-accent"
-                      >
-                        <FontAwesomeIcon icon={faCalendarPlus} />
-                        جدولة الباقي
+                        {checkoutIds.has(w.id) ? 'ضمن إنهاء الجلسة الحالية' : 'إنهاء الجلسة الحالية'}
                       </button>
                       <button
                         onClick={() => cancelWorkItem(w)}
@@ -430,6 +427,22 @@ export default function WorkPlanningPanel({
                       <FontAwesomeIcon icon={faCheck} />
                       تم حجز موعد المتابعة.
                     </p>
+                  )}
+
+                  {pendingScheduleIds.includes(w.id) && schedulingId !== w.id && scheduleSuccessId !== w.id && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-ink/10 bg-warning-soft px-3 py-2 text-xs text-warning">
+                      <span>الجلسة انتهت وضلّ فيها خطوات مش منجزة — جدول موعد المتابعة.</span>
+                      <button
+                        onClick={() => {
+                          setSchedulingId(w.id)
+                          setScheduleError(null)
+                        }}
+                        className="flex items-center gap-1.5 rounded-lg bg-warning px-2.5 py-1 font-medium text-white hover:opacity-90"
+                      >
+                        <FontAwesomeIcon icon={faCalendarPlus} />
+                        جدولة موعد المتابعة
+                      </button>
+                    </div>
                   )}
 
                   {schedulingId === w.id && (
