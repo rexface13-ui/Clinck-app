@@ -169,6 +169,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('checks/{check}/bounce', [CheckController::class, 'bounce']);
     Route::post('checks/{check}/clear', [CheckController::class, 'clear']);
     Route::get('checks/{check}/image', [CheckController::class, 'image']);
+    Route::post('checks/{check}/image', [CheckController::class, 'storeImage']);
 
     // Reports
     Route::get('reports/revenue', [ReportController::class, 'revenue']);

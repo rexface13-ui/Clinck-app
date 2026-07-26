@@ -86,6 +86,15 @@ class CheckController extends Controller
         return $checkService->clear($check, $cashbox, $cashboxService);
     }
 
+    public function storeImage(Request $request, CheckModel $check, CheckService $checkService)
+    {
+        abort_unless($request->user()->can('checks.manage'), 403);
+
+        $request->validate(['image' => ['required', 'image', 'max:5120']]);
+
+        return $checkService->attachImage($check, $request->file('image'));
+    }
+
     public function image(Request $request, CheckModel $check)
     {
         abort_unless($request->user()->can('checks.view'), 403);

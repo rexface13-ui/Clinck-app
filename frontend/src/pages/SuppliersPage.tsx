@@ -22,7 +22,8 @@ export default function SuppliersPage() {
   const [ledger, setLedger] = useState<SupplierLedger | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ name: '', phone: '' })
-  const [payForm, setPayForm] = useState({ cashbox_id: '', amount: '', currency: 'ILS' })
+  const [payForm, setPayForm] = useState({ cashbox_id: '', amount: '', exchange_rate: '1' })
+  const payCashbox = cashboxes.find((c) => c.id === Number(payForm.cashbox_id))
   const [busy, setBusy] = useState(false)
   const [editing, setEditing] = useState(false)
   const [editForm, setEditForm] = useState({ name: '', phone: '' })
@@ -81,16 +82,18 @@ export default function SuppliersPage() {
   }
 
   async function pay() {
-    if (!selected || !payForm.cashbox_id || !payForm.amount) return
+    if (!selected || !payForm.cashbox_id || !payForm.amount || !payCashbox) return
+    const exchangeRate = Number(payForm.exchange_rate) || 1
+    if (payCashbox.currency !== 'ILS' && exchangeRate <= 0) return
     setBusy(true)
     try {
       await api.post(`/suppliers/${selected.id}/pay`, {
         cashbox_id: Number(payForm.cashbox_id),
         amount: Number(payForm.amount),
-        currency: payForm.currency,
-        exchange_rate: 1,
+        currency: payCashbox.currency,
+        exchange_rate: exchangeRate,
       })
-      setPayForm({ cashbox_id: '', amount: '', currency: 'ILS' })
+      setPayForm({ cashbox_id: '', amount: '', exchange_rate: '1' })
       loadLedger(selected)
       loadSuppliers()
     } finally {
@@ -217,6 +220,16 @@ export default function SuppliersPage() {
                     className="w-48"
                   />
                   <input type="number" placeholder="المبلغ" value={payForm.amount} onChange={(e) => setPayForm({ ...payForm, amount: e.target.value })} className="w-28 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
+                  {payCashbox && payCashbox.currency !== 'ILS' && (
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder={`سعر الصرف (1 ${payCashbox.currency} = ? ₪)`}
+                      value={payForm.exchange_rate}
+                      onChange={(e) => setPayForm({ ...payForm, exchange_rate: e.target.value })}
+                      className="w-36 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
+                    />
+                  )}
                   <Button onClick={pay} loading={busy} className="px-4 py-1.5">
                     دفع للمورد
                   </Button>

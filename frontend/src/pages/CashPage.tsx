@@ -6,7 +6,7 @@ import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import DatePicker from '../components/DatePicker'
 import { Card, PageHeader, Button, Modal, Table, Thead, Th, Td, Tr, EmptyRow, TableSkeleton, CardSkeleton, SearchableSelect, Badge } from '../components/ui'
-import type { Cashbox, CashEntry, ExpenseCategory, IncomeCategory } from '../types'
+import type { Branch, Cashbox, CashEntry, ExpenseCategory, IncomeCategory } from '../types'
 
 type Tab = 'expenses' | 'incomes'
 type IncomeKind = 'all' | 'income' | 'payment'
@@ -30,6 +30,10 @@ export default function CashPage() {
   const [filterCashboxId, setFilterCashboxId] = useState('')
   const [filterCategoryId, setFilterCategoryId] = useState('')
   const [filterIncomeKind, setFilterIncomeKind] = useState<IncomeKind>('all')
+  const [branches, setBranches] = useState<Branch[]>([])
+  const [showCashboxForm, setShowCashboxForm] = useState(false)
+  const [cashboxForm, setCashboxForm] = useState({ name: '', currency: 'ILS', branch_id: '' })
+  const [creatingCashbox, setCreatingCashbox] = useState(false)
 
   useEffect(() => {
     if (searchParams.get('new') === '1') {
@@ -44,6 +48,24 @@ export default function CashPage() {
     api.get('/cashboxes').then((res) => setCashboxes(res.data))
     api.get('/expense-categories').then((res) => setExpenseCategories(res.data))
     api.get('/income-categories').then((res) => setIncomeCategories(res.data))
+    api.get('/branches').then((res) => setBranches(res.data))
+  }
+
+  async function createCashbox() {
+    if (!cashboxForm.name || !cashboxForm.currency || !cashboxForm.branch_id) return
+    setCreatingCashbox(true)
+    try {
+      await api.post('/cashboxes', {
+        name: cashboxForm.name,
+        currency: cashboxForm.currency,
+        branch_id: Number(cashboxForm.branch_id),
+      })
+      setShowCashboxForm(false)
+      setCashboxForm({ name: '', currency: 'ILS', branch_id: '' })
+      api.get('/cashboxes').then((res) => setCashboxes(res.data))
+    } finally {
+      setCreatingCashbox(false)
+    }
   }
 
   function loadEntries() {
@@ -155,6 +177,15 @@ export default function CashPage() {
     <div>
       <PageHeader title="الصناديق والمصاريف" subtitle="متابعة أرصدة الصناديق والحركات المالية" />
 
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="text-sm font-medium text-ink/70">الصناديق</h2>
+        {can('cash.manage') && (
+          <button onClick={() => setShowCashboxForm(true)} className="flex items-center gap-1.5 text-xs text-accent hover:underline">
+            <FontAwesomeIcon icon={faPlus} />
+            صندوق جديد (لعملة تانية مثلاً)
+          </button>
+        )}
+      </div>
       <div className="mb-6 grid grid-cols-3 gap-4">
         {!cashboxes ? (
           <>
@@ -177,6 +208,41 @@ export default function CashPage() {
           ))
         )}
       </div>
+
+      {showCashboxForm && (
+        <Modal title="صندوق جديد" onClose={() => setShowCashboxForm(false)}>
+          <div className="space-y-3">
+            <input
+              placeholder="اسم الصندوق (مثلاً: صندوق دولار)"
+              value={cashboxForm.name}
+              onChange={(e) => setCashboxForm({ ...cashboxForm, name: e.target.value })}
+              className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
+            />
+            <select
+              value={cashboxForm.currency}
+              onChange={(e) => setCashboxForm({ ...cashboxForm, currency: e.target.value })}
+              className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
+            >
+              <option value="ILS">ILS — شيكل</option>
+              <option value="USD">USD — دولار</option>
+              <option value="JOD">JOD — دينار</option>
+            </select>
+            <select
+              value={cashboxForm.branch_id}
+              onChange={(e) => setCashboxForm({ ...cashboxForm, branch_id: e.target.value })}
+              className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
+            >
+              <option value="">الفرع...</option>
+              {branches.map((b) => (
+                <option key={b.id} value={b.id}>{b.name}</option>
+              ))}
+            </select>
+            <Button onClick={createCashbox} loading={creatingCashbox} className="w-full justify-center">
+              حفظ
+            </Button>
+          </div>
+        </Modal>
+      )}
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex gap-2 rounded-xl border border-border bg-surface p-1">

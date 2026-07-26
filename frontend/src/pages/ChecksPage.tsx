@@ -47,6 +47,8 @@ export default function ChecksPage() {
   const [clearCashbox, setClearCashbox] = useState('')
   const [busy, setBusy] = useState(false)
   const [search, setSearch] = useState('')
+  const [attachTargetId, setAttachTargetId] = useState<number | null>(null)
+  const attachInputRef = useRef<HTMLInputElement>(null)
 
   function loadAll() {
     api.get('/checks', { params: { direction } }).then((res) => setChecks(res.data))
@@ -117,6 +119,26 @@ export default function ChecksPage() {
     if (!confirm('تأكيد رجوع الشيك؟')) return
     await api.post(`/checks/${check.id}/bounce`)
     loadAll()
+  }
+
+  function openAttach(checkId: number) {
+    setAttachTargetId(checkId)
+    attachInputRef.current?.click()
+  }
+
+  async function attachImage(file: File) {
+    if (!attachTargetId) return
+    setBusy(true)
+    try {
+      const data = new FormData()
+      data.append('image', file)
+      await api.post(`/checks/${attachTargetId}/image`, data, { headers: { 'Content-Type': 'multipart/form-data' } })
+      loadAll()
+    } finally {
+      setBusy(false)
+      setAttachTargetId(null)
+      if (attachInputRef.current) attachInputRef.current.value = ''
+    }
   }
 
   async function clear() {
@@ -197,6 +219,17 @@ export default function ChecksPage() {
         </Modal>
       )}
 
+      <input
+        ref={attachInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0]
+          if (file) attachImage(file)
+        }}
+      />
+
       <div className="relative mb-4 w-full sm:w-80">
         <FontAwesomeIcon icon={faMagnifyingGlass} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted" />
         <input
@@ -244,7 +277,7 @@ export default function ChecksPage() {
                     <Td className="text-muted">
                       <span className="flex items-center gap-2">
                         {c.check_number}
-                        {c.image_path && (
+                        {c.image_path ? (
                           <a
                             href={`/api/checks/${c.id}/image`}
                             target="_blank"
@@ -254,6 +287,18 @@ export default function ChecksPage() {
                           >
                             <FontAwesomeIcon icon={faImage} />
                           </a>
+                        ) : (
+                          canManage && (
+                            <button
+                              type="button"
+                              onClick={() => openAttach(c.id)}
+                              disabled={busy}
+                              className="text-ink/30 hover:text-accent disabled:opacity-50"
+                              title="إرفاق صورة الشيك"
+                            >
+                              <FontAwesomeIcon icon={faCamera} />
+                            </button>
+                          )
                         )}
                       </span>
                     </Td>

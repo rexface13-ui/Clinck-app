@@ -112,6 +112,7 @@ export default function VisitHistoryPanel({
   }
   const [payAmount, setPayAmount] = useState<Record<string, string>>({})
   const [payCashboxId, setPayCashboxId] = useState<Record<string, string>>({})
+  const [payExchangeRate, setPayExchangeRate] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
 
   function load() {
@@ -144,6 +145,8 @@ export default function VisitHistoryPanel({
     if (!boxId || !amount) return
     const box = cashboxes.find((c) => c.id === Number(boxId))
     if (!box) return
+    const exchangeRate = Number(payExchangeRate[key]) || 1
+    if (box.currency !== 'ILS' && exchangeRate <= 0) return
     setBusy(true)
     try {
       await api.post(`/patients/${patientId}/payments`, {
@@ -151,7 +154,7 @@ export default function VisitHistoryPanel({
         cashbox_id: box.id,
         amount,
         currency: box.currency,
-        exchange_rate: 1,
+        exchange_rate: exchangeRate,
         method: 'cash',
       })
       load()
@@ -363,6 +366,22 @@ export default function VisitHistoryPanel({
                           className="w-24 rounded-lg border border-ink/10 px-2 py-1 text-sm"
                         />
                       </div>
+                      {(() => {
+                        const box = cashboxes.find((c) => c.id === Number(payCashboxId[rowKey]))
+                        if (!box || box.currency === 'ILS') return null
+                        return (
+                          <div>
+                            <label className="mb-1 block text-[11px] text-muted">سعر الصرف (₪)</label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={payExchangeRate[rowKey] ?? ''}
+                              onChange={(e) => setPayExchangeRate({ ...payExchangeRate, [rowKey]: e.target.value })}
+                              className="w-20 rounded-lg border border-ink/10 px-2 py-1 text-sm"
+                            />
+                          </div>
+                        )
+                      })()}
                       <button
                         onClick={() => collect(rowKey, v)}
                         disabled={busy}

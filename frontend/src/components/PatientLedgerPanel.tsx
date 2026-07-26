@@ -46,7 +46,7 @@ export default function PatientLedgerPanel({
   const [showForm, setShowForm] = useState(() => autoOpenPayment || searchParams.get('pay') === '1')
   const [tab, setTab] = useState<Tab>(canCollectCash ? 'cash' : 'check')
 
-  const [cashForm, setCashForm] = useState({ invoice_id: '', cashbox_id: '', amount: '', method: 'cash' as 'cash' | 'card' | 'transfer' })
+  const [cashForm, setCashForm] = useState({ invoice_id: '', cashbox_id: '', amount: '', method: 'cash' as 'cash' | 'card' | 'transfer', exchange_rate: '1' })
   const [checkForm, setCheckForm] = useState({ check_number: '', bank_name: '', amount: '', currency: 'ILS', due_date: '' })
   const [checkImage, setCheckImage] = useState<File | null>(null)
   const checkImageInputRef = useRef<HTMLInputElement>(null)
@@ -88,6 +88,8 @@ export default function PatientLedgerPanel({
 
   async function collectPayment() {
     if (!cashForm.cashbox_id || !cashForm.amount || !selectedCashbox) return
+    const exchangeRate = Number(cashForm.exchange_rate) || 1
+    if (selectedCashbox.currency !== 'ILS' && exchangeRate <= 0) return
     setBusy(true)
     setError(null)
     try {
@@ -96,11 +98,11 @@ export default function PatientLedgerPanel({
         cashbox_id: Number(cashForm.cashbox_id),
         amount: Number(cashForm.amount),
         currency: selectedCashbox.currency,
-        exchange_rate: 1,
+        exchange_rate: exchangeRate,
         method: cashForm.method,
       })
       setShowForm(false)
-      setCashForm({ invoice_id: '', cashbox_id: '', amount: '', method: 'cash' })
+      setCashForm({ invoice_id: '', cashbox_id: '', amount: '', method: 'cash', exchange_rate: '1' })
       load()
     } catch {
       setError('تعذّر تسجيل الدفعة.')
@@ -220,6 +222,24 @@ export default function PatientLedgerPanel({
                   <option value="transfer">تحويل</option>
                 </select>
               </div>
+              {selectedCashbox && selectedCashbox.currency !== 'ILS' && (
+                <div className="flex items-center gap-2">
+                  <span className="shrink-0 text-xs text-ink/60">سعر الصرف (1 {selectedCashbox.currency} = ? ₪)</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    placeholder="سعر الصرف"
+                    value={cashForm.exchange_rate}
+                    onChange={(e) => setCashForm({ ...cashForm, exchange_rate: e.target.value })}
+                    className="w-24 rounded-lg border border-ink/10 px-2 py-1.5 text-sm"
+                  />
+                  {cashForm.amount && (
+                    <span className="text-xs text-muted">
+                      = {(Number(cashForm.amount) * (Number(cashForm.exchange_rate) || 0)).toFixed(2)} ₪
+                    </span>
+                  )}
+                </div>
+              )}
               {error && <p className="text-xs text-danger">{error}</p>}
               <button
                 onClick={collectPayment}

@@ -106,6 +106,24 @@ class CheckService
     }
 
     /**
+     * Attaches (or replaces) a check's photo after it's already been
+     * received — the "استلام شيك" form only asks for one up front, but a
+     * photo often only becomes available later.
+     */
+    public function attachImage(CheckModel $check, UploadedFile $image): CheckModel
+    {
+        if ($check->image_path) {
+            Storage::disk('local')->delete($check->image_path);
+        }
+
+        $check->update(['image_path' => $image->store('checks', 'local')]);
+
+        $this->notifyImageReceived($check);
+
+        return $check->fresh();
+    }
+
+    /**
      * Only valid for incoming checks still in the wallet. Endorsing to a
      * supplier settles part of what the clinic owes them, so it credits
      * the supplier ledger the same way a payment does (negative — purchase
