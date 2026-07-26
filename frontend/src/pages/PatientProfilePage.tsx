@@ -73,6 +73,12 @@ export default function PatientProfilePage() {
     medical_notes: '',
   })
   const [savingPatient, setSavingPatient] = useState(false)
+  const tabsRef = useRef<HTMLDivElement>(null)
+
+  function goToWorkTab() {
+    setActiveTab('work')
+    requestAnimationFrame(() => tabsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+  }
 
   function load() {
     api.get(`/patients/${id}/profile`).then((res) => setProfile(res.data))
@@ -280,7 +286,7 @@ export default function PatientProfilePage() {
             <FontAwesomeIcon icon={faPen} />
             تعديل
           </button>
-          <Button variant="secondary" onClick={() => setActiveTab('work')}>
+          <Button variant="secondary" onClick={goToWorkTab}>
             <FontAwesomeIcon icon={faCheck} />
             اجاني هلق (بدون موعد)
           </Button>
@@ -303,7 +309,7 @@ export default function PatientProfilePage() {
           </div>
           <div className="flex flex-wrap gap-2">
             <button
-              onClick={() => setActiveTab('work')}
+              onClick={goToWorkTab}
               className="flex items-center gap-2 rounded-xl bg-success-soft px-3 py-2 text-sm font-medium text-success hover:opacity-80"
             >
               <FontAwesomeIcon icon={faCheck} />
@@ -332,6 +338,7 @@ export default function PatientProfilePage() {
         </Card>
       )}
 
+      <div ref={tabsRef}>
       <Tabs
         active={activeTab}
         onActiveChange={setActiveTab}
@@ -428,6 +435,7 @@ export default function PatientProfilePage() {
                 isChild={patient.is_child}
                 medicalAlerts={patient.medical_alerts}
                 onChanged={load}
+                appointmentId={todayAppointment?.id}
               />
             ),
           },
@@ -654,6 +662,7 @@ export default function PatientProfilePage() {
           },
         ]}
       />
+      </div>
 
       {openAppointmentId && (
         <AppointmentDetailModal

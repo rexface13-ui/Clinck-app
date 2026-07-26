@@ -32,7 +32,7 @@ import {
   toothSize,
   type ArchConfig,
 } from '../lib/dental'
-import type { Cashbox, Doctor, Service, WorkItem } from '../types'
+import type { Branch, Cashbox, Doctor, Service, WorkItem } from '../types'
 
 interface LaidOutTooth {
   number: number
@@ -77,16 +77,22 @@ export default function WorkPlanningPanel({
   isChild,
   medicalAlerts = [],
   onChanged,
+  appointmentId,
 }: {
   patientId: number
   patientName: string
   isChild: boolean
   medicalAlerts?: string[]
   onChanged?: () => void
+  /** Today's already-booked appointment this session belongs to, if any — when absent (walk-in with no booking), checkout asks for a visit duration and books one on the fly. */
+  appointmentId?: number
 }) {
   const [doctors, setDoctors] = useState<Doctor[]>([])
   const [services, setServices] = useState<Service[]>([])
   const [cashboxes, setCashboxes] = useState<Cashbox[]>([])
+  const [branches, setBranches] = useState<Branch[]>([])
+  const [walkInDurationHours, setWalkInDurationHours] = useState(0)
+  const [walkInDurationMinutes, setWalkInDurationMinutes] = useState(30)
   const [doctorId, setDoctorId] = useState('')
   const [workItems, setWorkItems] = useState<WorkItem[]>([])
   const [activeWorkItemId, setActiveWorkItemId] = useState<number | null>(null)
@@ -127,6 +133,7 @@ export default function WorkPlanningPanel({
       const ils = res.data.find((c: Cashbox) => c.currency === 'ILS')
       if (ils) setCashboxId(String(ils.id))
     })
+    if (!appointmentId) api.get('/branches').then((res) => setBranches(res.data))
     loadWorkItems()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [patientId])
@@ -252,9 +259,28 @@ export default function WorkPlanningPanel({
       setCheckoutError('اختر الصندوق.')
       return
     }
+    const walkInDuration = walkInDurationHours * 60 + walkInDurationMinutes
+    if (!appointmentId && walkInDuration <= 0) {
+      setCheckoutError('حدد مدة الزيارة.')
+      return
+    }
     setCheckingOut(true)
     setCheckoutError(null)
     try {
+      let effectiveAppointmentId = appointmentId ?? null
+      if (!effectiveAppointmentId) {
+        const mainBranch = branches.find((b) => b.is_main) ?? branches[0]
+        const startsAt = new Date()
+        const endsAt = new Date(startsAt.getTime() + walkInDuration * 60000)
+        const apptRes = await api.post('/appointments', {
+          branch_id: mainBranch?.id,
+          patient_id: patientId,
+          doctor_id: Number(doctorId),
+          starts_at: startsAt.toISOString(),
+          ends_at: endsAt.toISOString(),
+        })
+        effectiveAppointmentId = apptRes.data.data.id
+      }
       const res = await api.post('/work-items/checkout', {
         patient_id: patientId,
         work_item_ids: Array.from(checkoutIds),
@@ -262,6 +288,7 @@ export default function WorkPlanningPanel({
         discount_amount: discountAmount,
         pay_cashbox_id: payMode === 'now' ? Number(cashboxId) : null,
         pay_method: payMode === 'now' ? method : null,
+        appointment_id: effectiveAppointmentId,
       })
       setCheckoutResult(`تمّ الحفظ — الإجمالي ${money(res.data.total_ils)} ₪`)
       setCheckoutIds(new Set())
@@ -270,8 +297,9 @@ export default function WorkPlanningPanel({
       loadWorkItems()
       onChanged?.()
       setTimeout(() => setCheckoutResult(null), 4000)
-    } catch {
-      setCheckoutError('صار خطأ أثناء الحفظ.')
+    } catch (err) {
+      const backendMessage = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      setCheckoutError(backendMessage ?? 'صار خطأ أثناء الحفظ.')
     } finally {
       setCheckingOut(false)
     }
@@ -570,6 +598,33 @@ export default function WorkPlanningPanel({
             <span>الإجمالي بعد الخصم</span>
             <span>{money(finalTotal)} ₪</span>
           </div>
+
+          {!appointmentId && (
+            <div className="mb-3">
+              <label className="mb-1 block text-xs text-muted">مدة الزيارة (ما في موعد محجوز اليوم)</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={0}
+                  max={8}
+                  value={walkInDurationHours}
+                  onChange={(e) => setWalkInDurationHours(Number(e.target.value))}
+                  className="w-16 rounded-lg border border-border px-2 py-1.5 text-sm"
+                />
+                <span className="text-xs text-muted">ساعة</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={59}
+                  step={5}
+                  value={walkInDurationMinutes}
+                  onChange={(e) => setWalkInDurationMinutes(Number(e.target.value))}
+                  className="w-16 rounded-lg border border-border px-2 py-1.5 text-sm"
+                />
+                <span className="text-xs text-muted">دقيقة</span>
+              </div>
+            </div>
+          )}
 
           <div className="mb-3 flex gap-1 rounded-lg border border-border bg-white p-1">
             <button
