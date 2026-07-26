@@ -34,6 +34,7 @@ use App\Http\Controllers\Api\ServiceController;
 use App\Http\Controllers\Api\StockMovementController;
 use App\Http\Controllers\Api\SupplierController;
 use App\Http\Controllers\Api\TelegramLinkController;
+use App\Http\Controllers\Api\TelegramRegistrationController;
 use App\Http\Controllers\Api\ToothChartController;
 use App\Http\Controllers\Api\WorkItemController;
 use App\Http\Controllers\Api\UserController;
@@ -170,6 +171,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('checks/{check}/clear', [CheckController::class, 'clear']);
     Route::get('checks/{check}/image', [CheckController::class, 'image']);
     Route::post('checks/{check}/image', [CheckController::class, 'storeImage']);
+    Route::post('checks/{check}/request-image', [CheckController::class, 'requestImage']);
 
     // Reports
     Route::get('reports/revenue', [ReportController::class, 'revenue']);
@@ -187,4 +189,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('telegram-link', [TelegramLinkController::class, 'show']);
     Route::post('telegram-link', [TelegramLinkController::class, 'store']);
     Route::delete('telegram-link', [TelegramLinkController::class, 'destroy']);
+
+    Route::get('telegram-registrations', [TelegramRegistrationController::class, 'index']);
+    Route::post('telegram-registrations/{link}/link-staff', [TelegramRegistrationController::class, 'linkStaff']);
+    Route::post('telegram-registrations/{link}/link-patient', [TelegramRegistrationController::class, 'linkPatient']);
+    Route::delete('telegram-registrations/{link}', [TelegramRegistrationController::class, 'destroy']);
 });

@@ -20,6 +20,7 @@ class SettingController extends Controller
         'default_appointment_duration', 'base_currency', 'invoice_footer_note',
         'reminder_appointments_enabled', 'reminder_checks_enabled', 'reminder_lab_enabled',
         'clinic_hours_start', 'clinic_hours_end',
+        'telegram_bot_token', 'telegram_bot_username',
     ];
 
     public function update(Request $request)

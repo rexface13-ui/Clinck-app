@@ -4,22 +4,23 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\TelegramLink;
+use App\Services\TelegramService;
 use Illuminate\Http\Request;
 
 class TelegramLinkController extends Controller
 {
-    public function show(Request $request)
+    public function show(Request $request, TelegramService $telegram)
     {
         $link = TelegramLink::where('user_id', $request->user()->id)->first();
 
         return [
             'linked' => (bool) $link?->linked_at,
             'link_code' => $link && ! $link->linked_at ? $link->link_code : null,
-            'bot_username' => config('telegram.bot_username'),
+            'bot_username' => $telegram->username(),
         ];
     }
 
-    public function store(Request $request)
+    public function store(Request $request, TelegramService $telegram)
     {
         $code = (string) random_int(100000, 999999);
 
@@ -30,7 +31,7 @@ class TelegramLinkController extends Controller
 
         return [
             'link_code' => $link->link_code,
-            'bot_username' => config('telegram.bot_username'),
+            'bot_username' => $telegram->username(),
         ];
     }
 

@@ -2,14 +2,25 @@
 
 namespace App\Services;
 
+use App\Models\Setting;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class TelegramService
 {
-    protected function token(): string
+    /**
+     * DB-backed setting wins so an owner can paste a token from the
+     * Settings page without editing .env or restarting the server; falls
+     * back to the env var for anyone who still configures it that way.
+     */
+    public function token(): string
     {
-        return (string) config('telegram.bot_token');
+        return (string) (Setting::where('key', 'telegram_bot_token')->value('value') ?: config('telegram.bot_token'));
+    }
+
+    public function username(): string
+    {
+        return (string) (Setting::where('key', 'telegram_bot_username')->value('value') ?: config('telegram.bot_username'));
     }
 
     protected function enabled(): bool
@@ -83,6 +94,36 @@ class TelegramService
             Log::warning('Telegram sendPhoto failed', ['error' => $e->getMessage()]);
 
             return false;
+        }
+    }
+
+    /**
+     * Resolves a Telegram file_id (from an incoming photo message) to its
+     * raw binary content — used to save a check photo a staff member sends
+     * back through the bot.
+     */
+    public function downloadFile(string $fileId): ?string
+    {
+        if (! $this->enabled()) {
+            return null;
+        }
+
+        try {
+            $filePath = Http::timeout(15)
+                ->get("https://api.telegram.org/bot{$this->token()}/getFile", ['file_id' => $fileId])
+                ->json('result.file_path');
+
+            if (! $filePath) {
+                return null;
+            }
+
+            $response = Http::timeout(20)->get("https://api.telegram.org/file/bot{$this->token()}/{$filePath}");
+
+            return $response->successful() ? $response->body() : null;
+        } catch (\Throwable $e) {
+            Log::warning('Telegram downloadFile failed', ['error' => $e->getMessage()]);
+
+            return null;
         }
     }
 }

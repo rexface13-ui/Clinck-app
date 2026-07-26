@@ -1,14 +1,28 @@
 import { useEffect, useRef, useState } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faPaperPlane, faLink, faLinkSlash, faBuilding, faImage, faTrash, faSliders, faBell } from '@fortawesome/free-solid-svg-icons'
+import { faPaperPlane, faLink, faLinkSlash, faBuilding, faImage, faTrash, faSliders, faBell, faRobot, faCheck, faUserDoctor, faUserPlus, faXmark } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
-import { Card, PageHeader, Button, Input } from '../components/ui'
+import { Card, PageHeader, Button, Input, SearchableSelect } from '../components/ui'
+import type { Branch } from '../types'
 
 interface TelegramLinkStatus {
   linked: boolean
   link_code: string | null
   bot_username: string
+}
+
+interface PendingRegistration {
+  id: number
+  telegram_chat_id: number
+  registered_name: string
+  registered_phone: string
+  created_at: string
+}
+
+interface StaffOption {
+  id: number
+  name: string
 }
 
 function ClinicProfileCard() {
@@ -283,6 +297,207 @@ function RemindersSettingsCard() {
   )
 }
 
+function TelegramBotSettingsCard() {
+  const { can } = useAuth()
+  const [form, setForm] = useState({ telegram_bot_token: '', telegram_bot_username: '' })
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+
+  async function save() {
+    setSaving(true)
+    setSaved(false)
+    try {
+      const values: Record<string, string> = { telegram_bot_username: form.telegram_bot_username }
+      // Only send the token if the owner actually typed a new one — it's
+      // write-only (never returned from the server), so an empty field
+      // here means "leave it as is," not "clear it."
+      if (form.telegram_bot_token) values.telegram_bot_token = form.telegram_bot_token
+      await api.put('/settings', { values })
+      setForm((f) => ({ ...f, telegram_bot_token: '' }))
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (!can('settings.manage')) return null
+
+  return (
+    <Card className="max-w-lg p-6">
+      <h2 className="mb-1 flex items-center gap-2 text-sm font-medium text-ink/70">
+        <FontAwesomeIcon icon={faRobot} className="text-accent" />
+        بوت تيليغرام — إعدادات التفعيل
+      </h2>
+      <p className="mb-4 text-xs text-muted">
+        سوّي بوت جديد من <span className="font-mono">@BotFather</span> بتيليغرام، وحط التوكن هون. بعدين لازم تشغّل الأمر{' '}
+        <span className="font-mono">php artisan telegram:poll</span> بشكل دائم على السيرفر (مو مرة وحدة) عشان البوت يستمع للرسائل.
+      </p>
+
+      <div className="space-y-3">
+        <Input
+          label="اسم البوت (بدون @)"
+          value={form.telegram_bot_username}
+          onChange={(e) => setForm({ ...form, telegram_bot_username: e.target.value })}
+          placeholder="MyClinicBot"
+        />
+        <Input
+          label="توكن البوت"
+          type="password"
+          value={form.telegram_bot_token}
+          onChange={(e) => setForm({ ...form, telegram_bot_token: e.target.value })}
+          placeholder="محفوظ مسبقاً — اكتب توكن جديد بس إذا بدك تغيّره"
+        />
+      </div>
+
+      <div className="mt-4 flex items-center gap-3">
+        <Button onClick={save} loading={saving}>
+          {saving ? 'جارِ الحفظ...' : 'حفظ'}
+        </Button>
+        {saved && <span className="text-sm text-success">انحفظت ✓</span>}
+      </div>
+    </Card>
+  )
+}
+
+function TelegramRegistrationsCard() {
+  const { can, data } = useAuth()
+  const branches: Branch[] = data?.branches ?? []
+  const [pending, setPending] = useState<PendingRegistration[] | null>(null)
+  const [staff, setStaff] = useState<StaffOption[]>([])
+  const [busyId, setBusyId] = useState<number | null>(null)
+  const [mode, setMode] = useState<Record<number, 'staff' | 'patient' | null>>({})
+  const [staffChoice, setStaffChoice] = useState<Record<number, string>>({})
+  const [patientForm, setPatientForm] = useState<Record<number, { branch_id: string; gender: 'male' | 'female' }>>({})
+
+  function load() {
+    api.get('/telegram-registrations').then((res) => setPending(res.data))
+    api.get('/users').then((res) => setStaff(res.data.data.map((u: { id: number; name: string }) => ({ id: u.id, name: u.name }))))
+  }
+
+  useEffect(load, [])
+
+  async function linkStaff(id: number) {
+    if (!staffChoice[id]) return
+    setBusyId(id)
+    try {
+      await api.post(`/telegram-registrations/${id}/link-staff`, { user_id: Number(staffChoice[id]) })
+      load()
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  async function linkPatient(id: number) {
+    const f = patientForm[id]
+    if (!f?.branch_id) return
+    setBusyId(id)
+    try {
+      await api.post(`/telegram-registrations/${id}/link-patient`, { branch_id: Number(f.branch_id), gender: f.gender })
+      load()
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  async function reject(id: number) {
+    if (!window.confirm('رفض هذا الطلب نهائياً؟')) return
+    setBusyId(id)
+    try {
+      await api.delete(`/telegram-registrations/${id}`)
+      load()
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  if (!can('settings.manage')) return null
+  if (pending && pending.length === 0) return null
+
+  return (
+    <Card className="max-w-lg p-6">
+      <h2 className="mb-1 flex items-center gap-2 text-sm font-medium text-ink/70">
+        <FontAwesomeIcon icon={faUserPlus} className="text-accent" />
+        طلبات تسجيل تيليغرام {pending && pending.length > 0 && `(${pending.length})`}
+      </h2>
+      <p className="mb-4 text-xs text-muted">ناس تواصلوا مع البوت لأول مرة — حدد كل واحد إذا طبيب/موظف موجود عندك، أو مريض.</p>
+
+      <div className="space-y-4">
+        {(pending ?? []).map((p) => (
+          <div key={p.id} className="rounded-xl border border-border p-3">
+            <p className="mb-2 text-sm font-medium text-ink">{p.registered_name} — {p.registered_phone}</p>
+
+            {mode[p.id] === 'staff' ? (
+              <div className="flex flex-wrap items-end gap-2">
+                <SearchableSelect
+                  options={staff.map((s) => ({ value: String(s.id), label: s.name }))}
+                  value={staffChoice[p.id] ?? ''}
+                  onChange={(v) => setStaffChoice({ ...staffChoice, [p.id]: v })}
+                  placeholder="اختر المستخدم..."
+                  className="flex-1"
+                />
+                <Button onClick={() => linkStaff(p.id)} loading={busyId === p.id} className="px-3 py-1.5 text-xs">
+                  تأكيد
+                </Button>
+                <button onClick={() => setMode({ ...mode, [p.id]: null })} className="text-xs text-muted hover:underline">إلغاء</button>
+              </div>
+            ) : mode[p.id] === 'patient' ? (
+              <div className="flex flex-wrap items-end gap-2">
+                <select
+                  value={patientForm[p.id]?.branch_id ?? ''}
+                  onChange={(e) => setPatientForm({ ...patientForm, [p.id]: { branch_id: e.target.value, gender: patientForm[p.id]?.gender ?? 'male' } })}
+                  className="rounded-lg border border-border bg-surface px-2 py-1.5 text-sm"
+                >
+                  <option value="">الفرع...</option>
+                  {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                </select>
+                <select
+                  value={patientForm[p.id]?.gender ?? 'male'}
+                  onChange={(e) => setPatientForm({ ...patientForm, [p.id]: { branch_id: patientForm[p.id]?.branch_id ?? '', gender: e.target.value as 'male' | 'female' } })}
+                  className="rounded-lg border border-border bg-surface px-2 py-1.5 text-sm"
+                >
+                  <option value="male">ذكر</option>
+                  <option value="female">أنثى</option>
+                </select>
+                <Button onClick={() => linkPatient(p.id)} loading={busyId === p.id} className="px-3 py-1.5 text-xs">
+                  <FontAwesomeIcon icon={faCheck} />
+                  إنشاء ملف مريض جديد
+                </Button>
+                <button onClick={() => setMode({ ...mode, [p.id]: null })} className="text-xs text-muted hover:underline">إلغاء</button>
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => setMode({ ...mode, [p.id]: 'staff' })}
+                  className="flex items-center gap-1.5 rounded-lg bg-accent-soft px-2.5 py-1.5 text-xs font-medium text-accent hover:bg-accent hover:text-white"
+                >
+                  <FontAwesomeIcon icon={faUserDoctor} />
+                  طبيب / موظف موجود
+                </button>
+                <button
+                  onClick={() => setMode({ ...mode, [p.id]: 'patient' })}
+                  className="flex items-center gap-1.5 rounded-lg bg-accent-soft px-2.5 py-1.5 text-xs font-medium text-accent hover:bg-accent hover:text-white"
+                >
+                  <FontAwesomeIcon icon={faUserPlus} />
+                  مريض جديد
+                </button>
+                <button
+                  onClick={() => reject(p.id)}
+                  disabled={busyId === p.id}
+                  className="flex items-center gap-1.5 rounded-lg bg-danger-soft px-2.5 py-1.5 text-xs font-medium text-danger hover:bg-danger hover:text-white disabled:opacity-50"
+                >
+                  <FontAwesomeIcon icon={faXmark} />
+                  رفض
+                </button>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </Card>
+  )
+}
+
 export default function SettingsPage() {
   const [status, setStatus] = useState<TelegramLinkStatus | null>(null)
   const [busy, setBusy] = useState(false)
@@ -321,6 +536,8 @@ export default function SettingsPage() {
         <ClinicProfileCard />
         <GeneralSettingsCard />
         <RemindersSettingsCard />
+        <TelegramBotSettingsCard />
+        <TelegramRegistrationsCard />
       </div>
 
       <Card className="max-w-lg p-6">

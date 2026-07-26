@@ -106,7 +106,7 @@ class TelegramSendReminders extends Command
     protected function sendCheckReminders(TelegramService $telegram): void
     {
         $checks = CheckModel::where('status', 'in_wallet')
-            ->whereBetween('due_date', [Carbon::today(), Carbon::today()->addDays(3)])
+            ->whereBetween('due_date', [Carbon::today(), Carbon::today()->addDays(7)])
             ->get();
 
         if ($checks->isEmpty()) {
@@ -127,7 +127,7 @@ class TelegramSendReminders extends Command
             ->filter(fn (TelegramLink $link) => $link->user?->hasAnyRole(['owner', 'accountant']));
 
         foreach ($recipients as $link) {
-            $telegram->sendMessage($link->telegram_chat_id, "تذكير: شيكات مستحقة خلال 3 أيام:\n".$lines->implode("\n"));
+            $telegram->sendMessage($link->telegram_chat_id, "تذكير: شيكات مستحقة خلال 7 أيام:\n".$lines->implode("\n"));
         }
     }
 }

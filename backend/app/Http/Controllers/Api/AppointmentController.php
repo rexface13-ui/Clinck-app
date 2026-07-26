@@ -8,7 +8,9 @@ use App\Http\Requests\Appointment\UpdateAppointmentRequest;
 use App\Http\Resources\AppointmentResource;
 use App\Models\ActivityLog;
 use App\Models\Appointment;
+use App\Models\TelegramLink;
 use App\Models\WorkItem;
+use App\Services\TelegramService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -48,7 +50,7 @@ class AppointmentController extends Controller
         return AppointmentResource::collection($query->orderByDesc('starts_at')->get());
     }
 
-    public function store(StoreAppointmentRequest $request)
+    public function store(StoreAppointmentRequest $request, TelegramService $telegram)
     {
         $this->authorize('create', Appointment::class);
 
@@ -57,7 +59,19 @@ class AppointmentController extends Controller
             'created_via' => 'web',
         ]);
 
-        return new AppointmentResource($appointment->load(['patient', 'doctor']));
+        $appointment->load(['patient', 'doctor']);
+
+        if ($appointment->doctor?->user_id) {
+            $link = TelegramLink::where('user_id', $appointment->doctor->user_id)->whereNotNull('linked_at')->first();
+            if ($link) {
+                $telegram->sendMessage(
+                    (int) $link->telegram_chat_id,
+                    sprintf("📅 موعد جديد!\n%s — %s", $appointment->starts_at->format('d/m/Y H:i'), $appointment->patient?->full_name),
+                );
+            }
+        }
+
+        return new AppointmentResource($appointment);
     }
 
     public function show(Appointment $appointment)

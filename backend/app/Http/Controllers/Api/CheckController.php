@@ -6,8 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Models\Cashbox;
 use App\Models\CheckModel;
 use App\Models\Supplier;
+use App\Models\TelegramLink;
 use App\Services\CashboxService;
 use App\Services\CheckService;
+use App\Services\TelegramService;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
@@ -93,6 +95,30 @@ class CheckController extends Controller
         $request->validate(['image' => ['required', 'image', 'max:5120']]);
 
         return $checkService->attachImage($check, $request->file('image'));
+    }
+
+    /**
+     * Pings a linked staff member on Telegram asking them to reply with a
+     * photo of this check — their next photo message gets auto-attached
+     * (see TelegramPoll::handleCheckPhotoReply).
+     */
+    public function requestImage(Request $request, CheckModel $check, TelegramService $telegram)
+    {
+        abort_unless($request->user()->can('checks.manage'), 403);
+
+        $data = $request->validate(['user_id' => ['required', 'exists:users,id']]);
+
+        $link = TelegramLink::where('user_id', $data['user_id'])->whereNotNull('linked_at')->first();
+        abort_unless($link, 422, 'هذا الموظف مو مربوط بتيليغرام بعد.');
+
+        $link->update(['pending_check_id' => $check->id]);
+
+        $telegram->sendMessage(
+            (int) $link->telegram_chat_id,
+            "📸 مطلوب صورة للشيك رقم {$check->check_number} ({$check->amount} {$check->currency}) — صوّرها أو اختارها من المعرض وابعتها هون مباشرة.",
+        );
+
+        return response()->noContent();
     }
 
     public function image(Request $request, CheckModel $check)

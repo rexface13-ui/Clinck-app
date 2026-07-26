@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faPlus, faMoneyCheckDollar, faCamera, faImage, faMagnifyingGlass } from '@fortawesome/free-solid-svg-icons'
+import { faPlus, faMoneyCheckDollar, faCamera, faImage, faMagnifyingGlass, faPaperPlane } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import DatePicker from '../components/DatePicker'
 import { formatDate } from '../lib/formatDate'
-import { Card, PageHeader, Badge, Button, Modal, Table, Thead, Th, Td, Tr, EmptyRow, TableSkeleton } from '../components/ui'
+import { Card, PageHeader, Badge, Button, Modal, Table, Thead, Th, Td, Tr, EmptyRow, TableSkeleton, SearchableSelect } from '../components/ui'
 import type { BadgeVariant } from '../components/ui'
 import type { CheckItem, Patient, Supplier, Cashbox } from '../types'
 
@@ -48,6 +48,10 @@ export default function ChecksPage() {
   const [busy, setBusy] = useState(false)
   const [search, setSearch] = useState('')
   const [attachTargetId, setAttachTargetId] = useState<number | null>(null)
+  const [requestTarget, setRequestTarget] = useState<CheckItem | null>(null)
+  const [requestUserId, setRequestUserId] = useState('')
+  const [requestError, setRequestError] = useState<string | null>(null)
+  const [staff, setStaff] = useState<{ id: number; name: string }[]>([])
   const attachInputRef = useRef<HTMLInputElement>(null)
 
   function loadAll() {
@@ -55,6 +59,7 @@ export default function ChecksPage() {
     api.get('/suppliers').then((res) => setSuppliers(res.data))
     api.get('/patients').then((res) => setPatients(res.data.data ?? res.data))
     api.get('/cashboxes').then((res) => setCashboxes(res.data))
+    api.get('/users').then((res) => setStaff(res.data.data.map((u: { id: number; name: string }) => ({ id: u.id, name: u.name }))))
   }
 
   useEffect(loadAll, [direction])
@@ -110,6 +115,22 @@ export default function ChecksPage() {
       setEndorseTarget(null)
       setEndorseSupplier('')
       loadAll()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function requestPhoto() {
+    if (!requestTarget || !requestUserId) return
+    setBusy(true)
+    setRequestError(null)
+    try {
+      await api.post(`/checks/${requestTarget.id}/request-image`, { user_id: Number(requestUserId) })
+      setRequestTarget(null)
+      setRequestUserId('')
+    } catch (err) {
+      const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      setRequestError(message ?? 'تعذّر إرسال الطلب.')
     } finally {
       setBusy(false)
     }
@@ -289,15 +310,26 @@ export default function ChecksPage() {
                           </a>
                         ) : (
                           canManage && (
-                            <button
-                              type="button"
-                              onClick={() => openAttach(c.id)}
-                              disabled={busy}
-                              className="text-ink/30 hover:text-accent disabled:opacity-50"
-                              title="إرفاق صورة الشيك"
-                            >
-                              <FontAwesomeIcon icon={faCamera} />
-                            </button>
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => openAttach(c.id)}
+                                disabled={busy}
+                                className="text-ink/30 hover:text-accent disabled:opacity-50"
+                                title="إرفاق صورة الشيك من هالجهاز"
+                              >
+                                <FontAwesomeIcon icon={faCamera} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setRequestTarget(c)}
+                                disabled={busy}
+                                className="text-ink/30 hover:text-accent disabled:opacity-50"
+                                title="طلب الصورة من موظف عبر تيليغرام"
+                              >
+                                <FontAwesomeIcon icon={faPaperPlane} />
+                              </button>
+                            </>
                           )
                         )}
                       </span>
@@ -358,6 +390,24 @@ export default function ChecksPage() {
             )}
             <Button onClick={clear} loading={busy} className="w-full justify-center">
               تأكيد التحصيل
+            </Button>
+          </div>
+        </Modal>
+      )}
+
+      {requestTarget && (
+        <Modal title={`طلب صورة الشيك #${requestTarget.check_number}`} onClose={() => { setRequestTarget(null); setRequestError(null) }}>
+          <div className="space-y-3">
+            <p className="text-xs text-muted">اختر الموظف — رح توصله رسالة تيليغرام يصوّر فيها الشيك ويبعتها، وبتنحفظ هون تلقائياً.</p>
+            <SearchableSelect
+              options={staff.map((s) => ({ value: String(s.id), label: s.name }))}
+              value={requestUserId}
+              onChange={setRequestUserId}
+              placeholder="اختر موظف..."
+            />
+            {requestError && <p className="text-xs text-danger">{requestError}</p>}
+            <Button onClick={requestPhoto} loading={busy} className="w-full justify-center">
+              إرسال الطلب
             </Button>
           </div>
         </Modal>

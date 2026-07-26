@@ -14,7 +14,9 @@ class BootstrapController extends Controller
         $features = collect(config('dentaflow.feature_keys'))
             ->mapWithKeys(fn (string $key) => [$key => feature($key)]);
 
-        $settings = Setting::pluck('value', 'key');
+        // The bot token is a secret — never send it to the frontend, even
+        // to a logged-in owner. The Settings page treats it write-only.
+        $settings = Setting::pluck('value', 'key')->except('telegram_bot_token');
 
         return response()->json([
             'user' => [
