@@ -442,20 +442,14 @@ export default function WorkPlanningPanel({
 
   return (
     <div className="space-y-6">
-      <Card className="p-4">
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="w-64">
-            <label className="mb-1 block text-xs text-muted">الطبيب المشرف (إجباري)</label>
-            <SearchableSelect options={doctorOptions} value={doctorId} onChange={setDoctorId} placeholder="اختر طبيب..." />
+      {medicalAlerts.length > 0 && (
+        <Card className="p-4">
+          <div className="flex items-center gap-2 rounded-lg bg-danger-soft px-3 py-2 text-xs text-danger">
+            <FontAwesomeIcon icon={faTriangleExclamation} />
+            حساسية: {medicalAlerts.join('، ')}
           </div>
-          {medicalAlerts.length > 0 && (
-            <div className="flex items-center gap-2 rounded-lg bg-danger-soft px-3 py-2 text-xs text-danger">
-              <FontAwesomeIcon icon={faTriangleExclamation} />
-              حساسية: {medicalAlerts.join('، ')}
-            </div>
-          )}
-        </div>
-      </Card>
+        </Card>
+      )}
 
       {workItems.length > 0 && (
         <Card className="p-4">
@@ -689,6 +683,10 @@ export default function WorkPlanningPanel({
               onChange={setNewServiceId}
               placeholder="اختر خدمة..."
             />
+          </div>
+          <div className="w-64">
+            <label className="mb-1 block text-xs text-muted">الطبيب المشرف (إجباري)</label>
+            <SearchableSelect options={doctorOptions} value={doctorId} onChange={setDoctorId} placeholder="اختر طبيب..." />
           </div>
           <Button onClick={createWorkItem} loading={creating} disabled={creating}>
             <FontAwesomeIcon icon={faPlus} />
