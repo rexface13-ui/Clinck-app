@@ -106,6 +106,7 @@ export default function WorkPlanningPanel({
 
   const [checkoutIds, setCheckoutIds] = useState<Set<number>>(new Set())
   const [discount, setDiscount] = useState('')
+  const [priceEditMode, setPriceEditMode] = useState<'final' | 'amount' | 'percent'>('final')
   const checkoutSectionRef = useRef<HTMLDivElement>(null)
   const [payMode, setPayMode] = useState<'now' | 'defer'>('now')
   const [cashboxId, setCashboxId] = useState('')
@@ -613,23 +614,75 @@ export default function WorkPlanningPanel({
             <span className="text-muted">الإجمالي حسب الخطوات المنجزة</span>
             <span className="text-ink">{money(checkoutTotal)} ₪</span>
           </div>
-          <div className="mb-3 flex items-center gap-2">
-            <span className="text-sm text-ink/70">السعر النهائي (عدّله يدوياً لو بدك تخصم)</span>
-            <input
-              type="number"
-              value={finalTotal === checkoutTotal && discount === '' ? '' : finalTotal}
-              onChange={(e) => {
-                const typed = e.target.value === '' ? checkoutTotal : Math.max(0, Number(e.target.value))
-                setDiscount(String(Math.max(0, checkoutTotal - typed)))
-              }}
-              placeholder={String(checkoutTotal)}
-              className="w-28 rounded-lg border border-border px-2 py-1.5 text-sm font-semibold"
-            />
-            <span className="text-xs text-muted">₪</span>
+          <div className="mb-2 flex gap-1 rounded-lg border border-border bg-white p-1 text-xs">
+            {[
+              { value: 'final' as const, label: 'السعر النهائي' },
+              { value: 'amount' as const, label: 'مبلغ الخصم' },
+              { value: 'percent' as const, label: 'نسبة الخصم %' },
+            ].map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => setPriceEditMode(opt.value)}
+                className={`flex-1 rounded-md py-1.5 font-medium transition-colors ${
+                  priceEditMode === opt.value ? 'bg-accent text-white' : 'text-ink/60 hover:bg-background'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
           </div>
-          {discountAmount > 0 && (
-            <p className="mb-3 text-xs text-muted">خصم {money(discountAmount)} ₪ عن السعر الأصلي.</p>
-          )}
+          <div className="mb-3 flex items-center gap-2">
+            {priceEditMode === 'final' && (
+              <>
+                <span className="text-sm text-ink/70">السعر النهائي</span>
+                <input
+                  type="number"
+                  value={finalTotal === checkoutTotal && discount === '' ? '' : finalTotal}
+                  onChange={(e) => {
+                    const typed = e.target.value === '' ? checkoutTotal : Math.max(0, Number(e.target.value))
+                    setDiscount(String(Math.max(0, checkoutTotal - typed)))
+                  }}
+                  placeholder={String(checkoutTotal)}
+                  className="w-28 rounded-lg border border-border px-2 py-1.5 text-sm font-semibold"
+                />
+                <span className="text-xs text-muted">₪</span>
+              </>
+            )}
+            {priceEditMode === 'amount' && (
+              <>
+                <span className="text-sm text-ink/70">مبلغ الخصم</span>
+                <input
+                  type="number"
+                  value={discount}
+                  onChange={(e) => setDiscount(e.target.value)}
+                  placeholder="0"
+                  className="w-28 rounded-lg border border-border px-2 py-1.5 text-sm font-semibold"
+                />
+                <span className="text-xs text-muted">₪</span>
+              </>
+            )}
+            {priceEditMode === 'percent' && (
+              <>
+                <span className="text-sm text-ink/70">نسبة الخصم</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={checkoutTotal > 0 ? Math.round((discountAmount / checkoutTotal) * 1000) / 10 : ''}
+                  onChange={(e) => {
+                    const pct = Math.max(0, Math.min(100, Number(e.target.value) || 0))
+                    setDiscount(String(Math.round(checkoutTotal * (pct / 100))))
+                  }}
+                  placeholder="0"
+                  className="w-28 rounded-lg border border-border px-2 py-1.5 text-sm font-semibold"
+                />
+                <span className="text-xs text-muted">%</span>
+              </>
+            )}
+          </div>
+          <p className="mb-3 text-xs text-muted">
+            {discountAmount > 0 ? `خصم ${money(discountAmount)} ₪ — الإجمالي بعد الخصم ${money(finalTotal)} ₪.` : `بدون خصم — الإجمالي ${money(finalTotal)} ₪.`}
+          </p>
 
           {!appointmentId && (
             <div className="mb-3">
