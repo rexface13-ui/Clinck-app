@@ -4,13 +4,16 @@ namespace App\Console\Commands;
 
 use App\Models\Appointment;
 use App\Models\CheckModel;
+use App\Models\Doctor;
 use App\Models\Note;
 use App\Models\Patient;
 use App\Models\Prescription;
 use App\Models\Supplier;
 use App\Models\TelegramLink;
+use App\Models\ToothFinding;
 use App\Models\User;
 use App\Services\CheckService;
+use App\Services\DoctorSlotService;
 use App\Services\TelegramService;
 use App\Support\Tenancy\CurrentClinic;
 use Illuminate\Console\Command;
@@ -370,6 +373,21 @@ class TelegramPoll extends Command
             return;
         }
 
+        if ($text === '/cancel' && $link->booking_step) {
+            $link->update(['booking_step' => null, 'booking_doctor_id' => null, 'booking_date' => null]);
+            $telegram->sendMessage($chatId, 'تم إلغاء الحجز.');
+
+            return;
+        }
+
+        // A /book conversation in progress takes priority over everything
+        // else — the next message is the reply to whatever step we're on.
+        if ($link->booking_step) {
+            $this->handleBookingStep($chatId, $text, $link, $telegram, app(DoctorSlotService::class));
+
+            return;
+        }
+
         if ($text === '/appointments' || $text === '/start') {
             $upcoming = Appointment::where('patient_id', $patient->id)
                 ->where('starts_at', '>=', now())
@@ -385,8 +403,14 @@ class TelegramPoll extends Command
             }
 
             if ($text === '/start') {
-                $telegram->sendMessage($chatId, "الأوامر المتاحة:\n/appointments — مواعيدي القادمة\n/account — كشف حسابي\n/prescriptions — آخر وصفاتي\n\nولأي استفسار، اكتبلنا رسالة عادية وبتوصل للعيادة مباشرة.");
+                $telegram->sendMessage($chatId, "الأوامر المتاحة:\n/appointments — مواعيدي القادمة\n/book — حجز موعد جديد\n/account — كشف حسابي\n/prescriptions — آخر وصفاتي\n/teeth — وضع أسناني\n\nولأي استفسار، اكتبلنا رسالة عادية وبتوصل للعيادة مباشرة.");
             }
+
+            return;
+        }
+
+        if ($text === '/book') {
+            $this->startBooking($chatId, $link, $telegram);
 
             return;
         }
@@ -413,8 +437,14 @@ class TelegramPoll extends Command
             return;
         }
 
+        if ($text === '/teeth') {
+            $this->sendTeethSummary($chatId, $patient, $telegram);
+
+            return;
+        }
+
         if ($text === '' || str_starts_with($text, '/')) {
-            $telegram->sendMessage($chatId, "الأوامر المتاحة:\n/appointments — مواعيدي القادمة\n/account — كشف حسابي\n/prescriptions — آخر وصفاتي");
+            $telegram->sendMessage($chatId, "الأوامر المتاحة:\n/appointments — مواعيدي القادمة\n/book — حجز موعد جديد\n/account — كشف حسابي\n/prescriptions — آخر وصفاتي\n/teeth — وضع أسناني");
 
             return;
         }
@@ -434,5 +464,168 @@ class TelegramPoll extends Command
         }
 
         $telegram->sendMessage($chatId, 'وصلت رسالتك للعيادة، رح يتم التواصل معك.');
+    }
+
+    // ---------------------------------------------------------------
+    // /book — multi-step self-service booking for linked patients
+    // ---------------------------------------------------------------
+
+    protected function startBooking(int $chatId, TelegramLink $link, TelegramService $telegram): void
+    {
+        $doctors = Doctor::where('is_active', true)->orderBy('full_name')->get();
+
+        if ($doctors->isEmpty()) {
+            $telegram->sendMessage($chatId, 'ما في أطباء متاحين للحجز حالياً، تواصل مع العيادة مباشرة.');
+
+            return;
+        }
+
+        $link->update(['booking_step' => 'doctor']);
+
+        $lines = $doctors->values()->map(fn (Doctor $d, int $i) => sprintf('%d. د. %s', $i + 1, $d->full_name));
+        $telegram->sendMessage($chatId, "اختر الطبيب (ابعت الرقم):\n".$lines->implode("\n")."\n\n(لإلغاء الحجز أي وقت: /cancel)");
+    }
+
+    protected function handleBookingStep(int $chatId, string $text, TelegramLink $link, TelegramService $telegram, DoctorSlotService $slotService): void
+    {
+        $patient = $link->patient;
+
+        if ($link->booking_step === 'doctor') {
+            $doctors = Doctor::where('is_active', true)->orderBy('full_name')->get()->values();
+            $index = (int) trim($text) - 1;
+
+            if (! isset($doctors[$index])) {
+                $telegram->sendMessage($chatId, 'رقم غير صحيح، ابعت رقم الطبيب من القائمة فوق.');
+
+                return;
+            }
+
+            $link->update(['booking_doctor_id' => $doctors[$index]->id, 'booking_step' => 'date']);
+            $telegram->sendMessage($chatId, "اختيار ممتاز! هلق ابعتلي التاريخ اللي بدك ياه بصيغة يوم/شهر/سنة، أو اكتب \"اليوم\" أو \"بكرا\".");
+
+            return;
+        }
+
+        if ($link->booking_step === 'date') {
+            $date = $this->parseSpokenDate(trim($text));
+
+            if (! $date) {
+                $telegram->sendMessage($chatId, 'ما قدرت أفهم التاريخ. جرب بصيغة يوم/شهر/سنة، أو اكتب "اليوم" أو "بكرا".');
+
+                return;
+            }
+
+            $doctor = $link->bookingDoctor;
+            $slots = $slotService->availableSlots($doctor, $patient->branch_id, $date->toDateString());
+
+            if (empty($slots)) {
+                $telegram->sendMessage($chatId, 'ما في مواعيد فاضية عند هالطبيب بهالتاريخ. جرب تاريخ تاني.');
+
+                return;
+            }
+
+            $link->update(['booking_date' => $date->toDateString(), 'booking_step' => 'slot']);
+
+            $lines = collect($slots)->values()->map(fn ($s, int $i) => sprintf('%d. %s', $i + 1, $s['starts_at_display']));
+            $telegram->sendMessage($chatId, "الأوقات الفاضية يوم {$date->format('d/m/Y')}:\n".$lines->implode("\n")."\n\nابعت رقم الوقت اللي بدك ياه.");
+
+            return;
+        }
+
+        if ($link->booking_step === 'slot') {
+            $doctor = $link->bookingDoctor;
+            $slots = $slotService->availableSlots($doctor, $patient->branch_id, $link->booking_date->toDateString());
+            $index = (int) trim($text) - 1;
+
+            if (! isset($slots[$index])) {
+                $telegram->sendMessage($chatId, 'رقم غير صحيح، ابعت رقم الوقت من القائمة فوق.');
+
+                return;
+            }
+
+            $slot = $slots[$index];
+            $appointment = Appointment::create([
+                'branch_id' => $patient->branch_id,
+                'patient_id' => $patient->id,
+                'doctor_id' => $doctor->id,
+                'starts_at' => $slot['starts_at'],
+                'ends_at' => $slot['ends_at'],
+                'status' => 'scheduled',
+                'created_via' => 'bot',
+            ]);
+
+            $link->update(['booking_step' => null, 'booking_doctor_id' => null, 'booking_date' => null]);
+
+            $telegram->sendMessage(
+                $chatId,
+                sprintf("تم حجز موعدك بنجاح! ✅\nد. %s — %s", $doctor->full_name, $slot['starts_at']->clone()->timezone(config('dentaflow.display_timezone'))->format('d/m/Y H:i')),
+            );
+
+            $doctorLink = $doctor->user_id ? TelegramLink::where('user_id', $doctor->user_id)->whereNotNull('linked_at')->first() : null;
+            if ($doctorLink) {
+                $telegram->sendMessage(
+                    (int) $doctorLink->telegram_chat_id,
+                    sprintf("📅 موعد جديد (حجز ذاتي)!\n%s — %s", $appointment->starts_at->format('d/m/Y H:i'), $patient->full_name),
+                );
+            }
+        }
+    }
+
+    /** Accepts "اليوم", "بكرا", or dd/mm/yyyy — enough for a chat-based date field without a real picker. */
+    protected function parseSpokenDate(string $text): ?Carbon
+    {
+        if ($text === 'اليوم') {
+            return Carbon::today();
+        }
+        if ($text === 'بكرا' || $text === 'بكره') {
+            return Carbon::tomorrow();
+        }
+        if (preg_match('#^(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})$#', $text, $m)) {
+            try {
+                return Carbon::createFromDate((int) $m[3], (int) $m[2], (int) $m[1])->startOfDay();
+            } catch (\Throwable) {
+                return null;
+            }
+        }
+
+        return null;
+    }
+
+    // ---------------------------------------------------------------
+    // /teeth — compact text summary of a patient's chart
+    // ---------------------------------------------------------------
+
+    protected function sendTeethSummary(int $chatId, Patient $patient, TelegramService $telegram): void
+    {
+        $findings = ToothFinding::where('patient_id', $patient->id)
+            ->whereNotNull('service_id')
+            ->with('service:id,name')
+            ->get();
+
+        if ($findings->isEmpty()) {
+            $telegram->sendMessage($chatId, 'ما في سجل أسنان محفوظ إلك بعد.');
+
+            return;
+        }
+
+        // Latest finding per tooth wins, same convention as the chart itself.
+        $latestByTooth = $findings->sortByDesc('id')->unique('tooth_number');
+
+        $done = $latestByTooth->where('status', 'done');
+        $inProgress = $latestByTooth->whereIn('status', ['planned', 'in_progress']);
+
+        $summarize = fn ($rows) => $rows->groupBy(fn ($f) => $f->service?->name ?? 'غير محدد')
+            ->map(fn ($group, $name) => sprintf('%s: %d سن', $name, $group->count()))
+            ->implode("\n");
+
+        $lines = [];
+        if ($done->isNotEmpty()) {
+            $lines[] = "✅ منجز:\n".$summarize($done);
+        }
+        if ($inProgress->isNotEmpty()) {
+            $lines[] = "🕓 مخطط/قيد التنفيذ:\n".$summarize($inProgress);
+        }
+
+        $telegram->sendMessage($chatId, "وضع أسنانك:\n\n".implode("\n\n", $lines));
     }
 }

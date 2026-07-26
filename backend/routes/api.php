@@ -35,6 +35,7 @@ use App\Http\Controllers\Api\StockMovementController;
 use App\Http\Controllers\Api\SupplierController;
 use App\Http\Controllers\Api\TelegramLinkController;
 use App\Http\Controllers\Api\TelegramRegistrationController;
+use App\Http\Controllers\Api\ReportPublishController;
 use App\Http\Controllers\Api\ToothChartController;
 use App\Http\Controllers\Api\WorkItemController;
 use App\Http\Controllers\Api\UserController;
@@ -194,4 +195,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('telegram-registrations/{link}/link-staff', [TelegramRegistrationController::class, 'linkStaff']);
     Route::post('telegram-registrations/{link}/link-patient', [TelegramRegistrationController::class, 'linkPatient']);
     Route::delete('telegram-registrations/{link}', [TelegramRegistrationController::class, 'destroy']);
+
+    Route::get('reports', [ReportPublishController::class, 'index']);
+    Route::post('reports/publish', [ReportPublishController::class, 'publish']);
 });

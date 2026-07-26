@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faPaperPlane, faLink, faLinkSlash, faBuilding, faImage, faTrash, faSliders, faBell, faRobot, faCheck, faUserDoctor, faUserPlus, faXmark } from '@fortawesome/free-solid-svg-icons'
+import { faPaperPlane, faLink, faLinkSlash, faBuilding, faImage, faTrash, faSliders, faBell, faRobot, faCheck, faUserDoctor, faUserPlus, faXmark, faFileLines, faCloudArrowUp } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import { Card, PageHeader, Button, Input, SearchableSelect } from '../components/ui'
@@ -498,6 +498,106 @@ function TelegramRegistrationsCard() {
   )
 }
 
+function DailyReportCard() {
+  const { can, data, refresh } = useAuth()
+  const [reportTime, setReportTime] = useState('22:00')
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [reports, setReports] = useState<{ reports: string[]; repo_slug: string | null } | null>(null)
+  const [publishing, setPublishing] = useState(false)
+  const [publishResult, setPublishResult] = useState<string | null>(null)
+  const [publishError, setPublishError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!data) return
+    setReportTime((data.settings.daily_report_time as string) ?? '22:00')
+  }, [data])
+
+  function loadReports() {
+    api.get('/reports').then((res) => setReports(res.data))
+  }
+
+  useEffect(loadReports, [])
+
+  async function saveTime() {
+    setSaving(true)
+    setSaved(false)
+    try {
+      await api.put('/settings', { values: { daily_report_time: reportTime } })
+      await refresh()
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function publish() {
+    setPublishing(true)
+    setPublishResult(null)
+    setPublishError(null)
+    try {
+      const res = await api.post('/reports/publish')
+      setPublishResult(res.data.status === 'already_published' ? 'التقارير منشورة مسبقاً — ما في شي جديد.' : 'تم النشر بنجاح!')
+    } catch (err) {
+      const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      setPublishError(message ?? 'تعذّر النشر.')
+    } finally {
+      setPublishing(false)
+    }
+  }
+
+  if (!can('settings.manage')) return null
+
+  const repoSlug = reports?.repo_slug
+  const latest = reports?.reports?.[0]
+
+  return (
+    <Card className="max-w-lg p-6">
+      <h2 className="mb-1 flex items-center gap-2 text-sm font-medium text-ink/70">
+        <FontAwesomeIcon icon={faFileLines} className="text-accent" />
+        تقرير الإغلاق اليومي
+      </h2>
+      <p className="mb-4 text-xs text-muted">
+        بيتولّد تلقائياً كل يوم بالوقت المحدد (محلياً بالسيرفر)، وبتوصلك رسالة تيليغرام تذكّرك تنشره. النشر (رفعه عالرابط) خطوة يدوية بضغطة زر — قصداً، مش تلقائي.
+      </p>
+
+      <div className="mb-4">
+        <label className="mb-1 block text-sm text-muted">وقت توليد التقرير يومياً</label>
+        <input
+          type="time"
+          value={reportTime}
+          onChange={(e) => setReportTime(e.target.value)}
+          className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none"
+        />
+      </div>
+      <div className="mb-4 flex items-center gap-3">
+        <Button onClick={saveTime} loading={saving}>
+          {saving ? 'جارِ الحفظ...' : 'حفظ الوقت'}
+        </Button>
+        {saved && <span className="text-sm text-success">انحفظ ✓</span>}
+      </div>
+
+      <div className="border-t border-border/70 pt-3">
+        <p className="mb-2 text-xs text-muted">
+          {reports?.reports?.length ? `آخر تقرير مولّد: ${latest}` : 'ما في تقارير مولّدة بعد.'}
+        </p>
+        <Button onClick={publish} loading={publishing} variant="secondary">
+          <FontAwesomeIcon icon={faCloudArrowUp} />
+          {publishing ? 'جارِ النشر...' : 'نشر آخر تقرير الآن'}
+        </Button>
+        {publishResult && <p className="mt-2 text-sm text-success">{publishResult}</p>}
+        {publishError && <p className="mt-2 text-sm text-danger">{publishError}</p>}
+        {repoSlug && latest && (
+          <p className="mt-2 text-xs text-muted">
+            الرابط بعد النشر: <span className="font-mono">https://{repoSlug.split('/')[0]}.github.io/{repoSlug.split('/')[1]}/reports/{latest}.html</span>
+          </p>
+        )}
+      </div>
+    </Card>
+  )
+}
+
 export default function SettingsPage() {
   const [status, setStatus] = useState<TelegramLinkStatus | null>(null)
   const [busy, setBusy] = useState(false)
@@ -538,6 +638,7 @@ export default function SettingsPage() {
         <RemindersSettingsCard />
         <TelegramBotSettingsCard />
         <TelegramRegistrationsCard />
+        <DailyReportCard />
       </div>
 
       <Card className="max-w-lg p-6">

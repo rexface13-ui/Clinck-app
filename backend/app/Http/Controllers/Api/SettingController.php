@@ -21,6 +21,7 @@ class SettingController extends Controller
         'reminder_appointments_enabled', 'reminder_checks_enabled', 'reminder_lab_enabled',
         'clinic_hours_start', 'clinic_hours_end',
         'telegram_bot_token', 'telegram_bot_username',
+        'daily_report_time',
     ];
 
     public function update(Request $request)

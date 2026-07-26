@@ -13,11 +13,17 @@ class TelegramLink extends Model
     protected $fillable = [
         'clinic_id', 'user_id', 'patient_id', 'telegram_chat_id', 'link_code',
         'registered_name', 'registered_phone', 'pending_check_id', 'linked_at',
+        'booking_step', 'booking_doctor_id', 'booking_date',
     ];
 
     protected function casts(): array
     {
-        return ['linked_at' => 'datetime'];
+        return ['linked_at' => 'datetime', 'booking_date' => 'date'];
+    }
+
+    public function bookingDoctor(): BelongsTo
+    {
+        return $this->belongsTo(Doctor::class, 'booking_doctor_id');
     }
 
     public function user(): BelongsTo
