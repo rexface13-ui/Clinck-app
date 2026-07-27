@@ -336,6 +336,15 @@ class WorkItemService
                     ['patient_id' => $workItem->patient_id, 'tooth_number' => $toothNumber],
                     ['status' => 'missing'],
                 );
+            } elseif ($isDone && $workItem->service->allows_missing_teeth) {
+                // A service that's allowed to work on a missing tooth (implant
+                // and the like) restores it once finished — the tooth is
+                // physically there again, so it shouldn't stay flagged missing
+                // or stay excluded from "تحديد الكل"/future service picks.
+                ToothState::updateOrCreate(
+                    ['patient_id' => $workItem->patient_id, 'tooth_number' => $toothNumber],
+                    ['status' => 'present'],
+                );
             }
 
             if ($isDone && ! $wasDoneAlready) {
