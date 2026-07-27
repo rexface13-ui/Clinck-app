@@ -165,6 +165,13 @@ export default function WorkPlanningPanel({
     [isChild],
   )
 
+  const selectedService = services.find((s) => String(s.id) === newServiceId)
+
+  /** A missing/extracted tooth can't be selected for a normal service — only for a service explicitly flagged as working on missing teeth (implants and the like). */
+  function toothBlocked(number: number): boolean {
+    return stateByTooth.get(number) === 'missing' && !selectedService?.allows_missing_teeth
+  }
+
   function toggleTooth(number: number) {
     if (rangeMode) {
       if (rangeStart === null) {
@@ -174,18 +181,36 @@ export default function WorkPlanningPanel({
       const startIdx = teeth.findIndex((t) => t.number === rangeStart)
       const endIdx = teeth.findIndex((t) => t.number === number)
       const [lo, hi] = startIdx <= endIdx ? [startIdx, endIdx] : [endIdx, startIdx]
-      const rangeNumbers = teeth.slice(lo, hi + 1).map((t) => t.number)
+      const rangeNumbers = teeth.slice(lo, hi + 1).map((t) => t.number).filter((n) => !toothBlocked(n))
       setSelectedTeeth((prev) => Array.from(new Set([...prev, ...rangeNumbers])))
       setRangeStart(null)
       setRangeMode(false)
       return
     }
-    setSelectedTeeth((prev) => (prev.includes(number) ? prev.filter((n) => n !== number) : [...prev, number]))
+    setSelectedTeeth((prev) => {
+      if (prev.includes(number)) return prev.filter((n) => n !== number)
+      if (toothBlocked(number)) return prev
+      return [...prev, number]
+    })
+  }
+
+  /** Switching to a service that doesn't work on missing teeth drops any already-selected missing tooth from the pending selection. */
+  function selectService(serviceId: string) {
+    setNewServiceId(serviceId)
+    const service = services.find((s) => String(s.id) === serviceId)
+    if (!service?.allows_missing_teeth) {
+      setSelectedTeeth((prev) => prev.filter((n) => stateByTooth.get(n) !== 'missing'))
+    }
   }
 
   async function createWorkItem() {
     if (!doctorId || !newServiceId || selectedTeeth.length === 0) {
       setCreateError('لازم تختار الطبيب، الخدمة، وسن واحد عالأقل.')
+      return
+    }
+    const teeth = selectedService?.allows_missing_teeth ? selectedTeeth : selectedTeeth.filter((n) => stateByTooth.get(n) !== 'missing')
+    if (teeth.length === 0) {
+      setCreateError('كل الأسنان المحددة مفقودة، وهاي الخدمة ما بتسمح تشتغل عليها.')
       return
     }
     setCreating(true)
@@ -195,7 +220,7 @@ export default function WorkPlanningPanel({
         patient_id: patientId,
         doctor_id: Number(doctorId),
         service_id: Number(newServiceId),
-        tooth_numbers: selectedTeeth,
+        tooth_numbers: teeth,
       })
       setSelectedTeeth([])
       setNewServiceId('')
@@ -653,10 +678,17 @@ export default function WorkPlanningPanel({
           {teeth.map((t) => {
             const selected = selectedTeeth.includes(t.number)
             const isRangeAnchor = rangeStart === t.number
+            const blocked = toothBlocked(t.number)
             const fill = selected || isRangeAnchor ? 'var(--color-accent)' : pickerToothColor(t.number)
             const stroke = selected || isRangeAnchor ? 'var(--color-accent)' : '#c9b8a8'
             return (
-              <g key={t.number} onClick={() => toggleTooth(t.number)} className="cursor-pointer">
+              <g
+                key={t.number}
+                onClick={() => toggleTooth(t.number)}
+                className={blocked ? 'cursor-not-allowed' : 'cursor-pointer'}
+                opacity={blocked ? 0.35 : 1}
+              >
+                <title>{blocked ? 'سن مفقود — هاي الخدمة ما بتشتغل عليه' : ''}</title>
                 <g transform={`translate(${t.x},${t.y}) rotate(${t.rotationDeg})`}>
                   <ToothCrown
                     crownPath={t.crownPath}
@@ -680,7 +712,7 @@ export default function WorkPlanningPanel({
             <SearchableSelect
               options={serviceOptions}
               value={newServiceId}
-              onChange={setNewServiceId}
+              onChange={selectService}
               placeholder="اختر خدمة..."
             />
           </div>

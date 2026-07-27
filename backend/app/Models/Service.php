@@ -14,7 +14,7 @@ class Service extends Model
     protected $fillable = [
         'clinic_id', 'service_category_id', 'name', 'default_price',
         'default_currency', 'default_sessions', 'default_interval_days',
-        'default_commission_percent', 'is_active', 'marks_teeth_missing', 'price_per_tooth',
+        'default_commission_percent', 'is_active', 'marks_teeth_missing', 'allows_missing_teeth', 'price_per_tooth',
         'color', 'spans_teeth',
     ];
 
@@ -25,6 +25,7 @@ class Service extends Model
             'default_commission_percent' => 'decimal:2',
             'is_active' => 'boolean',
             'marks_teeth_missing' => 'boolean',
+            'allows_missing_teeth' => 'boolean',
             'price_per_tooth' => 'boolean',
             'spans_teeth' => 'boolean',
         ];

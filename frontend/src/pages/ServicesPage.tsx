@@ -96,6 +96,7 @@ const emptyForm = {
   name: '',
   default_price: '',
   marks_teeth_missing: false,
+  allows_missing_teeth: false,
   price_per_tooth: true,
   color: DEFAULT_COLOR,
   spans_teeth: false,
@@ -135,6 +136,7 @@ export default function ServicesPage() {
       default_sessions: 1,
       default_interval_days: null,
       marks_teeth_missing: form.marks_teeth_missing,
+      allows_missing_teeth: form.allows_missing_teeth,
       price_per_tooth: form.price_per_tooth,
       color: form.color,
       spans_teeth: form.spans_teeth,
@@ -181,6 +183,7 @@ export default function ServicesPage() {
       name: s.name,
       default_price: s.default_price,
       marks_teeth_missing: s.marks_teeth_missing,
+      allows_missing_teeth: s.allows_missing_teeth,
       price_per_tooth: s.price_per_tooth,
       color: s.color ?? DEFAULT_COLOR,
       spans_teeth: s.spans_teeth,
@@ -241,6 +244,15 @@ export default function ServicesPage() {
                   className="size-3.5"
                 />
                 هاي الخدمة بتخلع/بتشيل السن (خلع أسنان مثلاً) — لما تتم، السن بيصير "مفقود" تلقائياً بالرسمة
+              </label>
+              <label className="col-span-2 flex items-center gap-2 text-sm text-ink/70">
+                <input
+                  type="checkbox"
+                  checked={form.allows_missing_teeth}
+                  onChange={(e) => setForm({ ...form, allows_missing_teeth: e.target.checked })}
+                  className="size-3.5"
+                />
+                هاي خدمة بتشتغل عل سن مفقود (زراعة أسنان مثلاً) — غير هيك، الأسنان المسجّلة "مفقودة" ما بتنقدر تنختار لهاي الخدمة
               </label>
               <label className="col-span-2 flex items-center gap-2 text-sm text-ink/70">
                 <input

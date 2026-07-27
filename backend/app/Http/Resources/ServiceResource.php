@@ -20,6 +20,7 @@ class ServiceResource extends JsonResource
             'default_commission_percent' => $this->default_commission_percent,
             'is_active' => $this->is_active,
             'marks_teeth_missing' => $this->marks_teeth_missing,
+            'allows_missing_teeth' => $this->allows_missing_teeth,
             'price_per_tooth' => $this->price_per_tooth,
             'color' => $this->color,
             'spans_teeth' => $this->spans_teeth,

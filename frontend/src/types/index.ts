@@ -66,6 +66,7 @@ export interface Service {
   default_commission_percent: string | null
   is_active: boolean
   marks_teeth_missing: boolean
+  allows_missing_teeth: boolean
   price_per_tooth: boolean
   color: string | null
   spans_teeth: boolean

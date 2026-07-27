@@ -34,6 +34,15 @@ class WorkItemService
     {
         abort_if(empty($teeth), 422, 'لازم تحدد سن واحد عالأقل.');
 
+        if (! $service->allows_missing_teeth) {
+            $missingTeeth = ToothState::where('patient_id', $patient->id)
+                ->where('status', 'missing')
+                ->whereIn('tooth_number', $teeth)
+                ->pluck('tooth_number');
+
+            abort_if($missingTeeth->isNotEmpty(), 422, 'هالأسنان مسجّلة مفقودة، وهاي الخدمة ما بتسمح تشتغل عليها: '.$missingTeeth->implode('، '));
+        }
+
         return DB::transaction(function () use ($patient, $doctorId, $service, $teeth) {
             $workItem = WorkItem::create([
                 'patient_id' => $patient->id,

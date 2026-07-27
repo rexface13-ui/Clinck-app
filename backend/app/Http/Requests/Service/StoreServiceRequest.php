@@ -24,6 +24,7 @@ class StoreServiceRequest extends FormRequest
             'default_commission_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
             'is_active' => ['sometimes', 'boolean'],
             'marks_teeth_missing' => ['sometimes', 'boolean'],
+            'allows_missing_teeth' => ['sometimes', 'boolean'],
             'price_per_tooth' => ['sometimes', 'boolean'],
             'color' => ['sometimes', 'nullable', 'regex:/^#[0-9a-fA-F]{6}$/'],
             'spans_teeth' => ['sometimes', 'boolean'],
