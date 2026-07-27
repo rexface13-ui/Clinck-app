@@ -58,7 +58,16 @@ class WorkItemService
 
             $service->loadMissing('steps.fields');
 
-            foreach ($service->steps as $step) {
+            // A service with no steps configured is still a normal,
+            // one-shot billable service (most services never get broken
+            // into steps) — synthesize a single implicit step from the
+            // service itself so there's something to check off and bill,
+            // instead of creating a work item that can never be completed.
+            $steps = $service->steps->isNotEmpty()
+                ? $service->steps
+                : collect([(object) ['id' => null, 'title' => $service->name, 'price' => $service->default_price, 'sort_order' => 1]]);
+
+            foreach ($steps as $step) {
                 $workItemStep = WorkItemStep::create([
                     'work_item_id' => $workItem->id,
                     'service_step_id' => $step->id,
@@ -316,6 +325,16 @@ class WorkItemService
                 ->where('service_id', $workItem->service_id)
                 ->where('status', 'done')
                 ->exists();
+
+            // A tooth already finished (and billed/committed) on an earlier
+            // checkout of this same work item is untouched here — otherwise
+            // checking out a *different* tooth later (possibly under a
+            // different supervising doctor) would silently overwrite this
+            // tooth's doctor credit and recorded_at date, even though
+            // nothing about it actually changed today.
+            if ($wasDoneAlready) {
+                continue;
+            }
 
             $marksMissing = $isDone && $workItem->service->marks_teeth_missing;
 
