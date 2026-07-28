@@ -1,29 +1,21 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faPen, faTrash } from '@fortawesome/free-solid-svg-icons'
 import { Odontogram, type ToothDetail } from 'react-odontogram'
 import 'react-odontogram/style.css'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
-import { ToothCrown, ToothDefs } from './ToothCrown'
+import { OdontogramNumberOverlay, useOdontogramNumberLabels } from './OdontogramNumbers'
 import {
   DEFAULT_TOOTH_FILL,
-  LOWER_ARCH,
   LOWER_PERMANENT,
   LOWER_PRIMARY,
   STATUS_COLOR,
-  UPPER_ARCH,
   UPPER_PERMANENT,
   UPPER_PRIMARY,
-  VIEWBOX,
-  archPosition,
-  cuspPositions,
   fadeHex,
-  primaryCanonicalIndex,
-  toothCrownPath,
-  toothShapeType,
-  toothSize,
-  type ArchConfig,
+  fromLibraryFdi,
+  toLibraryToothId,
 } from '../lib/dental'
 import type { Doctor, Service, ToothFinding, ToothState } from '../types'
 
@@ -42,51 +34,11 @@ interface Props {
   busyToothNumbers?: Map<number, string[]>
 }
 
-interface LaidOutTooth {
-  number: number
-  isPrimary: boolean
-  x: number
-  y: number
-  rotationDeg: number
-  crownPath: string
-  cusps: { x1: number; y1: number; x2: number; y2: number }[]
-  labelX: number
-  labelY: number
-}
-
-function layoutArch(numbers: number[], primaryNumbers: number[], isChild: boolean, arch: ArchConfig): LaidOutTooth[] {
-  // A child with only primary dentition has no molars/premolars/wisdom teeth
-  // erupted yet, so their chart shows just the 10 real primary tooth numbers
-  // per arch — not a mix of primary teeth plus fabricated permanent numbers
-  // (16/17/18 etc.) for teeth that don't exist yet.
-  const list = isChild ? primaryNumbers : numbers
-
-  return list.map((number, i) => {
-    const isPrimary = number >= 51
-    // Primary teeth sit at the canonical slot their permanent successor
-    // would occupy (out of the full 16-slot arch) instead of being spread
-    // evenly across the whole arc — a child's arch is anatomically shorter
-    // since the back molar slots have nothing erupted into them yet.
-    const pos = isPrimary ? archPosition(primaryCanonicalIndex(number), 16, arch) : archPosition(i, list.length, arch)
-    const type = toothShapeType(number, isPrimary)
-    const { w, h } = toothSize(type, isPrimary)
-
-    return {
-      number,
-      isPrimary,
-      x: pos.x,
-      y: pos.y,
-      rotationDeg: pos.rotationDeg,
-      crownPath: toothCrownPath(type, w, h),
-      cusps: cuspPositions(type, w, h),
-      labelX: pos.labelX,
-      labelY: pos.labelY,
-    }
-  })
-}
-
 export default function ToothChart({ patientId, isChild, toothStates, toothFindings, onChanged, pickMode = false, onPickTooth, busyToothNumbers }: Props) {
   const { can } = useAuth()
+  const containerRef = useRef<HTMLDivElement>(null)
+  const toothNumbers = isChild ? [...UPPER_PRIMARY, ...LOWER_PRIMARY] : [...UPPER_PERMANENT, ...LOWER_PERMANENT]
+  const toLibraryId = isChild ? toLibraryToothId : (n: number) => `teeth-${n}`
   const [selectedTeeth, setSelectedTeeth] = useState<number[]>([])
   // Odontogram (the realistic-tooth library) manages its own selection
   // internally after mount — the only way to push OUR selection changes
@@ -128,14 +80,6 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
     return map
   }, [toothFindings])
 
-  const teeth = useMemo(
-    () => [
-      ...layoutArch(UPPER_PERMANENT, UPPER_PRIMARY, isChild, UPPER_ARCH),
-      ...layoutArch(LOWER_PERMANENT, LOWER_PRIMARY, isChild, LOWER_ARCH),
-    ],
-    [isChild]
-  )
-
   function toothColor(tooth: number): string {
     if (stateByTooth.get(tooth) === 'missing') return STATUS_COLOR.missing
     const finding = activeFindingByTooth.get(tooth)
@@ -152,30 +96,7 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
     return STATUS_COLOR.done
   }
 
-  /**
-   * Bridge-style services (spans_teeth) get a connecting bar drawn across
-   * their teeth instead of (or alongside) each tooth's own crown color —
-   * grouped by (work item, service) so only teeth actually placed together
-   * under the same bridge/appliance connect, not any two teeth that happen
-   * to share a service.
-   */
-  const bridgeGroups = useMemo(() => {
-    const groups = new Map<string, { color: string; done: boolean; teeth: number[] }>()
-    toothFindings.forEach((f) => {
-      if (!f.service_spans_teeth || !f.service_id) return
-      const key = `${f.plan_id ?? 'x'}-${f.service_id}`
-      const g = groups.get(key)
-      if (g) {
-        g.teeth.push(f.tooth_number)
-        g.done = g.done && f.status === 'done'
-      } else {
-        groups.set(key, { color: f.service_color ?? STATUS_COLOR.done, done: f.status === 'done', teeth: [f.tooth_number] })
-      }
-    })
-    return Array.from(groups.values()).filter((g) => g.teeth.length > 1)
-  }, [toothFindings])
-
-  /** Teeth worked on by an outside party get a dashed ring instead of the usual solid one, layered on top of whatever status color already applies. */
+  /** Teeth worked on by an outside party get a distinct outline color, layered on top of whatever status color already applies (the library has no dashed-ring equivalent). */
   function performedExternallyFor(tooth: number): boolean {
     return activeFindingByTooth.get(tooth)?.performed_externally ?? false
   }
@@ -187,15 +108,6 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
     setError(null)
     setEditingFindingId(null)
     setEditingFinding(null)
-  }
-
-  function openTooth(tooth: number) {
-    if (pickMode || multiSelect) {
-      setSelectedTeeth((prev) => (prev.includes(tooth) ? prev.filter((n) => n !== tooth) : [...prev, tooth]))
-      return
-    }
-    setSelectedTeeth([tooth])
-    resetForm()
   }
 
   function editFinding(f: ToothFinding) {
@@ -224,13 +136,13 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
 
   function selectAll() {
     setMultiSelect(true)
-    setSelection(teeth.filter((t) => stateByTooth.get(t.number) !== 'missing').map((t) => t.number))
+    setSelection(toothNumbers.filter((n) => stateByTooth.get(n) !== 'missing'))
     resetForm()
   }
 
   function selectArch(archTeeth: number[]) {
     setMultiSelect(true)
-    setSelection(archTeeth.filter((n) => teeth.some((t) => t.number === n) && stateByTooth.get(n) !== 'missing'))
+    setSelection(archTeeth.filter((n) => toothNumbers.includes(n) && stateByTooth.get(n) !== 'missing'))
     resetForm()
   }
 
@@ -248,7 +160,7 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
    * rendering a different component"), so this always defers by one tick.
    */
   function handleOdontogramChange(details: ToothDetail[]) {
-    const nums = details.map((d) => Number(d.notations.fdi))
+    const nums = details.map((d) => fromLibraryFdi(d.notations.fdi, isChild))
     setTimeout(() => {
       setSelectedTeeth(nums)
       if (!pickMode && !multiSelect) resetForm()
@@ -262,17 +174,18 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
    */
   const teethConditions = useMemo(() => {
     const groups = new Map<string, { fillColor: string; outlineColor: string; teeth: string[] }>()
-    for (const n of [...UPPER_PERMANENT, ...LOWER_PERMANENT]) {
+    for (const n of toothNumbers) {
       const color = toothColor(n)
       if (color === DEFAULT_TOOTH_FILL) continue
       const dashed = performedExternallyFor(n)
       const key = `${color}|${dashed}`
       const g = groups.get(key)
-      if (g) g.teeth.push(`teeth-${n}`)
-      else groups.set(key, { fillColor: color, outlineColor: dashed ? 'var(--color-tooth-planned)' : color, teeth: [`teeth-${n}`] })
+      if (g) g.teeth.push(toLibraryId(n))
+      else groups.set(key, { fillColor: color, outlineColor: dashed ? 'var(--color-tooth-planned)' : color, teeth: [toLibraryId(n)] })
     }
     return Array.from(groups.entries()).map(([key, g]) => ({ label: key, ...g }))
-  }, [stateByTooth, activeFindingByTooth])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stateByTooth, activeFindingByTooth, isChild])
 
   async function saveFinding() {
     if (selectedTeeth.length === 0) return
@@ -312,6 +225,8 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
   const singleSelectedTooth = selectedTeeth.length === 1 ? selectedTeeth[0] : null
   const history = singleSelectedTooth ? toothFindings.filter((f) => f.tooth_number === singleSelectedTooth) : []
 
+  const numberLabels = useOdontogramNumberLabels(containerRef, toothNumbers, toLibraryId, [chartKey, isChild])
+
   return (
     <div className="flex flex-col gap-6 2xl:flex-row">
       <div className="min-w-0 flex-1 rounded-xl bg-white p-4 shadow-sm">
@@ -350,85 +265,21 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
             </button>
           )}
         </div>
-        {isChild ? (
-          <svg viewBox={`0 0 ${VIEWBOX.width} ${VIEWBOX.height}`} className="w-full" style={{ maxWidth: 720 }}>
-            <ToothDefs />
-            <line
-              x1={40}
-              y1={VIEWBOX.height / 2}
-              x2={VIEWBOX.width - 40}
-              y2={VIEWBOX.height / 2}
-              stroke="#e2e8f0"
-              strokeDasharray="4 4"
-            />
-            <line x1={UPPER_ARCH.cx} y1={20} x2={UPPER_ARCH.cx} y2={VIEWBOX.height - 20} stroke="#e2e8f0" strokeDasharray="4 4" />
-
-            {bridgeGroups.map((g, i) => {
-              const points = g.teeth
-                .map((n) => teeth.find((t) => t.number === n))
-                .filter((t): t is LaidOutTooth => !!t)
-                .sort((a, b) => a.labelX - b.labelX)
-              if (points.length < 2) return null
-              const color = g.done ? g.color : fadeHex(g.color, 0.5)
-              return (
-                <polyline
-                  key={i}
-                  points={points.map((p) => `${p.x},${p.y}`).join(' ')}
-                  fill="none"
-                  stroke={color}
-                  strokeWidth={7}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  opacity={0.85}
-                />
-              )
-            })}
-
-            {teeth.map((t) => (
-              <g key={t.number} onClick={() => openTooth(t.number)} className="cursor-pointer">
-                <g transform={`translate(${t.x},${t.y}) rotate(${t.rotationDeg})`}>
-                  <ToothCrown
-                    crownPath={t.crownPath}
-                    cusps={t.cusps}
-                    fill={toothColor(t.number)}
-                    stroke={selectedTeeth.includes(t.number) ? 'var(--color-accent)' : '#c9b8a8'}
-                    strokeWidth={selectedTeeth.includes(t.number) ? 2.5 : 1.2}
-                    dashed={performedExternallyFor(t.number)}
-                  />
-                </g>
-                {/* Label is positioned in absolute chart coordinates (not inside the rotated
-                    group) so it always sits cleanly outside the ring, regardless of this
-                    tooth's rotation — prevents labels clustering/overlapping at the apex
-                    and sides. */}
-                <text
-                  x={t.labelX}
-                  y={t.labelY}
-                  textAnchor="middle"
-                  dominantBaseline="middle"
-                  fontSize="10"
-                  fill="var(--color-ink)"
-                  className="select-none"
-                >
-                  {t.number}
-                </text>
-              </g>
-            ))}
-          </svg>
-        ) : (
-          <div className="mx-auto" style={{ maxWidth: 560 }}>
-            <Odontogram
-              key={chartKey}
-              layout="circle"
-              notation="FDI"
-              defaultSelected={selectedTeeth.map((n) => `teeth-${n}`)}
-              singleSelect={!pickMode && !multiSelect}
-              onChange={handleOdontogramChange}
-              teethConditions={teethConditions}
-              showLabels={false}
-              colors={{ darkBlue: 'var(--color-accent)', baseBlue: '#c9b8a8', lightBlue: 'var(--color-accent-soft)' }}
-            />
-          </div>
-        )}
+        <div ref={containerRef} className="relative mx-auto" style={{ maxWidth: 560 }}>
+          <Odontogram
+            key={chartKey}
+            layout="circle"
+            notation="FDI"
+            maxTeeth={isChild ? 5 : 8}
+            defaultSelected={selectedTeeth.map(toLibraryId)}
+            singleSelect={!pickMode && !multiSelect}
+            onChange={handleOdontogramChange}
+            teethConditions={teethConditions}
+            showLabels={false}
+            colors={{ darkBlue: 'var(--color-accent)', baseBlue: '#c9b8a8', lightBlue: 'var(--color-accent-soft)' }}
+          />
+          {numberLabels && <OdontogramNumberOverlay viewBox={numberLabels.viewBox} labels={numberLabels.labels} />}
+        </div>
 
         <div className="mt-4 flex gap-4 text-xs text-ink/60">
           <span className="flex items-center gap-1">

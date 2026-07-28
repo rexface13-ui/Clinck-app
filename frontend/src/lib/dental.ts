@@ -12,6 +12,31 @@ export const LOWER_PRIMARY = [85, 84, 83, 82, 81, 71, 72, 73, 74, 75]
 export const SURFACES = ['M', 'D', 'O', 'I', 'B', 'L'] as const
 
 /**
+ * The react-odontogram library only knows the permanent (adult) FDI
+ * numbers 11-48 — it has no concept of primary/baby teeth. A primary
+ * tooth's real number (51-85) maps onto the same quadrant *position* one
+ * permanent quadrant over (e.g. 51/52/53 → 11/12/13), so a child's chart
+ * reuses the library's rendering (sliced to `maxTeeth={5}`, matching a
+ * primary quadrant's real tooth count) while our own data model keeps
+ * the correct 51-85 numbers throughout — only the library's own
+ * id/label gets translated, at the two edges of this bridge.
+ */
+export function toLibraryToothId(toothNumber: number): string {
+  if (toothNumber < 50) return `teeth-${toothNumber}`
+  const quadrant = Math.floor(toothNumber / 10)
+  const position = toothNumber % 10
+  return `teeth-${(quadrant - 4) * 10 + position}`
+}
+
+export function fromLibraryFdi(fdi: string, isChild: boolean): number {
+  const n = Number(fdi)
+  if (!isChild) return n
+  const quadrant = Math.floor(n / 10)
+  const position = n % 10
+  return (quadrant + 4) * 10 + position
+}
+
+/**
  * Turns a set of tooth numbers into a short, readable label instead of a
  * long raw list — "3-4 وشوية" gets spelled out, a whole arch/mouth gets its
  * name, and anything larger gets a count with a hint to expand for detail.
