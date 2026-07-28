@@ -87,42 +87,29 @@ function roundedRectPath(w: number, h: number, r: number): string {
   return `M${x + r},${y} h${w - 2 * r} a${r},${r} 0 0 1 ${r},${r} v${h - 2 * r} a${r},${r} 0 0 1 -${r},${r} h-${w - 2 * r} a${r},${r} 0 0 1 -${r},-${r} v-${h - 2 * r} a${r},${r} 0 0 1 ${r},-${r} z`
 }
 
-/** A crown outline with one pointed cusp at the top — canines. */
-function pointedPath(w: number, h: number): string {
-  const x = w / 2
-  const y = h / 2
-  const r = w * 0.4
-  return `M0,${-y} L${x * 0.55},${-y + h * 0.22} a${r},${r} 0 0 1 ${r * 0.3},${r * 0.5} v${h * 0.35} a${r},${r} 0 0 1 -${r},${r} h-${w - 2 * r} a${r},${r} 0 0 1 -${r},-${r} v-${h * 0.35} a${r},${r} 0 0 1 ${r * 0.3},-${r * 0.5} z`
-}
-
-/** SVG path `d` string for a tooth crown, local coords centered at origin. */
-export function toothCrownPath(type: ToothShapeType, w: number, h: number): string {
-  if (type === 'canine') return pointedPath(w, h)
-  const r = type === 'molar' ? w * 0.28 : Math.min(w, h) * 0.32
+/**
+ * A single friendly, uniform "cartoon tooth" blob for every tooth type —
+ * matching the simple oval-with-heavy-rounding look of a classic chart
+ * icon, instead of the previous per-type outlines (pointed canine tip,
+ * squarer molars). Only the overall size still varies by type/arch.
+ */
+export function toothCrownPath(_type: ToothShapeType, w: number, h: number): string {
+  const r = Math.min(w, h) * 0.46
   return roundedRectPath(w, h, r)
 }
 
-/** Small cusp bump positions (local coords) along the crown's top half. */
-export function cuspPositions(type: ToothShapeType, w: number, h: number): { x: number; y: number; r: number }[] {
-  const count = SHAPE_SIZE[type].cusps
-  if (count === 0) return []
-
-  const cuspR = w * 0.13
-  const yPos = -h * 0.12
-  if (count === 1) return [{ x: 0, y: -h * 0.3, r: cuspR }]
-  if (count === 2) {
-    return [
-      { x: -w * 0.22, y: yPos, r: cuspR },
-      { x: w * 0.22, y: yPos, r: cuspR },
-    ]
+/**
+ * Hairline fissure/groove lines (local coords) drawn on every tooth's
+ * crown — a short central groove on all of them, plus a crossing side
+ * groove on premolars/molars (their real occlusal surface has a fissure
+ * pattern, not a smooth face like a front tooth).
+ */
+export function cuspPositions(type: ToothShapeType, w: number, h: number): { x1: number; y1: number; x2: number; y2: number }[] {
+  const lines = [{ x1: 0, y1: -h * 0.28, x2: 0, y2: h * 0.28 }]
+  if (type === 'molar' || type === 'premolar') {
+    lines.push({ x1: -w * 0.24, y1: 0, x2: w * 0.24, y2: 0 })
   }
-  // 4 cusps, quatrefoil layout
-  return [
-    { x: -w * 0.22, y: -h * 0.2, r: cuspR },
-    { x: w * 0.22, y: -h * 0.2, r: cuspR },
-    { x: -w * 0.22, y: h * 0.18, r: cuspR },
-    { x: w * 0.22, y: h * 0.18, r: cuspR },
-  ]
+  return lines
 }
 
 export interface ArchPosition {

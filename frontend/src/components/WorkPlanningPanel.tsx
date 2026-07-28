@@ -41,7 +41,7 @@ interface LaidOutTooth {
   y: number
   rotationDeg: number
   crownPath: string
-  cusps: { x: number; y: number; r: number }[]
+  cusps: { x1: number; y1: number; x2: number; y2: number }[]
   labelX: number
   labelY: number
 }

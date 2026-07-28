@@ -18,11 +18,6 @@ export function ToothDefs() {
         <stop offset="0%" stopColor="#00000022" />
         <stop offset="100%" stopColor="#00000000" />
       </radialGradient>
-      <radialGradient id="cusp-bump" cx="35%" cy="30%" r="75%">
-        <stop offset="0%" stopColor="#ffffff" stopOpacity="0.85" />
-        <stop offset="55%" stopColor="#00000010" />
-        <stop offset="100%" stopColor="#00000030" />
-      </radialGradient>
       <filter id="tooth-depth" x="-50%" y="-50%" width="200%" height="200%">
         <feDropShadow dx="0" dy="1.2" stdDeviation="1.3" floodColor="#2b1d12" floodOpacity="0.25" />
       </filter>
@@ -39,7 +34,8 @@ export function ToothCrown({
   dashed = false,
 }: {
   crownPath: string
-  cusps: { x: number; y: number; r: number }[]
+  /** Hairline fissure/groove segments etched onto the crown surface — see dental.ts's cuspPositions(). */
+  cusps: { x1: number; y1: number; x2: number; y2: number }[]
   fill: string
   stroke: string
   strokeWidth?: number
@@ -50,8 +46,8 @@ export function ToothCrown({
       <path d={crownPath} fill={fill} stroke={stroke} strokeWidth={strokeWidth} strokeDasharray={dashed ? '3 2' : undefined} />
       <path d={crownPath} fill="url(#tooth-shade)" pointerEvents="none" />
       <path d={crownPath} fill="url(#tooth-gloss)" pointerEvents="none" />
-      {cusps.map((c, i) => (
-        <circle key={i} cx={c.x} cy={c.y} r={c.r} fill="url(#cusp-bump)" />
+      {cusps.map((g, i) => (
+        <line key={i} x1={g.x1} y1={g.y1} x2={g.x2} y2={g.y2} stroke="#00000035" strokeWidth={0.9} strokeLinecap="round" pointerEvents="none" />
       ))}
     </g>
   )

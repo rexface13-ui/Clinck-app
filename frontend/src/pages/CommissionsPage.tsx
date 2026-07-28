@@ -58,9 +58,9 @@ const INVOICE_STATUS_VARIANTS: Record<string, BadgeVariant> = {
 function ToothPreview({ toothNumber }: { toothNumber: number }) {
   const isPrimary = toothNumber >= 51
   const type = toothShapeType(toothNumber, isPrimary)
-  const { w, h, cusps: cuspCount } = toothSize(type, isPrimary)
+  const { w, h } = toothSize(type, isPrimary)
   const crownPath = toothCrownPath(type, w * 2.2, h * 2.2)
-  const cusps = cuspCount > 0 ? cuspPositions(type, w * 2.2, h * 2.2) : []
+  const cusps = cuspPositions(type, w * 2.2, h * 2.2)
   return (
     <svg viewBox="-40 -40 80 80" className="mx-auto" style={{ width: 90, height: 90 }}>
       <ToothDefs />
