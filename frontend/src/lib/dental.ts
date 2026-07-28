@@ -87,15 +87,44 @@ function roundedRectPath(w: number, h: number, r: number): string {
   return `M${x + r},${y} h${w - 2 * r} a${r},${r} 0 0 1 ${r},${r} v${h - 2 * r} a${r},${r} 0 0 1 -${r},${r} h-${w - 2 * r} a${r},${r} 0 0 1 -${r},-${r} v-${h - 2 * r} a${r},${r} 0 0 1 ${r},-${r} z`
 }
 
+/** A crown outline with one pointed cusp at the top — canines. */
+function pointedPath(w: number, h: number): string {
+  const x = w / 2
+  const y = h / 2
+  const r = w * 0.4
+  return `M0,${-y} L${x * 0.55},${-y + h * 0.22} a${r},${r} 0 0 1 ${r * 0.3},${r * 0.5} v${h * 0.35} a${r},${r} 0 0 1 -${r},${r} h-${w - 2 * r} a${r},${r} 0 0 1 -${r},-${r} v-${h * 0.35} a${r},${r} 0 0 1 ${r * 0.3},-${r * 0.5} z`
+}
+
 /**
- * A single friendly, uniform "cartoon tooth" blob for every tooth type —
- * matching the simple oval-with-heavy-rounding look of a classic chart
- * icon, instead of the previous per-type outlines (pointed canine tip,
- * squarer molars). Only the overall size still varies by type/arch.
+ * Crown outline whose top (biting) edge is scalloped by `bumps` cusps
+ * instead of a flat/rounded edge — a real premolar or molar's silhouette
+ * actually has that ridge, it's not just a decoration drawn on top of a
+ * smooth shape.
  */
-export function toothCrownPath(_type: ToothShapeType, w: number, h: number): string {
-  const r = Math.min(w, h) * 0.46
-  return roundedRectPath(w, h, r)
+function scallopedPath(w: number, h: number, bumps: number): string {
+  const x = w / 2
+  const y = h / 2
+  const rSide = Math.min(w, h) * 0.3
+  const bumpH = h * 0.1
+  const step = (w - 2 * rSide) / bumps
+
+  let top = `M${-x + rSide},${-y}`
+  for (let i = 0; i < bumps; i++) {
+    const startX = -x + rSide + i * step
+    const midX = startX + step / 2
+    const endX = startX + step
+    top += ` Q${midX},${-y - bumpH} ${endX},${-y}`
+  }
+
+  return `${top} a${rSide},${rSide} 0 0 1 ${rSide},${rSide} v${h - 2 * rSide} a${rSide},${rSide} 0 0 1 -${rSide},${rSide} h-${w - 2 * rSide} a${rSide},${rSide} 0 0 1 -${rSide},-${rSide} v-${h - 2 * rSide} a${rSide},${rSide} 0 0 1 ${rSide},-${rSide} z`
+}
+
+/** SVG path `d` string for a tooth crown, local coords centered at origin — silhouette varies by type so a molar reads as a molar, a canine as a canine, at a glance. */
+export function toothCrownPath(type: ToothShapeType, w: number, h: number): string {
+  if (type === 'canine') return pointedPath(w, h)
+  if (type === 'premolar') return scallopedPath(w, h, 2)
+  if (type === 'molar') return scallopedPath(w, h, 4)
+  return roundedRectPath(w, h, Math.min(w, h) * 0.32)
 }
 
 /**
