@@ -5,7 +5,7 @@ import { Odontogram, type ToothDetail } from 'react-odontogram'
 import 'react-odontogram/style.css'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
-import { OdontogramNumberOverlay, useOdontogramNumberLabels } from './OdontogramNumbers'
+import { OdontogramBridgeOverlay, OdontogramNumberOverlay, useOdontogramGeometry } from './OdontogramNumbers'
 import {
   DEFAULT_TOOTH_FILL,
   LOWER_PERMANENT,
@@ -18,6 +18,18 @@ import {
   toLibraryToothId,
 } from '../lib/dental'
 import type { Doctor, Service, ToothFinding, ToothState } from '../types'
+
+/**
+ * Primary dentition only has 5 teeth per quadrant, but the library's
+ * circular layout always reserves 8 slots per quadrant (the geometry
+ * itself doesn't shrink to fit fewer teeth — using `maxTeeth` to slice
+ * to 5 just leaves the missing slots as visual gaps, disconnecting the
+ * ring). So a child's chart renders the full 8 slots and mutes the 3
+ * that have no real tooth behind them (positions 6-8 of each quadrant)
+ * instead — same continuous ring, with the "not applicable" slots
+ * visually flagged and not interactive.
+ */
+const CHILD_PHANTOM_LIBRARY_IDS = [16, 17, 18, 26, 27, 28, 36, 37, 38, 46, 47, 48].map((n) => `teeth-${n}`)
 
 interface Props {
   patientId: number
@@ -160,7 +172,10 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
    * rendering a different component"), so this always defers by one tick.
    */
   function handleOdontogramChange(details: ToothDetail[]) {
-    const nums = details.map((d) => fromLibraryFdi(d.notations.fdi, isChild))
+    // Phantom slots (real for adults, muted placeholders for children)
+    // report as bogus numbers once remapped — drop anything that isn't
+    // actually one of this chart's real teeth.
+    const nums = details.map((d) => fromLibraryFdi(d.notations.fdi, isChild)).filter((n) => toothNumbers.includes(n))
     setTimeout(() => {
       setSelectedTeeth(nums)
       if (!pickMode && !multiSelect) resetForm()
@@ -168,9 +183,33 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
   }
 
   /**
+   * Bridge-style services (spans_teeth) get a connecting bar drawn across
+   * their teeth instead of (or alongside) each tooth's own crown color —
+   * grouped by (work item, service) so only teeth actually placed together
+   * under the same bridge/appliance connect, not any two teeth that happen
+   * to share a service.
+   */
+  const bridgeGroups = useMemo(() => {
+    const groups = new Map<string, { color: string; done: boolean; teeth: number[] }>()
+    toothFindings.forEach((f) => {
+      if (!f.service_spans_teeth || !f.service_id) return
+      const key = `${f.plan_id ?? 'x'}-${f.service_id}`
+      const g = groups.get(key)
+      if (g) {
+        g.teeth.push(f.tooth_number)
+        g.done = g.done && f.status === 'done'
+      } else {
+        groups.set(key, { color: f.service_color ?? STATUS_COLOR.done, done: f.status === 'done', teeth: [f.tooth_number] })
+      }
+    })
+    return Array.from(groups.values()).filter((g) => g.teeth.length > 1)
+  }, [toothFindings])
+
+  /**
    * One condition group per distinct color actually in use, plus a
    * separate outline color for externally-performed work (no dashed-ring
-   * equivalent in the library, so a distinct outline is the closest cue).
+   * equivalent in the library, so a distinct outline is the closest cue),
+   * plus (children only) a muted group for the phantom slots.
    */
   const teethConditions = useMemo(() => {
     const groups = new Map<string, { fillColor: string; outlineColor: string; teeth: string[] }>()
@@ -183,7 +222,9 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
       if (g) g.teeth.push(toLibraryId(n))
       else groups.set(key, { fillColor: color, outlineColor: dashed ? 'var(--color-tooth-planned)' : color, teeth: [toLibraryId(n)] })
     }
-    return Array.from(groups.entries()).map(([key, g]) => ({ label: key, ...g }))
+    const result = Array.from(groups.entries()).map(([key, g]) => ({ label: key, ...g }))
+    if (isChild) result.push({ label: 'phantom', fillColor: '#e5e7eb', outlineColor: '#d1d5db', teeth: CHILD_PHANTOM_LIBRARY_IDS })
+    return result
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stateByTooth, activeFindingByTooth, isChild])
 
@@ -225,7 +266,7 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
   const singleSelectedTooth = selectedTeeth.length === 1 ? selectedTeeth[0] : null
   const history = singleSelectedTooth ? toothFindings.filter((f) => f.tooth_number === singleSelectedTooth) : []
 
-  const numberLabels = useOdontogramNumberLabels(containerRef, toothNumbers, toLibraryId, [chartKey, isChild])
+  const geometry = useOdontogramGeometry(containerRef, toothNumbers, toLibraryId, [chartKey, isChild])
 
   return (
     <div className="flex flex-col gap-6 2xl:flex-row">
@@ -270,7 +311,7 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
             key={chartKey}
             layout="circle"
             notation="FDI"
-            maxTeeth={isChild ? 5 : 8}
+            maxTeeth={8}
             defaultSelected={selectedTeeth.map(toLibraryId)}
             singleSelect={!pickMode && !multiSelect}
             onChange={handleOdontogramChange}
@@ -278,7 +319,8 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
             showLabels={false}
             colors={{ darkBlue: 'var(--color-accent)', baseBlue: '#c9b8a8', lightBlue: 'var(--color-accent-soft)' }}
           />
-          {numberLabels && <OdontogramNumberOverlay viewBox={numberLabels.viewBox} labels={numberLabels.labels} />}
+          {geometry && <OdontogramBridgeOverlay geometry={geometry} groups={bridgeGroups} />}
+          {geometry && <OdontogramNumberOverlay geometry={geometry} toothNumbers={toothNumbers} />}
         </div>
 
         <div className="mt-4 flex gap-4 text-xs text-ink/60">

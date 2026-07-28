@@ -1,25 +1,29 @@
 import { useLayoutEffect, useState, type DependencyList, type RefObject } from 'react'
+import { fadeHex } from '../lib/dental'
 
-interface LabelPos {
-  number: number
+interface Point {
   x: number
   y: number
 }
 
+interface Geometry {
+  viewBox: string
+  centers: Map<number, Point>
+}
+
 /**
- * react-odontogram never shows a persistent per-tooth number (only a
- * hover tooltip) — this measures each rendered tooth group's actual
- * position after mount and computes a label spot pushed radially
- * outward from the chart's center, so numbers sit just outside the ring
- * regardless of the library's own internal layout math.
+ * react-odontogram exposes no way to read a tooth's rendered position back
+ * out — this measures every tooth group's actual bounding box after mount
+ * so other overlays (number labels, bridge lines) can be positioned
+ * against real coordinates instead of guessed ones.
  */
-export function useOdontogramNumberLabels(
+export function useOdontogramGeometry(
   containerRef: RefObject<HTMLDivElement | null>,
   toothNumbers: number[],
   toLibraryId: (n: number) => string,
   deps: DependencyList,
-) {
-  const [state, setState] = useState<{ viewBox: string; labels: LabelPos[] } | null>(null)
+): Geometry | null {
+  const [state, setState] = useState<Geometry | null>(null)
 
   useLayoutEffect(() => {
     const container = containerRef.current
@@ -30,53 +34,89 @@ export function useOdontogramNumberLabels(
       return
     }
 
-    const [, , w, h] = viewBox.split(' ').map(Number)
-    const cx = w / 2
-    const cy = h / 2
-
     const byId = new Map<string, SVGGElement>()
     container.querySelectorAll<SVGGElement>('g[class^="teeth-"]').forEach((g) => {
       const id = g.getAttribute('class')?.trim().split(/\s+/)[0]
       if (id) byId.set(id, g)
     })
 
-    const labels: LabelPos[] = []
+    // getBBox() is in the element's OWN local space — it ignores every
+    // ancestor transform (each tooth sits inside its own quadrant group,
+    // which is what actually rotates/positions it around the ring).
+    // getCTM() carries the full transform chain up to the SVG root, so
+    // mapping the local center through it gives the real rendered position.
+    const svgPoint = svg.createSVGPoint()
+    const centers = new Map<number, Point>()
     for (const number of toothNumbers) {
       const el = byId.get(toLibraryId(number))
-      if (!el) continue
+      const ctm = el?.getCTM()
+      if (!el || !ctm) continue
       const box = el.getBBox()
-      const ex = box.x + box.width / 2
-      const ey = box.y + box.height / 2
-      const dx = ex - cx
-      const dy = ey - cy
-      const dist = Math.hypot(dx, dy) || 1
-      labels.push({ number, x: ex + (dx / dist) * 14, y: ey + (dy / dist) * 14 })
+      svgPoint.x = box.x + box.width / 2
+      svgPoint.y = box.y + box.height / 2
+      const p = svgPoint.matrixTransform(ctm)
+      centers.set(number, { x: p.x, y: p.y })
     }
 
-    setState({ viewBox, labels })
+    setState({ viewBox, centers })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps)
 
   return state
 }
 
-export function OdontogramNumberOverlay({ viewBox, labels }: { viewBox: string; labels: LabelPos[] }) {
+export function OdontogramNumberOverlay({ geometry, toothNumbers }: { geometry: Geometry; toothNumbers: number[] }) {
+  const [, , w, h] = geometry.viewBox.split(' ').map(Number)
+  const cx = w / 2
+  const cy = h / 2
+
   return (
-    <svg viewBox={viewBox} className="pointer-events-none absolute inset-0 size-full">
-      {labels.map((l) => (
-        <text
-          key={l.number}
-          x={l.x}
-          y={l.y}
-          textAnchor="middle"
-          dominantBaseline="middle"
-          fontSize="9"
-          fill="var(--color-ink)"
-          className="select-none"
-        >
-          {l.number}
-        </text>
-      ))}
+    <svg viewBox={geometry.viewBox} className="pointer-events-none absolute inset-0 size-full">
+      {toothNumbers.map((number) => {
+        const c = geometry.centers.get(number)
+        if (!c) return null
+        const dx = c.x - cx
+        const dy = c.y - cy
+        const dist = Math.hypot(dx, dy) || 1
+        const x = c.x + (dx / dist) * 14
+        const y = c.y + (dy / dist) * 14
+        return (
+          <text key={number} x={x} y={y} textAnchor="middle" dominantBaseline="middle" fontSize="9" fill="var(--color-ink)" className="select-none">
+            {number}
+          </text>
+        )
+      })}
+    </svg>
+  )
+}
+
+export interface BridgeGroup {
+  color: string
+  done: boolean
+  teeth: number[]
+}
+
+export function OdontogramBridgeOverlay({ geometry, groups }: { geometry: Geometry; groups: BridgeGroup[] }) {
+  return (
+    <svg viewBox={geometry.viewBox} className="pointer-events-none absolute inset-0 size-full">
+      {groups.map((g, i) => {
+        const points = g.teeth.map((n) => geometry.centers.get(n)).filter((p): p is Point => !!p)
+        if (points.length < 2) return null
+        const sorted = [...points].sort((a, b) => a.x - b.x)
+        const color = g.done ? g.color : fadeHex(g.color, 0.5)
+        return (
+          <polyline
+            key={i}
+            points={sorted.map((p) => `${p.x},${p.y}`).join(' ')}
+            fill="none"
+            stroke={color}
+            strokeWidth={5}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            opacity={0.85}
+          />
+        )
+      })}
     </svg>
   )
 }

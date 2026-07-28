@@ -15,7 +15,7 @@ import { api } from '../lib/api'
 import DatePicker from './DatePicker'
 import { Card, Button, Select, SearchableSelect, Badge } from './ui'
 import type { BadgeVariant } from './ui'
-import { OdontogramNumberOverlay, useOdontogramNumberLabels } from './OdontogramNumbers'
+import { OdontogramBridgeOverlay, OdontogramNumberOverlay, useOdontogramGeometry } from './OdontogramNumbers'
 import {
   DEFAULT_TOOTH_FILL,
   LOWER_PERMANENT,
@@ -28,6 +28,9 @@ import {
   toLibraryToothId,
 } from '../lib/dental'
 import type { Branch, Cashbox, Doctor, Service, ToothFinding, ToothState, WorkItem } from '../types'
+
+/** Same phantom-slot muting as ToothChart.tsx — see its comment for why. */
+const CHILD_PHANTOM_LIBRARY_IDS = [16, 17, 18, 26, 27, 28, 36, 37, 38, 46, 47, 48].map((n) => `teeth-${n}`)
 
 function money(n: number): string {
   return new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(n)
@@ -185,6 +188,7 @@ export default function WorkPlanningPanel({
     if (!clickedId) return
 
     const clickedNumber = fromLibraryFdi(clickedId.replace('teeth-', ''), isChild)
+    if (!toothNumbers.includes(clickedNumber)) return
     setTimeout(() => toggleTooth(clickedNumber), 0)
   }
 
@@ -440,6 +444,27 @@ export default function WorkPlanningPanel({
     return DEFAULT_TOOTH_FILL
   }
 
+  /**
+   * Bridge-style services (spans_teeth) get a connecting bar drawn across
+   * their teeth instead of (or alongside) each tooth's own crown color —
+   * same grouping as the overview chart.
+   */
+  const bridgeGroups = useMemo(() => {
+    const groups = new Map<string, { color: string; done: boolean; teeth: number[] }>()
+    toothFindings.forEach((f) => {
+      if (!f.service_spans_teeth || !f.service_id) return
+      const key = `${f.plan_id ?? 'x'}-${f.service_id}`
+      const g = groups.get(key)
+      if (g) {
+        g.teeth.push(f.tooth_number)
+        g.done = g.done && f.status === 'done'
+      } else {
+        groups.set(key, { color: f.service_color ?? STATUS_COLOR.done, done: f.status === 'done', teeth: [f.tooth_number] })
+      }
+    })
+    return Array.from(groups.values()).filter((g) => g.teeth.length > 1)
+  }, [toothFindings])
+
   /** One condition group per distinct picker color actually in use — selection/range-anchor highlighting is handled separately via defaultSelected, since the library's own "selected" styling already reads clearly on top. */
   const teethConditions = useMemo(() => {
     const groups = new Map<string, { fillColor: string; outlineColor: string; teeth: string[] }>()
@@ -450,11 +475,13 @@ export default function WorkPlanningPanel({
       if (g) g.teeth.push(toLibraryId(n))
       else groups.set(color, { fillColor: color, outlineColor: color, teeth: [toLibraryId(n)] })
     }
-    return Array.from(groups.entries()).map(([key, g]) => ({ label: key, ...g }))
+    const result = Array.from(groups.entries()).map(([key, g]) => ({ label: key, ...g }))
+    if (isChild) result.push({ label: 'phantom', fillColor: '#e5e7eb', outlineColor: '#d1d5db', teeth: CHILD_PHANTOM_LIBRARY_IDS })
+    return result
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [toothWorkColor, stateByTooth, activeFindingByTooth, isChild])
 
-  const numberLabels = useOdontogramNumberLabels(containerRef, toothNumbers, toLibraryId, [chartKey, isChild])
+  const geometry = useOdontogramGeometry(containerRef, toothNumbers, toLibraryId, [chartKey, isChild])
 
   const serviceOptions = services.map((s) => ({ value: String(s.id), label: s.name }))
   const doctorOptions = doctors.map((d) => ({ value: String(d.id), label: d.full_name }))
@@ -651,7 +678,7 @@ export default function WorkPlanningPanel({
             key={chartKey}
             layout="circle"
             notation="FDI"
-            maxTeeth={isChild ? 5 : 8}
+            maxTeeth={8}
             defaultSelected={[...selectedTeeth, ...(rangeStart !== null ? [rangeStart] : [])].map(toLibraryId)}
             singleSelect={false}
             onChange={handleOdontogramChange}
@@ -659,7 +686,8 @@ export default function WorkPlanningPanel({
             showLabels={false}
             colors={{ darkBlue: 'var(--color-accent)', baseBlue: '#c9b8a8', lightBlue: 'var(--color-accent-soft)' }}
           />
-          {numberLabels && <OdontogramNumberOverlay viewBox={numberLabels.viewBox} labels={numberLabels.labels} />}
+          {geometry && <OdontogramBridgeOverlay geometry={geometry} groups={bridgeGroups} />}
+          {geometry && <OdontogramNumberOverlay geometry={geometry} toothNumbers={toothNumbers} />}
         </div>
 
         <div className="mt-3 flex flex-wrap items-end gap-3">
