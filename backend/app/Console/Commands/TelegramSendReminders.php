@@ -78,7 +78,7 @@ class TelegramSendReminders extends Command
 
     protected function sendAppointmentReminders(TelegramService $telegram): void
     {
-        $appointments = Appointment::with(['patient:id,full_name', 'doctor.user'])
+        $appointments = Appointment::with(['patient:id,full_name', 'doctor'])
             ->whereBetween('starts_at', [now(), now()->addDay()])
             ->whereIn('status', ['scheduled', 'confirmed'])
             ->orderBy('starts_at')
@@ -86,8 +86,8 @@ class TelegramSendReminders extends Command
             ->groupBy('doctor_id');
 
         foreach ($appointments as $doctorAppointments) {
-            $doctorUser = $doctorAppointments->first()->doctor?->user;
-            $link = $doctorUser ? TelegramLink::where('user_id', $doctorUser->id)->whereNotNull('linked_at')->first() : null;
+            $doctor = $doctorAppointments->first()->doctor;
+            $link = TelegramLink::activeForDoctor($doctor);
 
             if (! $link) {
                 continue;

@@ -193,6 +193,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('telegram-registrations', [TelegramRegistrationController::class, 'index']);
     Route::post('telegram-registrations/{link}/link-staff', [TelegramRegistrationController::class, 'linkStaff']);
+    Route::post('telegram-registrations/{link}/link-doctor', [TelegramRegistrationController::class, 'linkDoctor']);
     Route::post('telegram-registrations/{link}/link-patient', [TelegramRegistrationController::class, 'linkPatient']);
     Route::delete('telegram-registrations/{link}', [TelegramRegistrationController::class, 'destroy']);
 

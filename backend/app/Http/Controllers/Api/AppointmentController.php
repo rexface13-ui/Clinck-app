@@ -8,6 +8,7 @@ use App\Http\Requests\Appointment\UpdateAppointmentRequest;
 use App\Http\Resources\AppointmentResource;
 use App\Models\ActivityLog;
 use App\Models\Appointment;
+use App\Models\Setting;
 use App\Models\TelegramLink;
 use App\Models\WorkItem;
 use App\Services\TelegramService;
@@ -61,8 +62,9 @@ class AppointmentController extends Controller
 
         $appointment->load(['patient', 'doctor']);
 
-        if ($appointment->doctor?->user_id) {
-            $link = TelegramLink::where('user_id', $appointment->doctor->user_id)->whereNotNull('linked_at')->first();
+        $notifyEnabled = Setting::where('key', 'notify_new_appointment_enabled')->value('value');
+        if ($notifyEnabled !== false) {
+            $link = TelegramLink::activeForDoctor($appointment->doctor);
             if ($link) {
                 $telegram->sendMessage(
                     (int) $link->telegram_chat_id,

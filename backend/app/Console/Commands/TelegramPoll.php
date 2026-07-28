@@ -79,6 +79,12 @@ class TelegramPoll extends Command
             return;
         }
 
+        if ($link && $link->doctor_id) {
+            $this->handleDoctorMessage($chatId, $text, $link, $telegram);
+
+            return;
+        }
+
         // Not yet linked at all — either a fresh /start, a staff /link code,
         // or (if a name/phone was already submitted) still pending review.
         $this->handleUnlinkedMessage($chatId, $text, $telegram);
@@ -467,6 +473,56 @@ class TelegramPoll extends Command
     }
 
     // ---------------------------------------------------------------
+    // Doctor (doctor_id-linked) commands — doctors registered by name
+    // only, without a User login. Scoped to their own schedule only.
+    // ---------------------------------------------------------------
+
+    protected function handleDoctorMessage(int $chatId, string $text, TelegramLink $link, TelegramService $telegram): void
+    {
+        $doctor = $link->doctor;
+        if (! $doctor) {
+            return;
+        }
+
+        if ($text === '/today' || $text === '/appointments' || $text === '/start') {
+            $this->handleDoctorAppointments($chatId, $doctor, $telegram, 0);
+
+            if ($text === '/start') {
+                $telegram->sendMessage($chatId, "الأوامر المتاحة:\n/today — مواعيد اليوم\n/week — مواعيد ٧ أيام قادمة");
+            }
+
+            return;
+        }
+
+        if ($text === '/week') {
+            $this->handleDoctorAppointments($chatId, $doctor, $telegram, 6);
+
+            return;
+        }
+
+        $telegram->sendMessage($chatId, "الأوامر المتاحة:\n/today — مواعيد اليوم\n/week — مواعيد ٧ أيام قادمة");
+    }
+
+    protected function handleDoctorAppointments(int $chatId, Doctor $doctor, TelegramService $telegram, int $daysAhead): void
+    {
+        $appointments = Appointment::with('patient:id,full_name')
+            ->where('doctor_id', $doctor->id)
+            ->whereBetween('starts_at', [Carbon::today(), Carbon::today()->addDays($daysAhead)->endOfDay()])
+            ->whereIn('status', ['scheduled', 'confirmed'])
+            ->orderBy('starts_at')
+            ->get();
+
+        if ($appointments->isEmpty()) {
+            $telegram->sendMessage($chatId, 'لا يوجد مواعيد بهذا النطاق.');
+
+            return;
+        }
+
+        $lines = $appointments->map(fn (Appointment $a) => sprintf('%s — %s', $a->starts_at->format('d/m H:i'), $a->patient?->full_name));
+        $telegram->sendMessage($chatId, "مواعيدك:\n".$lines->implode("\n"));
+    }
+
+    // ---------------------------------------------------------------
     // /book — multi-step self-service booking for linked patients
     // ---------------------------------------------------------------
 
@@ -561,7 +617,8 @@ class TelegramPoll extends Command
                 sprintf("تم حجز موعدك بنجاح! ✅\nد. %s — %s", $doctor->full_name, $slot['starts_at']->clone()->timezone(config('dentaflow.display_timezone'))->format('d/m/Y H:i')),
             );
 
-            $doctorLink = $doctor->user_id ? TelegramLink::where('user_id', $doctor->user_id)->whereNotNull('linked_at')->first() : null;
+            $notifyEnabled = \App\Models\Setting::where('key', 'notify_new_appointment_enabled')->value('value');
+            $doctorLink = $notifyEnabled !== false ? TelegramLink::activeForDoctor($doctor) : null;
             if ($doctorLink) {
                 $telegram->sendMessage(
                     (int) $doctorLink->telegram_chat_id,

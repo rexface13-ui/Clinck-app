@@ -25,6 +25,11 @@ interface StaffOption {
   name: string
 }
 
+interface DoctorOption {
+  id: number
+  full_name: string
+}
+
 function ClinicProfileCard() {
   const { data, can, refresh } = useAuth()
   const [form, setForm] = useState({ clinic_name: '', clinic_phone: '', clinic_address: '', clinic_logo: '' })
@@ -231,13 +236,19 @@ function GeneralSettingsCard() {
 
 function RemindersSettingsCard() {
   const { data, can, refresh } = useAuth()
-  const [form, setForm] = useState({ reminder_appointments_enabled: true, reminder_checks_enabled: true, reminder_lab_enabled: true })
+  const [form, setForm] = useState({
+    notify_new_appointment_enabled: true,
+    reminder_appointments_enabled: true,
+    reminder_checks_enabled: true,
+    reminder_lab_enabled: true,
+  })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
 
   useEffect(() => {
     if (!data) return
     setForm({
+      notify_new_appointment_enabled: (data.settings.notify_new_appointment_enabled as boolean) ?? true,
       reminder_appointments_enabled: (data.settings.reminder_appointments_enabled as boolean) ?? true,
       reminder_checks_enabled: (data.settings.reminder_checks_enabled as boolean) ?? true,
       reminder_lab_enabled: (data.settings.reminder_lab_enabled as boolean) ?? true,
@@ -260,6 +271,7 @@ function RemindersSettingsCard() {
   if (!can('settings.manage')) return null
 
   const rows: [keyof typeof form, string][] = [
+    ['notify_new_appointment_enabled', 'إشعار فوري عند حجز موعد جديد (للطبيب)'],
     ['reminder_appointments_enabled', 'تذكير المواعيد اليومي للأطباء'],
     ['reminder_checks_enabled', 'تذكير الشيكات المستحقة قريباً'],
     ['reminder_lab_enabled', 'تذكير حالات المخبر المتأخرة'],
@@ -269,9 +281,9 @@ function RemindersSettingsCard() {
     <Card className="max-w-lg p-6">
       <h2 className="mb-1 flex items-center gap-2 text-sm font-medium text-ink/70">
         <FontAwesomeIcon icon={faBell} className="text-accent" />
-        تذكيرات تيليغرام
+        إشعارات وتذكيرات تيليغرام
       </h2>
-      <p className="mb-4 text-xs text-muted">فعّل أو عطّل كل نوع تذكير يومي يُرسل عبر البوت.</p>
+      <p className="mb-4 text-xs text-muted">فعّل أو عطّل كل نوع إشعار/تذكير يُرسل عبر البوت.</p>
 
       <div className="space-y-2">
         {rows.map(([key, label]) => (
@@ -365,14 +377,17 @@ function TelegramRegistrationsCard() {
   const branches: Branch[] = data?.branches ?? []
   const [pending, setPending] = useState<PendingRegistration[] | null>(null)
   const [staff, setStaff] = useState<StaffOption[]>([])
+  const [doctors, setDoctors] = useState<DoctorOption[]>([])
   const [busyId, setBusyId] = useState<number | null>(null)
-  const [mode, setMode] = useState<Record<number, 'staff' | 'patient' | null>>({})
+  const [mode, setMode] = useState<Record<number, 'staff' | 'doctor' | 'patient' | null>>({})
   const [staffChoice, setStaffChoice] = useState<Record<number, string>>({})
+  const [doctorChoice, setDoctorChoice] = useState<Record<number, string>>({})
   const [patientForm, setPatientForm] = useState<Record<number, { branch_id: string; gender: 'male' | 'female' }>>({})
 
   function load() {
     api.get('/telegram-registrations').then((res) => setPending(res.data))
     api.get('/users').then((res) => setStaff(res.data.data.map((u: { id: number; name: string }) => ({ id: u.id, name: u.name }))))
+    api.get('/doctors').then((res) => setDoctors(res.data.data.map((d: { id: number; full_name: string }) => ({ id: d.id, full_name: d.full_name }))))
   }
 
   useEffect(load, [])
@@ -382,6 +397,17 @@ function TelegramRegistrationsCard() {
     setBusyId(id)
     try {
       await api.post(`/telegram-registrations/${id}/link-staff`, { user_id: Number(staffChoice[id]) })
+      load()
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  async function linkDoctor(id: number) {
+    if (!doctorChoice[id]) return
+    setBusyId(id)
+    try {
+      await api.post(`/telegram-registrations/${id}/link-doctor`, { doctor_id: Number(doctorChoice[id]) })
       load()
     } finally {
       setBusyId(null)
@@ -420,7 +446,7 @@ function TelegramRegistrationsCard() {
         <FontAwesomeIcon icon={faUserPlus} className="text-accent" />
         طلبات تسجيل تيليغرام {pending && pending.length > 0 && `(${pending.length})`}
       </h2>
-      <p className="mb-4 text-xs text-muted">ناس تواصلوا مع البوت لأول مرة — حدد كل واحد إذا طبيب/موظف موجود عندك، أو مريض.</p>
+      <p className="mb-4 text-xs text-muted">ناس تواصلوا مع البوت لأول مرة — حدد كل واحد إذا موظف عنده حساب دخول، طبيب، أو مريض.</p>
 
       <div className="space-y-4">
         {(pending ?? []).map((p) => (
@@ -437,6 +463,20 @@ function TelegramRegistrationsCard() {
                   className="flex-1"
                 />
                 <Button onClick={() => linkStaff(p.id)} loading={busyId === p.id} className="px-3 py-1.5 text-xs">
+                  تأكيد
+                </Button>
+                <button onClick={() => setMode({ ...mode, [p.id]: null })} className="text-xs text-muted hover:underline">إلغاء</button>
+              </div>
+            ) : mode[p.id] === 'doctor' ? (
+              <div className="flex flex-wrap items-end gap-2">
+                <SearchableSelect
+                  options={doctors.map((d) => ({ value: String(d.id), label: d.full_name }))}
+                  value={doctorChoice[p.id] ?? ''}
+                  onChange={(v) => setDoctorChoice({ ...doctorChoice, [p.id]: v })}
+                  placeholder="اختر الطبيب..."
+                  className="flex-1"
+                />
+                <Button onClick={() => linkDoctor(p.id)} loading={busyId === p.id} className="px-3 py-1.5 text-xs">
                   تأكيد
                 </Button>
                 <button onClick={() => setMode({ ...mode, [p.id]: null })} className="text-xs text-muted hover:underline">إلغاء</button>
@@ -472,7 +512,14 @@ function TelegramRegistrationsCard() {
                   className="flex items-center gap-1.5 rounded-lg bg-accent-soft px-2.5 py-1.5 text-xs font-medium text-accent hover:bg-accent hover:text-white"
                 >
                   <FontAwesomeIcon icon={faUserDoctor} />
-                  طبيب / موظف موجود
+                  موظف موجود
+                </button>
+                <button
+                  onClick={() => setMode({ ...mode, [p.id]: 'doctor' })}
+                  className="flex items-center gap-1.5 rounded-lg bg-accent-soft px-2.5 py-1.5 text-xs font-medium text-accent hover:bg-accent hover:text-white"
+                >
+                  <FontAwesomeIcon icon={faUserDoctor} />
+                  طبيب
                 </button>
                 <button
                   onClick={() => setMode({ ...mode, [p.id]: 'patient' })}

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Branch;
+use App\Models\Doctor;
 use App\Models\Patient;
 use App\Models\TelegramLink;
 use App\Services\TelegramService;
@@ -13,8 +14,8 @@ use Illuminate\Validation\Rule;
 /**
  * Handles chats that messaged the bot cold (no pre-existing staff /link
  * code) — they land here as a pending TelegramLink (registered_name/phone
- * set, user_id and patient_id both null) until the owner classifies them
- * as either an existing staff member or a patient.
+ * set, user_id/patient_id/doctor_id all null) until the owner classifies
+ * them as an existing staff member, a doctor, or a patient.
  */
 class TelegramRegistrationController extends Controller
 {
@@ -25,6 +26,7 @@ class TelegramRegistrationController extends Controller
         return TelegramLink::whereNotNull('registered_name')
             ->whereNull('user_id')
             ->whereNull('patient_id')
+            ->whereNull('doctor_id')
             ->orderByDesc('created_at')
             ->get();
     }
@@ -32,7 +34,7 @@ class TelegramRegistrationController extends Controller
     public function linkStaff(Request $request, TelegramLink $link, TelegramService $telegram)
     {
         abort_unless($request->user()->can('settings.manage'), 403);
-        abort_if($link->user_id || $link->patient_id, 422, 'هذا الطلب متصنّف مسبقاً.');
+        abort_if($link->user_id || $link->patient_id || $link->doctor_id, 422, 'هذا الطلب متصنّف مسبقاً.');
 
         $data = $request->validate(['user_id' => ['required', Rule::exists('users', 'id')]]);
 
@@ -44,6 +46,29 @@ class TelegramRegistrationController extends Controller
         $telegram->sendMessage((int) $link->telegram_chat_id, 'تم ربط حسابك بنجاح! أرسل /appointments لعرض مواعيد اليوم.');
 
         return $link->fresh('user');
+    }
+
+    /**
+     * Links a doctor's own Telegram chat directly to their Doctor record —
+     * no code, no User login needed. This is the normal path for doctors
+     * who just message the bot with their name; the owner picks which
+     * Doctor row it is from the pending-registrations list.
+     */
+    public function linkDoctor(Request $request, TelegramLink $link, TelegramService $telegram)
+    {
+        abort_unless($request->user()->can('settings.manage'), 403);
+        abort_if($link->user_id || $link->patient_id || $link->doctor_id, 422, 'هذا الطلب متصنّف مسبقاً.');
+
+        $data = $request->validate(['doctor_id' => ['required', Rule::exists('doctors', 'id')]]);
+
+        $existing = TelegramLink::where('doctor_id', $data['doctor_id'])->where('id', '!=', $link->id)->first();
+        abort_if($existing, 422, 'هذا الطبيب مربوط بمحادثة تيليغرام تانية أصلاً.');
+
+        $link->update(['doctor_id' => $data['doctor_id'], 'linked_at' => now()]);
+
+        $telegram->sendMessage((int) $link->telegram_chat_id, 'تم ربط حسابك بنجاح! أرسل /today لعرض مواعيد اليوم.');
+
+        return $link->fresh('doctor');
     }
 
     public function linkPatient(Request $request, TelegramLink $link, TelegramService $telegram)
@@ -82,7 +107,7 @@ class TelegramRegistrationController extends Controller
     public function destroy(Request $request, TelegramLink $link, TelegramService $telegram)
     {
         abort_unless($request->user()->can('settings.manage'), 403);
-        abort_if($link->user_id || $link->patient_id, 422, 'هذا الطلب متصنّف مسبقاً — استخدم فك الربط بدلاً من الرفض.');
+        abort_if($link->user_id || $link->patient_id || $link->doctor_id, 422, 'هذا الطلب متصنّف مسبقاً — استخدم فك الربط بدلاً من الرفض.');
 
         $telegram->sendMessage((int) $link->telegram_chat_id, 'ما قدرنا نأكد طلب تسجيلك. تواصل مع العيادة مباشرة أو أعد المحاولة بمعلومات صحيحة.');
 
