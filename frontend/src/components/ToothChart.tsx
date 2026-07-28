@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faPen, faTrash } from '@fortawesome/free-solid-svg-icons'
+import { Odontogram, type ToothDetail } from 'react-odontogram'
+import 'react-odontogram/style.css'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import { ToothCrown, ToothDefs } from './ToothCrown'
@@ -86,6 +88,16 @@ function layoutArch(numbers: number[], primaryNumbers: number[], isChild: boolea
 export default function ToothChart({ patientId, isChild, toothStates, toothFindings, onChanged, pickMode = false, onPickTooth, busyToothNumbers }: Props) {
   const { can } = useAuth()
   const [selectedTeeth, setSelectedTeeth] = useState<number[]>([])
+  // Odontogram (the realistic-tooth library) manages its own selection
+  // internally after mount — the only way to push OUR selection changes
+  // (select-all, clear, edit-from-history...) back into it is to force a
+  // remount with a fresh `defaultSelected`. Clicks the library reports via
+  // its own onChange don't need this — they already match.
+  const [chartKey, setChartKey] = useState(0)
+  function setSelection(next: number[]) {
+    setSelectedTeeth(next)
+    setChartKey((k) => k + 1)
+  }
   const [multiSelect, setMultiSelect] = useState(false)
   const [markMissing, setMarkMissing] = useState(false)
   const [performedExternally, setPerformedExternally] = useState(false)
@@ -187,7 +199,7 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
   }
 
   function editFinding(f: ToothFinding) {
-    setSelectedTeeth([f.tooth_number])
+    setSelection([f.tooth_number])
     setMarkMissing(f.marks_missing)
     setPerformedExternally(f.performed_externally)
     setNote(f.note ?? '')
@@ -207,25 +219,60 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
   function confirmPick() {
     if (selectedTeeth.length === 0) return
     onPickTooth?.(selectedTeeth)
-    setSelectedTeeth([])
+    setSelection([])
   }
 
   function selectAll() {
     setMultiSelect(true)
-    setSelectedTeeth(teeth.filter((t) => stateByTooth.get(t.number) !== 'missing').map((t) => t.number))
+    setSelection(teeth.filter((t) => stateByTooth.get(t.number) !== 'missing').map((t) => t.number))
     resetForm()
   }
 
   function selectArch(archTeeth: number[]) {
     setMultiSelect(true)
-    setSelectedTeeth(archTeeth.filter((n) => teeth.some((t) => t.number === n) && stateByTooth.get(n) !== 'missing'))
+    setSelection(archTeeth.filter((n) => teeth.some((t) => t.number === n) && stateByTooth.get(n) !== 'missing'))
     resetForm()
   }
 
   function clearSelection() {
     setMultiSelect(false)
-    setSelectedTeeth([])
+    setSelection([])
   }
+
+  /**
+   * Handles clicks coming from the Odontogram library's own internal
+   * selection state. On a fresh remount (triggered by setSelection above)
+   * the library reports its "initial" selection synchronously from inside
+   * its own render — updating our state in direct response would violate
+   * React's render-purity rule ("cannot update a component while
+   * rendering a different component"), so this always defers by one tick.
+   */
+  function handleOdontogramChange(details: ToothDetail[]) {
+    const nums = details.map((d) => Number(d.notations.fdi))
+    setTimeout(() => {
+      setSelectedTeeth(nums)
+      if (!pickMode && !multiSelect) resetForm()
+    }, 0)
+  }
+
+  /**
+   * One condition group per distinct color actually in use, plus a
+   * separate outline color for externally-performed work (no dashed-ring
+   * equivalent in the library, so a distinct outline is the closest cue).
+   */
+  const teethConditions = useMemo(() => {
+    const groups = new Map<string, { fillColor: string; outlineColor: string; teeth: string[] }>()
+    for (const n of [...UPPER_PERMANENT, ...LOWER_PERMANENT]) {
+      const color = toothColor(n)
+      if (color === DEFAULT_TOOTH_FILL) continue
+      const dashed = performedExternallyFor(n)
+      const key = `${color}|${dashed}`
+      const g = groups.get(key)
+      if (g) g.teeth.push(`teeth-${n}`)
+      else groups.set(key, { fillColor: color, outlineColor: dashed ? 'var(--color-tooth-planned)' : color, teeth: [`teeth-${n}`] })
+    }
+    return Array.from(groups.entries()).map(([key, g]) => ({ label: key, ...g }))
+  }, [stateByTooth, activeFindingByTooth])
 
   async function saveFinding() {
     if (selectedTeeth.length === 0) return
@@ -303,69 +350,85 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
             </button>
           )}
         </div>
-        <svg viewBox={`0 0 ${VIEWBOX.width} ${VIEWBOX.height}`} className="w-full" style={{ maxWidth: 720 }}>
-          <ToothDefs />
-          <line
-            x1={40}
-            y1={VIEWBOX.height / 2}
-            x2={VIEWBOX.width - 40}
-            y2={VIEWBOX.height / 2}
-            stroke="#e2e8f0"
-            strokeDasharray="4 4"
-          />
-          <line x1={UPPER_ARCH.cx} y1={20} x2={UPPER_ARCH.cx} y2={VIEWBOX.height - 20} stroke="#e2e8f0" strokeDasharray="4 4" />
+        {isChild ? (
+          <svg viewBox={`0 0 ${VIEWBOX.width} ${VIEWBOX.height}`} className="w-full" style={{ maxWidth: 720 }}>
+            <ToothDefs />
+            <line
+              x1={40}
+              y1={VIEWBOX.height / 2}
+              x2={VIEWBOX.width - 40}
+              y2={VIEWBOX.height / 2}
+              stroke="#e2e8f0"
+              strokeDasharray="4 4"
+            />
+            <line x1={UPPER_ARCH.cx} y1={20} x2={UPPER_ARCH.cx} y2={VIEWBOX.height - 20} stroke="#e2e8f0" strokeDasharray="4 4" />
 
-          {bridgeGroups.map((g, i) => {
-            const points = g.teeth
-              .map((n) => teeth.find((t) => t.number === n))
-              .filter((t): t is LaidOutTooth => !!t)
-              .sort((a, b) => a.labelX - b.labelX)
-            if (points.length < 2) return null
-            const color = g.done ? g.color : fadeHex(g.color, 0.5)
-            return (
-              <polyline
-                key={i}
-                points={points.map((p) => `${p.x},${p.y}`).join(' ')}
-                fill="none"
-                stroke={color}
-                strokeWidth={7}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                opacity={0.85}
-              />
-            )
-          })}
-
-          {teeth.map((t) => (
-            <g key={t.number} onClick={() => openTooth(t.number)} className="cursor-pointer">
-              <g transform={`translate(${t.x},${t.y}) rotate(${t.rotationDeg})`}>
-                <ToothCrown
-                  crownPath={t.crownPath}
-                  cusps={t.cusps}
-                  fill={toothColor(t.number)}
-                  stroke={selectedTeeth.includes(t.number) ? 'var(--color-accent)' : '#c9b8a8'}
-                  strokeWidth={selectedTeeth.includes(t.number) ? 2.5 : 1.2}
-                  dashed={performedExternallyFor(t.number)}
+            {bridgeGroups.map((g, i) => {
+              const points = g.teeth
+                .map((n) => teeth.find((t) => t.number === n))
+                .filter((t): t is LaidOutTooth => !!t)
+                .sort((a, b) => a.labelX - b.labelX)
+              if (points.length < 2) return null
+              const color = g.done ? g.color : fadeHex(g.color, 0.5)
+              return (
+                <polyline
+                  key={i}
+                  points={points.map((p) => `${p.x},${p.y}`).join(' ')}
+                  fill="none"
+                  stroke={color}
+                  strokeWidth={7}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  opacity={0.85}
                 />
+              )
+            })}
+
+            {teeth.map((t) => (
+              <g key={t.number} onClick={() => openTooth(t.number)} className="cursor-pointer">
+                <g transform={`translate(${t.x},${t.y}) rotate(${t.rotationDeg})`}>
+                  <ToothCrown
+                    crownPath={t.crownPath}
+                    cusps={t.cusps}
+                    fill={toothColor(t.number)}
+                    stroke={selectedTeeth.includes(t.number) ? 'var(--color-accent)' : '#c9b8a8'}
+                    strokeWidth={selectedTeeth.includes(t.number) ? 2.5 : 1.2}
+                    dashed={performedExternallyFor(t.number)}
+                  />
+                </g>
+                {/* Label is positioned in absolute chart coordinates (not inside the rotated
+                    group) so it always sits cleanly outside the ring, regardless of this
+                    tooth's rotation — prevents labels clustering/overlapping at the apex
+                    and sides. */}
+                <text
+                  x={t.labelX}
+                  y={t.labelY}
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                  fontSize="10"
+                  fill="var(--color-ink)"
+                  className="select-none"
+                >
+                  {t.number}
+                </text>
               </g>
-              {/* Label is positioned in absolute chart coordinates (not inside the rotated
-                  group) so it always sits cleanly outside the ring, regardless of this
-                  tooth's rotation — prevents labels clustering/overlapping at the apex
-                  and sides. */}
-              <text
-                x={t.labelX}
-                y={t.labelY}
-                textAnchor="middle"
-                dominantBaseline="middle"
-                fontSize="10"
-                fill="var(--color-ink)"
-                className="select-none"
-              >
-                {t.number}
-              </text>
-            </g>
-          ))}
-        </svg>
+            ))}
+          </svg>
+        ) : (
+          <div className="mx-auto" style={{ maxWidth: 560 }}>
+            <Odontogram
+              key={chartKey}
+              layout="circle"
+              notation="FDI"
+              defaultSelected={selectedTeeth.map((n) => `teeth-${n}`)}
+              singleSelect={!pickMode && !multiSelect}
+              onChange={handleOdontogramChange}
+              teethConditions={teethConditions}
+              showLabels={false}
+              colors={{ darkBlue: 'var(--color-accent)', baseBlue: '#c9b8a8', lightBlue: 'var(--color-accent-soft)' }}
+            />
+          </div>
+        )}
 
         <div className="mt-4 flex gap-4 text-xs text-ink/60">
           <span className="flex items-center gap-1">
