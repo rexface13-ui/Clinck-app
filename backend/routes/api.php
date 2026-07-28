@@ -86,6 +86,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('patients/{patient}/chart/findings/{finding}', [ToothChartController::class, 'destroyFinding']);
 
     Route::apiResource('appointments', AppointmentController::class);
+    Route::get('appointments/{appointment}/timeline', [AppointmentController::class, 'timeline']);
 
     Route::get('backups', [BackupController::class, 'index']);
     Route::post('backups', [BackupController::class, 'store']);

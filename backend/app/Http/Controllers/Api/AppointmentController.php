@@ -17,6 +17,14 @@ use Illuminate\Support\Facades\DB;
 
 class AppointmentController extends Controller
 {
+    private const STATUS_LABELS_AR = [
+        'scheduled' => 'مجدول',
+        'confirmed' => 'مؤكد',
+        'done' => 'حضر',
+        'cancelled' => 'ملغى',
+        'no_show' => 'لم يحضر',
+    ];
+
     public function index(Request $request)
     {
         $this->authorize('viewAny', Appointment::class);
@@ -62,6 +70,12 @@ class AppointmentController extends Controller
 
         $appointment->load(['patient', 'doctor']);
 
+        ActivityLog::record(
+            'appointment.created',
+            sprintf('حجز موعد جديد لـ %s مع %s بتاريخ %s', $appointment->patient?->full_name, $appointment->doctor?->full_name ?? 'بدون طبيب', $appointment->starts_at->format('d/m/Y H:i')),
+            $appointment,
+        );
+
         $notifyEnabled = Setting::where('key', 'notify_new_appointment_enabled')->value('value');
         if ($notifyEnabled !== false) {
             $link = TelegramLink::activeForDoctor($appointment->doctor);
@@ -80,16 +94,44 @@ class AppointmentController extends Controller
     {
         $this->authorize('view', $appointment);
 
-        return new AppointmentResource($appointment->load(['patient', 'doctor', 'workItems.service', 'workItems.doctor']));
+        return new AppointmentResource($appointment->load(['patient', 'doctor', 'workItems.service', 'workItems.doctor', 'workItems.teeth']));
     }
 
     public function update(UpdateAppointmentRequest $request, Appointment $appointment)
     {
         $this->authorize('update', $appointment);
 
-        $appointment->update($request->validated());
+        $previousStatus = $appointment->status;
+        $data = $request->validated();
+
+        $appointment->update($data);
+
+        if (array_key_exists('status', $data) && $data['status'] !== $previousStatus) {
+            ActivityLog::record(
+                'appointment.status_changed',
+                sprintf('%s → %s', self::STATUS_LABELS_AR[$previousStatus] ?? $previousStatus, self::STATUS_LABELS_AR[$data['status']] ?? $data['status']),
+                $appointment,
+            );
+        }
 
         return new AppointmentResource($appointment->fresh(['patient', 'doctor']));
+    }
+
+    public function timeline(Appointment $appointment)
+    {
+        $this->authorize('view', $appointment);
+
+        return ActivityLog::where('subject_type', Appointment::class)
+            ->where('subject_id', $appointment->id)
+            ->orderBy('created_at')
+            ->get()
+            ->map(fn (ActivityLog $log) => [
+                'id' => $log->id,
+                'user_name' => $log->user_name,
+                'action' => $log->action,
+                'description' => $log->description,
+                'created_at' => display_datetime($log->created_at),
+            ]);
     }
 
     public function destroy(Appointment $appointment)

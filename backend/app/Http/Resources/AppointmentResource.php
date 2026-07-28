@@ -25,8 +25,10 @@ class AppointmentResource extends JsonResource
             'work_items' => $this->whenLoaded('workItems', fn () => $this->workItems->map(fn ($w) => [
                 'id' => $w->id,
                 'service_name' => $w->service?->name,
+                'service_color' => $w->service?->color,
                 'doctor_name' => $w->doctor?->full_name,
                 'status' => $w->status,
+                'teeth' => $w->relationLoaded('teeth') ? $w->teeth->pluck('tooth_number')->sort()->values() : [],
             ])),
         ];
     }

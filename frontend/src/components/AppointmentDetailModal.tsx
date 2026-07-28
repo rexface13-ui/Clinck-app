@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faCheck, faXmark, faUser } from '@fortawesome/free-solid-svg-icons'
+import { faCheck, faXmark, faUser, faClockRotateLeft } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import { formatDate, formatTime } from '../lib/formatDate'
 import { Modal, Badge } from './ui'
 import type { BadgeVariant } from './ui'
-import type { Appointment } from '../types'
+import type { Appointment, AppointmentTimelineEntry } from '../types'
 
 const STATUS_VARIANTS: Record<Appointment['status'], BadgeVariant> = {
   scheduled: 'info',
@@ -38,12 +38,14 @@ export default function AppointmentDetailModal({ appointmentId, onClose, onChang
   const [notes, setNotes] = useState('')
   const [savingNotes, setSavingNotes] = useState(false)
   const [cancelling, setCancelling] = useState(false)
+  const [timeline, setTimeline] = useState<AppointmentTimelineEntry[] | null>(null)
 
   function load() {
     api.get<{ data: Appointment }>(`/appointments/${appointmentId}`).then((res) => {
       setAppointment(res.data.data)
       setNotes(res.data.data.notes ?? '')
     })
+    api.get<AppointmentTimelineEntry[]>(`/appointments/${appointmentId}/timeline`).then((res) => setTimeline(res.data))
   }
 
   useEffect(load, [appointmentId])
@@ -101,11 +103,25 @@ export default function AppointmentDetailModal({ appointmentId, onClose, onChang
           {!!appointment.work_items?.length && (
             <div className="rounded-lg bg-background p-3">
               <h3 className="mb-2 text-xs font-semibold text-muted">الشغل المسجّل بهاي الزيارة</h3>
-              <ul className="space-y-1 text-sm">
+              <ul className="space-y-2 text-sm">
                 {appointment.work_items.map((w) => (
-                  <li key={w.id} className="flex items-center justify-between">
-                    <span>{w.service_name}</span>
-                    <span className="text-xs text-muted">{w.status === 'done' ? 'مكتمل' : 'قيد التنفيذ'}</span>
+                  <li key={w.id}>
+                    <div className="flex items-center justify-between">
+                      <span className="flex items-center gap-1.5">
+                        {w.service_color && <span className="inline-block size-2.5 rounded-full" style={{ backgroundColor: w.service_color }} />}
+                        {w.service_name}
+                      </span>
+                      <span className="text-xs text-muted">{w.status === 'done' ? 'مكتمل' : 'قيد التنفيذ'}</span>
+                    </div>
+                    {!!w.teeth.length && (
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {w.teeth.map((n) => (
+                          <span key={n} className="rounded-full bg-surface px-1.5 py-0.5 text-[10px] text-ink/60 ring-1 ring-border">
+                            {n}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -129,6 +145,23 @@ export default function AppointmentDetailModal({ appointmentId, onClose, onChang
               {savingNotes ? 'جارِ الحفظ...' : 'حفظ الملاحظة'}
             </button>
           </div>
+
+          {!!timeline?.length && (
+            <div>
+              <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-muted">
+                <FontAwesomeIcon icon={faClockRotateLeft} />
+                سجل الموعد
+              </h3>
+              <ul className="space-y-2 border-r-2 border-border pr-3 text-xs">
+                {timeline.map((t) => (
+                  <li key={t.id} className="text-ink/70">
+                    <span className="text-ink">{t.description}</span>
+                    <span className="text-muted"> — {t.user_name} — {t.created_at}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {pending && can('appointments.manage') && (
             <div className="flex gap-2 border-t border-border/70 pt-3">

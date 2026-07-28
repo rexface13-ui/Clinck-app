@@ -130,7 +130,15 @@ export interface Appointment {
   status: 'scheduled' | 'confirmed' | 'done' | 'cancelled' | 'no_show'
   created_via: 'web' | 'bot'
   notes?: string | null
-  work_items?: { id: number; service_name: string | null; doctor_name: string | null; status: string }[]
+  work_items?: { id: number; service_name: string | null; service_color: string | null; doctor_name: string | null; status: string; teeth: number[] }[]
+}
+
+export interface AppointmentTimelineEntry {
+  id: number
+  user_name: string
+  action: string
+  description: string
+  created_at: string
 }
 
 export interface Attachment {
