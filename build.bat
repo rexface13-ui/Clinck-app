@@ -46,10 +46,13 @@ REM Copy the bundled PHP 8.3 runtime and the pre-built frontend
 robocopy "%SRC%php83" "%DST%\php83" /e >nul
 robocopy "%SRC%frontend\dist" "%DST%\frontend\dist" /e >nul
 
-REM Copy installer + top-level run scripts
+REM Copy installer + top-level run scripts + composer.phar (lives at the
+REM project root here, NOT inside backend/ — install.ps1/update.ps1 both
+REM expect it at the deploy root, same place).
 robocopy "%SRC%installer" "%DST%\installer" /e >nul
 copy /y "%SRC%check-requirements.bat" "%DST%\" >nul
 copy /y "%SRC%enable-opcache.bat"     "%DST%\" >nul
+copy /y "%SRC%composer.phar"          "%DST%\" >nul
 
 echo [OK] Done!
 echo.

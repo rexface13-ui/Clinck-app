@@ -60,7 +60,7 @@ Write-Host "[OK] تم جلب أحدث كود" -ForegroundColor Green
 Write-Host ""
 Write-Host "=== [2/3] تحديث مكتبات PHP ===" -ForegroundColor Cyan
 Set-Location $BACKEND
-& $PHP composer.phar install --no-dev --optimize-autoloader --no-interaction
+& $PHP (Join-Path $ROOT "composer.phar") install --no-dev --optimize-autoloader --no-interaction
 if ($LASTEXITCODE -ne 0) {
     Write-Host "[!] فشل composer install" -ForegroundColor Red
     Pause-Exit

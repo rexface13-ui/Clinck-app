@@ -55,8 +55,11 @@ class SystemUpdateController extends Controller
 
         $phpBinary = base_path('..\\php83\\php.exe');
         $php = file_exists($phpBinary) ? $phpBinary : PHP_BINARY;
+        // composer.phar lives at the deploy root (next to php83\), not
+        // inside backend\ — same layout install.ps1/update.ps1 expect.
+        $composerPhar = base_path('..\\composer.phar');
 
-        $composer = $this->run([$php, 'composer.phar', 'install', '--no-dev', '--optimize-autoloader', '--no-interaction'], $backend);
+        $composer = $this->run([$php, $composerPhar, 'install', '--no-dev', '--optimize-autoloader', '--no-interaction'], $backend);
         $log .= $composer['log'];
         if (! $composer['ok']) {
             return response()->json(['success' => false, 'log' => $log], 500);

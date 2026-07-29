@@ -214,7 +214,13 @@ if (-not (Test-Path $envFile)) {
 # ═══════════════════════════════════════════════════════════════════════════
 Step "[5/6] تثبيت مكتبات PHP (composer)"
 Set-Location $BACKEND
-& $PHP composer.phar install --no-dev --optimize-autoloader --no-interaction
+$COMPOSER = Join-Path $ROOT "composer.phar"
+if (-not (Test-Path $COMPOSER)) {
+    Err "composer.phar غير موجود بـ $ROOT — تأكد إنك فتحت الـ ZIP كامل"
+    Pause-Exit
+    exit 1
+}
+& $PHP $COMPOSER install --no-dev --optimize-autoloader --no-interaction
 if ($LASTEXITCODE -ne 0) {
     Err "فشل composer install"
     Pause-Exit
