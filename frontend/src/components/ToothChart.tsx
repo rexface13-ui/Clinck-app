@@ -127,16 +127,15 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
     return set
   }, [toothFindings])
 
-  /** Small on-tooth icon markers: a filling dot for a service whose name says so, a decay spot for anything flagged as such — independent of (and layered on top of) the tooth's overall fill color. */
+  /** Small on-tooth icon markers: a filling dot for a service whose name says so, a decay spot for anything flagged as such — independent of (and layered on top of) the tooth's overall fill color. A tooth can carry both at once (e.g. a filled tooth that later got a decay note too). */
   const markers = useMemo(() => {
-    const map = new Map<number, ToothMarker>()
+    const map = new Map<number, ToothMarker[]>()
     for (const n of toothNumbers) {
-      if (decayTeeth.has(n)) {
-        map.set(n, 'decay')
-        continue
-      }
+      const list: ToothMarker[] = []
       const finding = activeFindingByTooth.get(n)
-      if (finding?.service_name?.includes('حشوة')) map.set(n, 'filling')
+      if (finding?.service_name?.includes('حشوة')) list.push('filling')
+      if (decayTeeth.has(n)) list.push('decay')
+      if (list.length) map.set(n, list)
     }
     return map
   }, [toothNumbers, decayTeeth, activeFindingByTooth])

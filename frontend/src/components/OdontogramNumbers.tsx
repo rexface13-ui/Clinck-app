@@ -99,24 +99,28 @@ export type ToothMarker = 'filling' | 'decay'
  * decay. Both sit at the tooth's real measured center via the same
  * geometry the number/bridge overlays use.
  */
-export function OdontogramMarkerOverlay({ geometry, markers }: { geometry: Geometry; markers: Map<number, ToothMarker> }) {
+export function OdontogramMarkerOverlay({ geometry, markers }: { geometry: Geometry; markers: Map<number, ToothMarker[]> }) {
   return (
     <svg viewBox={geometry.viewBox} className="pointer-events-none absolute inset-0 size-full">
-      {Array.from(markers.entries()).map(([number, marker]) => {
-        const c = geometry.centers.get(number)
-        if (!c) return null
-        if (marker === 'filling') {
+      {Array.from(markers.entries()).map(([number, list]) =>
+        list.map((marker, i) => {
+          const c = geometry.centers.get(number)
+          if (!c) return null
+          // A tooth can carry more than one marker (e.g. decay noted on a
+          // tooth that already got a filling) — offset each one so they
+          // don't sit exactly on top of each other.
+          const dx = (i - (list.length - 1) / 2) * 7
+          if (marker === 'filling') {
+            return <circle key={`${number}-${i}`} cx={c.x + dx} cy={c.y} r={5} fill="#6b8cae" stroke="#fff" strokeWidth={1} />
+          }
           return (
-            <circle key={number} cx={c.x} cy={c.y} r={5} fill="#6b8cae" stroke="#fff" strokeWidth={1} />
+            <g key={`${number}-${i}`}>
+              <circle cx={c.x + dx} cy={c.y} r={5.5} fill="#5b3a29" opacity={0.9} />
+              <circle cx={c.x + dx - 1.5} cy={c.y - 1} r={1.6} fill="#3a2318" />
+            </g>
           )
-        }
-        return (
-          <g key={number}>
-            <circle cx={c.x} cy={c.y} r={5.5} fill="#5b3a29" opacity={0.9} />
-            <circle cx={c.x - 1.5} cy={c.y - 1} r={1.6} fill="#3a2318" />
-          </g>
-        )
-      })}
+        }),
+      )}
     </svg>
   )
 }
