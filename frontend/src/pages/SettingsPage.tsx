@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faPaperPlane, faLink, faLinkSlash, faBuilding, faImage, faTrash, faSliders, faBell, faRobot, faCheck, faUserDoctor, faUserPlus, faXmark, faFileLines, faCloudArrowUp } from '@fortawesome/free-solid-svg-icons'
+import { faPaperPlane, faLink, faLinkSlash, faBuilding, faImage, faTrash, faSliders, faBell, faRobot, faCheck, faUserDoctor, faUserPlus, faXmark, faFileLines, faCloudArrowUp, faArrowsRotate } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import { Card, PageHeader, Button, Input, SearchableSelect } from '../components/ui'
@@ -645,6 +645,55 @@ function DailyReportCard() {
   )
 }
 
+function SystemUpdateCard() {
+  const { can } = useAuth()
+  const [busy, setBusy] = useState(false)
+  const [log, setLog] = useState<string | null>(null)
+  const [success, setSuccess] = useState<boolean | null>(null)
+
+  if (!can('settings.manage')) return null
+
+  async function runUpdate() {
+    if (!window.confirm('رح يسحب آخر نسخة من النظام ويطبّقها — تأكد إنه ما في حدا شغال على النظام هلق. متابعة؟')) return
+    setBusy(true)
+    setSuccess(null)
+    setLog(null)
+    try {
+      const res = await api.post<{ success: boolean; log: string }>('/system/update')
+      setSuccess(res.data.success)
+      setLog(res.data.log)
+    } catch (err) {
+      const data = (err as { response?: { data?: { log?: string } } })?.response?.data
+      setSuccess(false)
+      setLog(data?.log ?? 'صار خطأ غير متوقع أثناء التحديث.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Card className="max-w-lg p-6">
+      <h2 className="mb-3 flex items-center gap-2 text-sm font-medium text-ink/70">
+        <FontAwesomeIcon icon={faArrowsRotate} className="text-accent" />
+        تحديث النظام
+      </h2>
+      <p className="mb-4 text-sm text-muted">
+        بيسحب آخر نسخة من النظام وبيطبّقها — سكّر أي نافذة تانية شغالة على النظام قبل ما تضغط، وما حدا لازم يكون عم يستخدمه هلق.
+      </p>
+      <Button onClick={runUpdate} loading={busy}>
+        <FontAwesomeIcon icon={faArrowsRotate} />
+        تحديث النظام الآن
+      </Button>
+      {log && (
+        <div className={`mt-4 rounded-lg p-3 text-xs ${success ? 'bg-success-soft text-success' : 'bg-danger-soft text-danger'}`}>
+          <p className="mb-2 font-medium">{success ? 'تم التحديث بنجاح' : 'صار خطأ أثناء التحديث'}</p>
+          <pre className="max-h-64 overflow-auto whitespace-pre-wrap text-[11px] leading-relaxed">{log}</pre>
+        </div>
+      )}
+    </Card>
+  )
+}
+
 export default function SettingsPage() {
   const [status, setStatus] = useState<TelegramLinkStatus | null>(null)
   const [busy, setBusy] = useState(false)
@@ -686,6 +735,7 @@ export default function SettingsPage() {
         <TelegramBotSettingsCard />
         <TelegramRegistrationsCard />
         <DailyReportCard />
+        <SystemUpdateCard />
       </div>
 
       <Card className="max-w-lg p-6">

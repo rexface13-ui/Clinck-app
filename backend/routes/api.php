@@ -192,6 +192,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('reports/pending-treatments', [ReportController::class, 'pendingTreatments']);
 
     Route::put('settings', [SettingController::class, 'update']);
+    Route::post('system/update', [\App\Http\Controllers\Api\SystemUpdateController::class, 'update']);
 
     // Telegram linking (Phase 4)
     Route::get('telegram-link', [TelegramLinkController::class, 'show']);
