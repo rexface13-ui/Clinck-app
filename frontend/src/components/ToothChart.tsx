@@ -5,7 +5,7 @@ import { Odontogram, type ToothDetail } from 'react-odontogram'
 import 'react-odontogram/style.css'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
-import { OdontogramBridgeOverlay, OdontogramNumberOverlay, useOdontogramGeometry } from './OdontogramNumbers'
+import { OdontogramBridgeOverlay, OdontogramMarkerOverlay, OdontogramNumberOverlay, useOdontogramGeometry, type ToothMarker } from './OdontogramNumbers'
 import {
   DEFAULT_TOOTH_FILL,
   LOWER_PERMANENT,
@@ -65,6 +65,7 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
   const [multiSelect, setMultiSelect] = useState(false)
   const [markMissing, setMarkMissing] = useState(false)
   const [performedExternally, setPerformedExternally] = useState(false)
+  const [markDecay, setMarkDecay] = useState(false)
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -113,9 +114,37 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
     return activeFindingByTooth.get(tooth)?.performed_externally ?? false
   }
 
+  /**
+   * Decay is a free-standing note (finding_type === 'تسوس'), not tied to a
+   * service, so it isn't necessarily the "active" (latest service-linked)
+   * finding — check every finding on the tooth, newest first.
+   */
+  const decayTeeth = useMemo(() => {
+    const set = new Set<number>()
+    for (const f of toothFindings) {
+      if (f.finding_type === 'تسوس') set.add(f.tooth_number)
+    }
+    return set
+  }, [toothFindings])
+
+  /** Small on-tooth icon markers: a filling dot for a service whose name says so, a decay spot for anything flagged as such — independent of (and layered on top of) the tooth's overall fill color. */
+  const markers = useMemo(() => {
+    const map = new Map<number, ToothMarker>()
+    for (const n of toothNumbers) {
+      if (decayTeeth.has(n)) {
+        map.set(n, 'decay')
+        continue
+      }
+      const finding = activeFindingByTooth.get(n)
+      if (finding?.service_name?.includes('حشوة')) map.set(n, 'filling')
+    }
+    return map
+  }, [toothNumbers, decayTeeth, activeFindingByTooth])
+
   function resetForm() {
     setMarkMissing(false)
     setPerformedExternally(false)
+    setMarkDecay(false)
     setNote('')
     setError(null)
     setEditingFindingId(null)
@@ -126,6 +155,7 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
     setSelection([f.tooth_number])
     setMarkMissing(f.marks_missing)
     setPerformedExternally(f.performed_externally)
+    setMarkDecay(f.finding_type === 'تسوس')
     setNote(f.note ?? '')
     setError(null)
     setEditingFindingId(f.id)
@@ -239,13 +269,17 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
           note: note || null,
           marks_missing: markMissing,
           performed_externally: performedExternally,
+          // Session-linked findings keep the service's own finding_type
+          // (e.g. "حشوة أسنان") — only a free-standing note can be
+          // relabeled as decay.
+          ...(isSession ? {} : { finding_type: markDecay ? 'تسوس' : 'ملاحظة' }),
           ...(isSession ? { status: editStatus } : {}),
         })
       } else {
         for (const tooth of selectedTeeth) {
           await api.post(`/patients/${patientId}/chart/findings`, {
             tooth_number: tooth,
-            finding_type: 'ملاحظة',
+            finding_type: markDecay ? 'تسوس' : 'ملاحظة',
             status: 'done',
             marks_missing: markMissing,
             performed_externally: performedExternally,
@@ -320,6 +354,7 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
             colors={{ darkBlue: 'var(--color-accent)', baseBlue: '#c9b8a8', lightBlue: 'var(--color-accent-soft)' }}
           />
           {geometry && <OdontogramBridgeOverlay geometry={geometry} groups={bridgeGroups} />}
+          {geometry && <OdontogramMarkerOverlay geometry={geometry} markers={markers} />}
           {geometry && <OdontogramNumberOverlay geometry={geometry} toothNumbers={toothNumbers} />}
         </div>
 
@@ -335,6 +370,12 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
           </span>
           <span className="flex items-center gap-1">
             <span className="inline-block size-3 rounded border border-dashed border-ink/50" /> طرف خارجي
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block size-2.5 rounded-full" style={{ background: '#6b8cae' }} /> حشوة
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block size-2.5 rounded-full" style={{ background: '#5b3a29' }} /> تسوس
           </span>
         </div>
       </div>
@@ -450,6 +491,13 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
                 <input type="checkbox" checked={performedExternally} onChange={(e) => setPerformedExternally(e.target.checked)} className="size-3.5" />
                 اشتغل عليه طرف خارجي (مو إحنا، أو عيادة تانية) — بيتحدد بخط منقّط عالرسمة
               </label>
+
+              {!editingFinding?.work_item_tooth_step_id && (
+                <label className="mb-3 flex items-center gap-2 text-xs text-ink/70">
+                  <input type="checkbox" checked={markDecay} onChange={(e) => setMarkDecay(e.target.checked)} className="size-3.5" />
+                  في تسوس بهالسن — بتنحط علامة تسوس على الرسمة
+                </label>
+              )}
 
               <label className="mb-1 block text-xs text-ink/60">ملاحظة</label>
               <textarea

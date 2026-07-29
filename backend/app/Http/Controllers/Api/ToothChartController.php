@@ -108,6 +108,7 @@ class ToothChartController extends Controller
             'doctor_id' => ['sometimes', 'nullable', 'exists:doctors,id'],
             'marks_missing' => ['sometimes', 'boolean'],
             'performed_externally' => ['sometimes', 'boolean'],
+            'finding_type' => ['sometimes', 'string', 'max:255'],
         ]);
 
         DB::transaction(function () use ($data, $finding, $patient, $commissions) {
