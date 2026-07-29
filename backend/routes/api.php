@@ -42,6 +42,12 @@ use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\BootstrapController;
 use Illuminate\Support\Facades\Route;
 
+// Unauthenticated on purpose — the login page needs the clinic's name/logo
+// before anyone's signed in, so it can't wait behind auth:sanctum.
+Route::get('/branding', function () {
+    return \App\Models\Setting::whereIn('key', ['clinic_name', 'clinic_logo'])->pluck('value', 'key');
+});
+
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/bootstrap', BootstrapController::class);
 

@@ -24,6 +24,7 @@ import {
   faClockRotateLeft,
 } from '@fortawesome/free-solid-svg-icons'
 import { useAuth } from '../contexts/AuthContext'
+import { useClinicProfile } from '../lib/useClinicProfile'
 import GlobalSearch from './GlobalSearch'
 
 interface NavItem {
@@ -86,28 +87,34 @@ const navGroups: NavGroup[] = [
   },
 ]
 
-function pageTitle(pathname: string): string {
+function pageTitle(pathname: string, clinicName: string): string {
   for (const group of navGroups) {
     for (const item of group.items) {
       const isMatch = item.to === '/' ? pathname === '/' : pathname.startsWith(item.to)
       if (isMatch) return item.label
     }
   }
-  return pathname.startsWith('/patients/') ? 'ملف المريض' : 'DentaFlow'
+  return pathname.startsWith('/patients/') ? 'ملف المريض' : clinicName
 }
 
 export default function Layout() {
   const { data, can, logout } = useAuth()
   const location = useLocation()
+  const { name: clinicName, logo: clinicLogo } = useClinicProfile()
+  const displayName = clinicName || 'DentaFlow'
 
   return (
     <div className="flex min-h-screen bg-background">
       <aside className="flex w-64 shrink-0 flex-col border-l border-border bg-surface">
         <div className="flex items-center gap-3 px-6 py-5">
-          <span className="flex size-9 items-center justify-center rounded-xl bg-accent text-white">
-            <FontAwesomeIcon icon={faTooth} />
-          </span>
-          <span className="text-lg font-semibold text-ink">DentaFlow</span>
+          {clinicLogo ? (
+            <img src={clinicLogo} alt={displayName} className="size-9 shrink-0 rounded-xl object-cover" />
+          ) : (
+            <span className="flex size-9 items-center justify-center rounded-xl bg-accent text-white">
+              <FontAwesomeIcon icon={faTooth} />
+            </span>
+          )}
+          <span className="truncate text-lg font-semibold text-ink">{displayName}</span>
         </div>
 
         <nav className="flex-1 space-y-5 overflow-y-auto px-3 pb-4">
@@ -163,7 +170,7 @@ export default function Layout() {
 
       <div className="flex flex-1 flex-col">
         <header className="flex items-center justify-between border-b border-border bg-surface px-8 py-4">
-          <h2 className="text-sm font-medium text-muted">{pageTitle(location.pathname)}</h2>
+          <h2 className="text-sm font-medium text-muted">{pageTitle(location.pathname, displayName)}</h2>
           <GlobalSearch />
         </header>
         <main className="flex-1 overflow-auto p-8">

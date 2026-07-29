@@ -1,8 +1,9 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faTooth } from '@fortawesome/free-solid-svg-icons'
 import { useAuth } from '../contexts/AuthContext'
+import { api } from '../lib/api'
 import { Card, Button, Input } from '../components/ui'
 
 export default function LoginPage() {
@@ -12,6 +13,15 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  // Not authenticated yet here, so branding can't come from the normal
+  // bootstrap payload — fetched separately from the one public endpoint.
+  const [branding, setBranding] = useState<{ clinic_name?: string; clinic_logo?: string }>({})
+
+  useEffect(() => {
+    api.get<{ clinic_name?: string; clinic_logo?: string }>('/branding').then((res) => setBranding(res.data)).catch(() => {})
+  }, [])
+
+  const clinicName = branding.clinic_name || 'DentaFlow'
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -31,11 +41,15 @@ export default function LoginPage() {
     <main className="flex min-h-screen items-center justify-center bg-background p-6">
       <Card className="w-full max-w-sm p-8">
         <div className="mb-8 flex flex-col items-center gap-3 text-center">
-          <span className="flex size-14 items-center justify-center rounded-2xl bg-accent text-2xl text-white shadow-sm">
-            <FontAwesomeIcon icon={faTooth} />
-          </span>
+          {branding.clinic_logo ? (
+            <img src={branding.clinic_logo} alt={clinicName} className="size-14 rounded-2xl object-cover shadow-sm" />
+          ) : (
+            <span className="flex size-14 items-center justify-center rounded-2xl bg-accent text-2xl text-white shadow-sm">
+              <FontAwesomeIcon icon={faTooth} />
+            </span>
+          )}
           <div>
-            <h1 className="text-xl font-semibold text-ink">DentaFlow</h1>
+            <h1 className="text-xl font-semibold text-ink">{clinicName}</h1>
             <p className="text-sm text-muted">نظام إدارة العيادة السنية</p>
           </div>
         </div>
