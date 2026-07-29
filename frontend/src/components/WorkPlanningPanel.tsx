@@ -369,19 +369,15 @@ export default function WorkPlanningPanel({
   const toothWorkColor = useMemo(() => {
     const map = new Map<number, { color: string; done: boolean }>()
     for (const w of workItems) {
-      if (!w.service_color) continue
+      // A bridge/appliance tooth stays plain here too — the connecting
+      // line is what marks it as part of the bridge, not a crown fill.
+      if (!w.service_color || w.service_spans_teeth) continue
       for (const toothNumber of w.teeth) {
         const toothSteps = w.steps.flatMap((s) => s.tooth_steps.filter((ts) => ts.tooth_number === toothNumber))
         if (toothSteps.length === 0) continue
         const done = toothSteps.every((ts) => ts.completed)
         const anyDone = toothSteps.some((ts) => ts.completed)
-        // A bridge/appliance's pontic teeth often never get a step of
-        // their own checked off — nothing is separately done to them —
-        // but they're still part of the appliance, so they show faded
-        // (matching "not done yet" everywhere else) instead of blank.
-        // Non-bridge services keep the old behavior: stay uncolored
-        // until something's actually progressed.
-        if (!anyDone && !w.service_spans_teeth) continue
+        if (!anyDone) continue
         map.set(toothNumber, { color: w.service_color, done })
       }
     }
@@ -414,18 +410,15 @@ export default function WorkPlanningPanel({
     if (work) return work.done ? work.color : fadeHex(work.color, 0.55)
     if (stateByTooth.get(tooth) === 'missing') return STATUS_COLOR.missing
     const finding = activeFindingByTooth.get(tooth)
-    if (finding) {
-      if (finding.service_color) {
-        const done = finding.status === 'done'
-        return done ? finding.service_color : fadeHex(finding.service_color, 0.55)
-      }
-      if (finding.status === 'planned' || finding.status === 'in_progress') return STATUS_COLOR.planned
-      return STATUS_COLOR.done
+    if (!finding) return DEFAULT_TOOTH_FILL
+    // A bridge/appliance tooth stays plain — the connecting line marks it, not a crown fill.
+    if (finding.service_spans_teeth) return DEFAULT_TOOTH_FILL
+    if (finding.service_color) {
+      const done = finding.status === 'done'
+      return done ? finding.service_color : fadeHex(finding.service_color, 0.55)
     }
-    // A bridge's pontic tooth with no finding of its own — fall back to the group's color (see ToothChart.tsx's toothColor for the full reasoning).
-    const bridge = bridgeColorByTooth.get(tooth)
-    if (bridge) return bridge.done ? bridge.color : fadeHex(bridge.color, 0.55)
-    return DEFAULT_TOOTH_FILL
+    if (finding.status === 'planned' || finding.status === 'in_progress') return STATUS_COLOR.planned
+    return STATUS_COLOR.done
   }
 
   /**
@@ -449,12 +442,6 @@ export default function WorkPlanningPanel({
     return Array.from(groups.values()).filter((g) => g.teeth.length > 1)
   }, [toothFindings])
 
-  const bridgeColorByTooth = useMemo(() => {
-    const map = new Map<number, { color: string; done: boolean }>()
-    for (const g of bridgeGroups) for (const n of g.teeth) map.set(n, { color: g.color, done: g.done })
-    return map
-  }, [bridgeGroups])
-
   /** One condition group per distinct picker color actually in use — selection/range-anchor highlighting is handled separately via defaultSelected, since the library's own "selected" styling already reads clearly on top. */
   const teethConditions = useMemo(() => {
     const groups = new Map<string, { fillColor: string; outlineColor: string; teeth: string[] }>()
@@ -469,7 +456,7 @@ export default function WorkPlanningPanel({
     if (isChild) result.push({ label: 'phantom', fillColor: '#e5e7eb', outlineColor: '#d1d5db', teeth: CHILD_PHANTOM_LIBRARY_IDS })
     return result
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [toothWorkColor, stateByTooth, activeFindingByTooth, bridgeColorByTooth, isChild])
+  }, [toothWorkColor, stateByTooth, activeFindingByTooth, isChild])
 
   const geometry = useOdontogramGeometry(containerRef, toothNumbers, toLibraryId, [chartKey, isChild])
 

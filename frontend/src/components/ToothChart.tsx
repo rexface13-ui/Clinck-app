@@ -103,26 +103,21 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
   function toothColor(tooth: number): string {
     if (stateByTooth.get(tooth) === 'missing') return STATUS_COLOR.missing
     const finding = activeFindingByTooth.get(tooth)
-    if (finding) {
-      // A service's own color is the primary signal once one's assigned — it's
-      // what lets the same chart tell a filling apart from a bridge apart from
-      // a cleaning at a glance. Falls back to the old generic planned/done
-      // colors for services that never got a color (or free-text findings).
-      if (finding.service_color) {
-        const done = finding.status === 'done'
-        return done ? finding.service_color : fadeHex(finding.service_color, 0.55)
-      }
-      if (finding.status === 'planned' || finding.status === 'in_progress') return STATUS_COLOR.planned
-      return STATUS_COLOR.done
+    if (!finding) return DEFAULT_TOOTH_FILL
+    // A bridge/appliance tooth stays plain — the connecting line (see
+    // OdontogramBridgeOverlay) is what marks it as part of the bridge,
+    // filling every tooth's crown with the service color too was too much.
+    if (finding.service_spans_teeth) return DEFAULT_TOOTH_FILL
+    // A service's own color is the primary signal once one's assigned — it's
+    // what lets the same chart tell a filling apart from a cleaning at a
+    // glance. Falls back to the old generic planned/done colors for
+    // services that never got a color (or free-text findings).
+    if (finding.service_color) {
+      const done = finding.status === 'done'
+      return done ? finding.service_color : fadeHex(finding.service_color, 0.55)
     }
-    // A bridge/appliance tooth (e.g. a middle "pontic" tooth with no
-    // service of its own — only the anchor teeth get billed) still
-    // belongs to the bridge visually — color it with the bridge's own
-    // group color instead of leaving it blank, so the whole span reads
-    // as one appliance, not just a connecting line over empty teeth.
-    const bridge = bridgeColorByTooth.get(tooth)
-    if (bridge) return bridge.done ? bridge.color : fadeHex(bridge.color, 0.55)
-    return DEFAULT_TOOTH_FILL
+    if (finding.status === 'planned' || finding.status === 'in_progress') return STATUS_COLOR.planned
+    return STATUS_COLOR.done
   }
 
   /** Teeth worked on by an outside party get a distinct outline color, layered on top of whatever status color already applies (the library has no dashed-ring equivalent). */
@@ -251,13 +246,6 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
     return Array.from(groups.values()).filter((g) => g.teeth.length > 1)
   }, [toothFindings])
 
-  /** Reverse lookup so any tooth in a bridge (including a pontic with no finding of its own) can fall back to its group's color — see toothColor(). */
-  const bridgeColorByTooth = useMemo(() => {
-    const map = new Map<number, { color: string; done: boolean }>()
-    for (const g of bridgeGroups) for (const n of g.teeth) map.set(n, { color: g.color, done: g.done })
-    return map
-  }, [bridgeGroups])
-
   /**
    * One condition group per distinct color actually in use, plus a
    * separate outline color for externally-performed work (no dashed-ring
@@ -279,7 +267,7 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
     if (isChild) result.push({ label: 'phantom', fillColor: '#e5e7eb', outlineColor: '#d1d5db', teeth: CHILD_PHANTOM_LIBRARY_IDS })
     return result
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stateByTooth, activeFindingByTooth, bridgeColorByTooth, isChild])
+  }, [stateByTooth, activeFindingByTooth, isChild])
 
   async function saveFinding() {
     if (selectedTeeth.length === 0) return
