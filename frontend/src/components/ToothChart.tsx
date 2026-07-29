@@ -208,6 +208,17 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
     setTimeout(() => {
       setSelectedTeeth(nums)
       if (!pickMode && !multiSelect) resetForm()
+      // The library sometimes leaves its own "selected" DOM class on a
+      // previously-clicked tooth even after a new one is picked in
+      // single-select mode (it's only reliably cleared on a fresh
+      // defaultSelected mount) — strip it from anything not in the
+      // current selection so a stale highlight doesn't linger on the
+      // wrong tooth.
+      const wanted = new Set(nums.map(toLibraryId))
+      containerRef.current?.querySelectorAll('g[class*="selected"]').forEach((g) => {
+        const base = g.getAttribute('class')?.trim().split(/\s+/)[0]
+        if (base && !wanted.has(base)) g.classList.remove('selected')
+      })
     }, 0)
   }
 
@@ -438,8 +449,17 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
                     <li key={f.id} className="flex items-start justify-between gap-2 text-xs text-ink/70">
                       <span>
                         <span className="font-medium text-ink">{f.finding_type}</span>
-                        {' — '}
-                        {STATUS_LABEL[f.status]}
+                        {/* status (مخطط/قيد التنفيذ/منجز) only makes sense for
+                            an actual service/session — a plain note (decay
+                            flag, missing-tooth flag...) isn't a treatment
+                            step that gets "completed", so showing "منجز"
+                            next to one reads as if it was treated. */}
+                        {f.service_id && (
+                          <>
+                            {' — '}
+                            {STATUS_LABEL[f.status]}
+                          </>
+                        )}
                         {f.performed_externally && <span className="text-warning"> — طرف خارجي</span>}
                         {' — '}
                         {f.doctor_name ?? 'طبيب عام'} — {f.recorded_at}
@@ -495,6 +515,13 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
                 <label className="mb-3 flex items-center gap-2 text-xs text-ink/70">
                   <input type="checkbox" checked={markDecay} onChange={(e) => setMarkDecay(e.target.checked)} className="size-3.5" />
                   في تسوس بهالسن — بتنحط علامة تسوس على الرسمة
+                  {/* This checkbox is for a NEW note, so it doesn't preload
+                      from existing findings — flag it here instead, so
+                      "is this tooth already marked decayed" is visible
+                      without having to scan the السجل list below. */}
+                  {!editingFindingId && singleSelectedTooth && decayTeeth.has(singleSelectedTooth) && (
+                    <span className="text-warning">(مسجّل مسبقاً بسجل السن)</span>
+                  )}
                 </label>
               )}
 
