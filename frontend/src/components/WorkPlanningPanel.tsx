@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import {
   faCheck,
+  faCheckDouble,
   faPlus,
   faTrash,
   faCalendarPlus,
@@ -219,6 +220,21 @@ export default function WorkPlanningPanel({
 
   async function applyToAll(workItem: WorkItem, sourceTooth: number) {
     await api.post(`/work-items/${workItem.id}/apply-to-all`, { tooth_number: sourceTooth })
+    loadWorkItems()
+  }
+
+  /**
+   * A tooth's steps are scattered across the step-first list (one section
+   * per step, not per tooth), so finishing e.g. a filling that has 3 steps
+   * means hunting the same tooth number down in 3 different places. This
+   * marks every not-yet-completed step for one tooth done in one go —
+   * useful when a tooth genuinely got all its work finished today and the
+   * per-step checkboxes are just friction, not a real distinction to track.
+   */
+  async function completeAllStepsForTooth(workItem: WorkItem, toothNumber: number) {
+    const pending = workItem.steps.flatMap((s) => s.tooth_steps.filter((ts) => ts.tooth_number === toothNumber && !ts.completed))
+    if (pending.length === 0) return
+    await Promise.all(pending.map((ts) => api.patch(`/work-items/${workItem.id}/tooth-steps/${ts.id}`, { completed: true })))
     loadWorkItems()
   }
 
@@ -604,6 +620,16 @@ export default function WorkPlanningPanel({
                                     className="w-28 rounded-lg border border-border px-2 py-1 text-xs"
                                   />
                                 ))}
+                                {w.steps.flatMap((s) => s.tooth_steps).filter((other) => other.tooth_number === ts.tooth_number && !other.completed).length > 1 && (
+                                  <button
+                                    onClick={() => completeAllStepsForTooth(w, ts.tooth_number)}
+                                    title="بيخلّص كل خطوات هالسن دفعة وحدة — مفيد لما تكون خلّصت الشغل عليه فعلياً وما بدك تفتش عليه بكل قسم خطوة"
+                                    className="flex items-center gap-1 text-[11px] text-success hover:underline"
+                                  >
+                                    <FontAwesomeIcon icon={faCheckDouble} />
+                                    إنهاء كل خطوات السن
+                                  </button>
+                                )}
                                 <button
                                   onClick={() => applyToAll(w, ts.tooth_number)}
                                   title="طبّق نفس القيم على كل الأسنان"
