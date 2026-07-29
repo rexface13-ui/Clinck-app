@@ -1,11 +1,19 @@
 import { useMemo, useRef, useState } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faPen, faTrash } from '@fortawesome/free-solid-svg-icons'
-import { Odontogram, type ToothDetail } from 'react-odontogram'
+import { Odontogram } from 'react-odontogram'
 import 'react-odontogram/style.css'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
-import { OdontogramBridgeOverlay, OdontogramMarkerOverlay, OdontogramNumberOverlay, useOdontogramGeometry, type ToothMarker } from './OdontogramNumbers'
+import {
+  OdontogramBridgeOverlay,
+  OdontogramClickOverlay,
+  OdontogramMarkerOverlay,
+  OdontogramNumberOverlay,
+  OdontogramSelectionOverlay,
+  useOdontogramGeometry,
+  type ToothMarker,
+} from './OdontogramNumbers'
 import {
   DEFAULT_TOOTH_FILL,
   LOWER_PERMANENT,
@@ -14,7 +22,6 @@ import {
   UPPER_PERMANENT,
   UPPER_PRIMARY,
   fadeHex,
-  fromLibraryFdi,
   toLibraryToothId,
 } from '../lib/dental'
 import type { Doctor, Service, ToothFinding, ToothState } from '../types'
@@ -193,33 +200,23 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
   }
 
   /**
-   * Handles clicks coming from the Odontogram library's own internal
-   * selection state. On a fresh remount (triggered by setSelection above)
-   * the library reports its "initial" selection synchronously from inside
-   * its own render — updating our state in direct response would violate
-   * React's render-purity rule ("cannot update a component while
-   * rendering a different component"), so this always defers by one tick.
+   * The library's own click reporting is unreliable near the midline —
+   * confirmed by direct testing: a click squarely inside tooth 21's own
+   * measured bounding box registered as tooth 11 instead (its hand-drawn
+   * crown paths overlap their neighbors more than their bbox suggests).
+   * Clicks are handled entirely by our own OdontogramClickOverlay instead
+   * (built from the same measured centers the number labels use), so
+   * "which tooth did I click" is always consistent with "which tooth is
+   * that number sitting on". The library is only used for the background
+   * art and fill colors now, not for selection.
    */
-  function handleOdontogramChange(details: ToothDetail[]) {
-    // Phantom slots (real for adults, muted placeholders for children)
-    // report as bogus numbers once remapped — drop anything that isn't
-    // actually one of this chart's real teeth.
-    const nums = details.map((d) => fromLibraryFdi(d.notations.fdi, isChild)).filter((n) => toothNumbers.includes(n))
-    setTimeout(() => {
-      setSelectedTeeth(nums)
-      if (!pickMode && !multiSelect) resetForm()
-      // The library sometimes leaves its own "selected" DOM class on a
-      // previously-clicked tooth even after a new one is picked in
-      // single-select mode (it's only reliably cleared on a fresh
-      // defaultSelected mount) — strip it from anything not in the
-      // current selection so a stale highlight doesn't linger on the
-      // wrong tooth.
-      const wanted = new Set(nums.map(toLibraryId))
-      containerRef.current?.querySelectorAll('g[class*="selected"]').forEach((g) => {
-        const base = g.getAttribute('class')?.trim().split(/\s+/)[0]
-        if (base && !wanted.has(base)) g.classList.remove('selected')
-      })
-    }, 0)
+  function handleToothClick(n: number) {
+    if (pickMode || multiSelect) {
+      setSelection(selectedTeeth.includes(n) ? selectedTeeth.filter((x) => x !== n) : [...selectedTeeth, n])
+    } else {
+      setSelection([n])
+      resetForm()
+    }
   }
 
   /**
@@ -358,14 +355,26 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
             maxTeeth={8}
             defaultSelected={selectedTeeth.map(toLibraryId)}
             singleSelect={!pickMode && !multiSelect}
-            onChange={handleOdontogramChange}
+            onChange={() => {}}
             teethConditions={teethConditions}
             showLabels={false}
-            colors={{ darkBlue: 'var(--color-accent)', baseBlue: '#c9b8a8', lightBlue: 'var(--color-accent-soft)' }}
+            // The library's own "selected" tint (lightBlue) is driven by
+            // its own internal click state, which we've stopped trusting
+            // (see handleToothClick) — transparent here so it can't show a
+            // stale highlight that contradicts our own selection ring.
+            colors={{ darkBlue: 'var(--color-accent)', baseBlue: '#c9b8a8', lightBlue: 'transparent' }}
           />
           {geometry && <OdontogramBridgeOverlay geometry={geometry} groups={bridgeGroups} />}
           {geometry && <OdontogramMarkerOverlay geometry={geometry} markers={markers} />}
+          {geometry && <OdontogramSelectionOverlay geometry={geometry} selected={selectedTeeth} />}
           {geometry && <OdontogramNumberOverlay geometry={geometry} toothNumbers={toothNumbers} />}
+          {geometry && (
+            <OdontogramClickOverlay
+              geometry={geometry}
+              toothNumbers={toothNumbers.filter((n) => stateByTooth.get(n) !== 'missing' || pickMode || multiSelect)}
+              onSelect={handleToothClick}
+            />
+          )}
         </div>
 
         <div className="mt-4 flex gap-4 text-xs text-ink/60">

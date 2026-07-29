@@ -78,3 +78,15 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background-color: #b8bec7;
 }
+
+/*
+ * react-odontogram draws its own keyboard-focus ring (a colored box) on
+ * whichever tooth <g> last held DOM focus — independent of our own
+ * selection state, and it can land on a different tooth than the one
+ * actually selected. We draw our own selection ring from verified
+ * geometry instead (see OdontogramSelectionOverlay), so the library's
+ * own ring is suppressed everywhere to avoid two conflicting highlights.
+ */
+.Odontogram g[role='option']:focus-visible {
+  outline: none !important;
+}

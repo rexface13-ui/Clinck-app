@@ -43,19 +43,32 @@ export function useOdontogramGeometry(
     // getBBox() is in the element's OWN local space — it ignores every
     // ancestor transform (each tooth sits inside its own quadrant group,
     // which is what actually rotates/positions it around the ring).
-    // getCTM() carries the full transform chain up to the SVG root, so
-    // mapping the local center through it gives the real rendered position.
+    //
+    // getCTM() maps to the nearest ancestor VIEWPORT, not necessarily the
+    // outer <svg> our overlays share a viewBox with — the library nests
+    // an inner <svg>/viewport, so getCTM() silently stops there and gives
+    // a wrong, systematically-shifted point (confirmed live: it placed
+    // tooth 11's label squarely on tooth 21's real position). getScreenCTM()
+    // accounts for the FULL chain (nested viewports and any CSS transform)
+    // all the way to actual screen pixels; inverting the root <svg>'s own
+    // getScreenCTM() then maps that screen point back into the shared
+    // viewBox space our overlays use — verified pixel-accurate against
+    // getBoundingClientRect().
     const svgPoint = svg.createSVGPoint()
+    const rootInverse = svg.getScreenCTM()?.inverse()
     const centers = new Map<number, Point>()
-    for (const number of toothNumbers) {
-      const el = byId.get(toLibraryId(number))
-      const ctm = el?.getCTM()
-      if (!el || !ctm) continue
-      const box = el.getBBox()
-      svgPoint.x = box.x + box.width / 2
-      svgPoint.y = box.y + box.height / 2
-      const p = svgPoint.matrixTransform(ctm)
-      centers.set(number, { x: p.x, y: p.y })
+    if (rootInverse) {
+      for (const number of toothNumbers) {
+        const el = byId.get(toLibraryId(number))
+        const elScreenCTM = el?.getScreenCTM()
+        if (!el || !elScreenCTM) continue
+        const box = el.getBBox()
+        svgPoint.x = box.x + box.width / 2
+        svgPoint.y = box.y + box.height / 2
+        const screenPoint = svgPoint.matrixTransform(elScreenCTM)
+        const rootPoint = screenPoint.matrixTransform(rootInverse)
+        centers.set(number, { x: rootPoint.x, y: rootPoint.y })
+      }
     }
 
     setState({ viewBox, centers })
@@ -121,6 +134,79 @@ export function OdontogramMarkerOverlay({ geometry, markers }: { geometry: Geome
           )
         }),
       )}
+    </svg>
+  )
+}
+
+/**
+ * A safe click-target radius: half the smallest center-to-center gap
+ * between any two teeth, with a margin — guarantees neighboring click
+ * circles never overlap, however tight the arch gets (e.g. near the
+ * midline where two crowns sit closest together).
+ */
+export function safeClickRadius(geometry: Geometry): number {
+  const points = Array.from(geometry.centers.values())
+  let min = Infinity
+  for (let i = 0; i < points.length; i++) {
+    for (let j = i + 1; j < points.length; j++) {
+      const d = Math.hypot(points[i].x - points[j].x, points[i].y - points[j].y)
+      if (d < min) min = d
+    }
+  }
+  return Number.isFinite(min) ? (min / 2) * 0.85 : 12
+}
+
+/**
+ * The library's own hit-testing is unreliable near the midline — its
+ * hand-drawn crown paths for adjacent teeth (e.g. 11/21) can overlap far
+ * enough that a click squarely inside one tooth's own measured bounding
+ * box actually registers on its neighbor instead (confirmed by direct
+ * testing: a click at teeth-21's own bbox center reported tooth 11).
+ * This overlay replaces click handling entirely with our own
+ * non-overlapping regions, built from the same measured centers the
+ * number/marker overlays already use — so "which tooth did I click"
+ * always matches "which tooth is that number sitting on".
+ */
+export function OdontogramClickOverlay({
+  geometry,
+  toothNumbers,
+  onSelect,
+}: {
+  geometry: Geometry
+  toothNumbers: number[]
+  onSelect: (n: number) => void
+}) {
+  const radius = safeClickRadius(geometry)
+  return (
+    <svg viewBox={geometry.viewBox} className="absolute inset-0 size-full">
+      {toothNumbers.map((number) => {
+        const c = geometry.centers.get(number)
+        if (!c) return null
+        return (
+          <circle
+            key={number}
+            cx={c.x}
+            cy={c.y}
+            r={radius}
+            fill="transparent"
+            style={{ pointerEvents: 'all', cursor: 'pointer' }}
+            onClick={() => onSelect(number)}
+          />
+        )
+      })}
+    </svg>
+  )
+}
+
+/** Our own selection indicator, driven by the same trusted geometry — replaces the library's native highlight, which follows its own (unreliable) internal click state rather than our authoritative selection. */
+export function OdontogramSelectionOverlay({ geometry, selected }: { geometry: Geometry; selected: number[] }) {
+  return (
+    <svg viewBox={geometry.viewBox} className="pointer-events-none absolute inset-0 size-full">
+      {selected.map((number) => {
+        const c = geometry.centers.get(number)
+        if (!c) return null
+        return <circle key={number} cx={c.x} cy={c.y} r={safeClickRadius(geometry) + 2} fill="none" stroke="var(--color-accent)" strokeWidth={2.5} />
+      })}
     </svg>
   )
 }

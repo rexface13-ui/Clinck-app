@@ -9,13 +9,19 @@ import {
   faObjectGroup,
   faTriangleExclamation,
 } from '@fortawesome/free-solid-svg-icons'
-import { Odontogram, type ToothDetail } from 'react-odontogram'
+import { Odontogram } from 'react-odontogram'
 import 'react-odontogram/style.css'
 import { api } from '../lib/api'
 import DatePicker from './DatePicker'
 import { Card, Button, Select, SearchableSelect, Badge } from './ui'
 import type { BadgeVariant } from './ui'
-import { OdontogramBridgeOverlay, OdontogramNumberOverlay, useOdontogramGeometry } from './OdontogramNumbers'
+import {
+  OdontogramBridgeOverlay,
+  OdontogramClickOverlay,
+  OdontogramNumberOverlay,
+  OdontogramSelectionOverlay,
+  useOdontogramGeometry,
+} from './OdontogramNumbers'
 import {
   DEFAULT_TOOTH_FILL,
   LOWER_PERMANENT,
@@ -24,7 +30,6 @@ import {
   UPPER_PERMANENT,
   UPPER_PRIMARY,
   fadeHex,
-  fromLibraryFdi,
   toLibraryToothId,
 } from '../lib/dental'
 import type { Branch, Cashbox, Doctor, Service, ToothFinding, ToothState, WorkItem } from '../types'
@@ -76,8 +81,6 @@ export default function WorkPlanningPanel({
       return value
     })
   }
-  const lastReportedIdsRef = useRef<Set<string>>(new Set())
-
   const [doctors, setDoctors] = useState<Doctor[]>([])
   const [services, setServices] = useState<Service[]>([])
   const [cashboxes, setCashboxes] = useState<Cashbox[]>([])
@@ -166,30 +169,6 @@ export default function WorkPlanningPanel({
       if (toothBlocked(number)) return prev
       return [...prev, number]
     })
-  }
-
-  /**
-   * Handles clicks coming from the Odontogram library's own internal
-   * selection state — diffs the reported id set against the last-known
-   * one to find the single tooth just clicked (the library always
-   * reports the whole resulting selection, not a delta), then routes it
-   * through the same toggleTooth() logic range-mode/blocked-tooth
-   * rejection already relies on. Deferred by one tick for the same
-   * render-purity reason as ToothChart.tsx.
-   */
-  function handleOdontogramChange(details: ToothDetail[]) {
-    const reportedIds = new Set(details.map((d) => d.id))
-    const prevIds = lastReportedIdsRef.current
-    lastReportedIdsRef.current = reportedIds
-
-    let clickedId: string | null = null
-    for (const id of reportedIds) if (!prevIds.has(id)) { clickedId = id; break }
-    if (!clickedId) for (const id of prevIds) if (!reportedIds.has(id)) { clickedId = id; break }
-    if (!clickedId) return
-
-    const clickedNumber = fromLibraryFdi(clickedId.replace('teeth-', ''), isChild)
-    if (!toothNumbers.includes(clickedNumber)) return
-    setTimeout(() => toggleTooth(clickedNumber), 0)
   }
 
   /** Switching to a service that doesn't work on missing teeth drops any already-selected missing tooth from the pending selection. */
@@ -681,13 +660,19 @@ export default function WorkPlanningPanel({
             maxTeeth={8}
             defaultSelected={[...selectedTeeth, ...(rangeStart !== null ? [rangeStart] : [])].map(toLibraryId)}
             singleSelect={false}
-            onChange={handleOdontogramChange}
+            onChange={() => {}}
             teethConditions={teethConditions}
             showLabels={false}
-            colors={{ darkBlue: 'var(--color-accent)', baseBlue: '#c9b8a8', lightBlue: 'var(--color-accent-soft)' }}
+            // Library's own "selected" tint is driven by its own internal
+            // click state, which clicks no longer go through (see
+            // OdontogramClickOverlay below) — transparent so it can't show
+            // a stale highlight that contradicts our own selection ring.
+            colors={{ darkBlue: 'var(--color-accent)', baseBlue: '#c9b8a8', lightBlue: 'transparent' }}
           />
           {geometry && <OdontogramBridgeOverlay geometry={geometry} groups={bridgeGroups} />}
+          {geometry && <OdontogramSelectionOverlay geometry={geometry} selected={[...selectedTeeth, ...(rangeStart !== null ? [rangeStart] : [])]} />}
           {geometry && <OdontogramNumberOverlay geometry={geometry} toothNumbers={toothNumbers} />}
+          {geometry && <OdontogramClickOverlay geometry={geometry} toothNumbers={toothNumbers} onSelect={toggleTooth} />}
         </div>
 
         <div className="mt-3 flex flex-wrap items-end gap-3">
