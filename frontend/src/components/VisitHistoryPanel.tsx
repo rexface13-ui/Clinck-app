@@ -23,12 +23,19 @@ function visitTeeth(v: Visit): number[] {
   return v.tooth_number ? [v.tooth_number] : []
 }
 
-/** Visits billed together in one invoice line (a flat-fee service covering several teeth at once) share a batch_id, so they show as one grouped entry instead of a separate row per tooth. */
+/**
+ * One group per real visit/session — everything charged under the same
+ * appointment (regardless of how many different services or invoice
+ * lines it was split across) shows together, not one row per tooth.
+ * Falls back to the old per-invoice-line grouping (batch_id) for rows
+ * with no linked appointment (legacy data, or a work item since moved
+ * to a follow-up appointment).
+ */
 function groupVisits(visits: Visit[]): VisitGroup[] {
   const order: string[] = []
   const map = new Map<string, Visit[]>()
   for (const v of visits) {
-    const key = v.batch_id ?? `single-${v.session_id ?? v.invoice_id}`
+    const key = v.appointment_id ? `appt-${v.appointment_id}` : (v.batch_id ?? `single-${v.session_id ?? v.invoice_id}`)
     if (!map.has(key)) {
       map.set(key, [])
       order.push(key)
@@ -36,6 +43,14 @@ function groupVisits(visits: Visit[]): VisitGroup[] {
     map.get(key)!.push(v)
   }
   return order.map((key) => ({ key, visits: map.get(key)! }))
+}
+
+/** Group header label: the shared service name if every row is the same service, otherwise a count — a session can now mix several different services under one appointment. */
+function groupServiceLabel(visits: Visit[]): string {
+  const names = Array.from(new Set(visits.map((v) => v.service_name).filter((n): n is string => !!n)))
+  if (names.length === 1) return names[0]
+  if (names.length === 0) return 'خدمة'
+  return `${names.length} خدمات`
 }
 
 const INVOICE_STATUS_LABELS: Record<string, string> = {
@@ -218,7 +233,7 @@ export default function VisitHistoryPanel({
                 >
                   <div className="flex items-center gap-2">
                     <FontAwesomeIcon icon={isExpanded ? faChevronDown : faChevronLeft} className="text-ink/40" />
-                    <span className="font-medium text-ink">{first.service_name ?? 'خدمة'}</span>
+                    <span className="font-medium text-ink">{groupServiceLabel(group.visits)}</span>
                     {teeth.length > 0 && (
                       <button
                         onClick={(e) => {
@@ -236,7 +251,7 @@ export default function VisitHistoryPanel({
                   <div className="flex items-center gap-3">
                     <span className="text-ink">{totalPrice.toFixed(2)} ₪</span>
                     <Badge variant={INVOICE_STATUS_VARIANTS[first.invoice_status]}>{INVOICE_STATUS_LABELS[first.invoice_status]}</Badge>
-                    <span className="text-xs text-muted">{first.date}</span>
+                    <span className="text-xs text-muted">{first.appointment_date ?? first.date}</span>
                   </div>
                 </div>
 

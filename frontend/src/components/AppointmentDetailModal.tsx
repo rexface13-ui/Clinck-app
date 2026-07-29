@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faCheck, faXmark, faUser, faClockRotateLeft } from '@fortawesome/free-solid-svg-icons'
+import { faCheck, faXmark, faUser, faClockRotateLeft, faCalendarPlus, faTriangleExclamation } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import { formatDate, formatTime } from '../lib/formatDate'
@@ -122,9 +122,40 @@ export default function AppointmentDetailModal({ appointmentId, onClose, onChang
                         ))}
                       </div>
                     )}
+                    {!!w.pending.length && (
+                      <p className="mt-1 text-xs text-warning">
+                        ضل: {w.pending.map((p) => `${p.step_title} (سن ${p.tooth_number})`).join('، ')}
+                      </p>
+                    )}
                   </li>
                 ))}
               </ul>
+            </div>
+          )}
+
+          {appointment.has_pending_work && (
+            <div className="rounded-lg bg-warning-soft p-3 text-sm">
+              <p className="mb-2 flex items-center gap-1.5 font-medium text-warning">
+                <FontAwesomeIcon icon={faTriangleExclamation} />
+                في شغل ضل ما انجز بهاي الزيارة
+              </p>
+              {appointment.follow_up_appointment ? (
+                <p className="text-ink/70">
+                  موعد المتابعة محجوز: <span className="font-medium text-ink">{appointment.follow_up_appointment.starts_at_display}</span>
+                </p>
+              ) : (
+                <>
+                  <p className="mb-2 text-ink/70">لسا ما تحدد موعد متابعة.</p>
+                  <Link
+                    to={`/appointments?patient_id=${appointment.patient_id}`}
+                    onClick={onClose}
+                    className="flex items-center justify-center gap-2 rounded-lg bg-warning py-2 text-sm font-medium text-white hover:opacity-90"
+                  >
+                    <FontAwesomeIcon icon={faCalendarPlus} />
+                    احجز موعد متابعة
+                  </Link>
+                </>
+              )}
             </div>
           )}
 

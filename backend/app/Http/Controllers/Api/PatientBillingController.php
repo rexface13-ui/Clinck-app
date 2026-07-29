@@ -80,7 +80,7 @@ class PatientBillingController extends Controller
     {
         $this->requireBillingView($request);
 
-        $lines = InvoiceLine::with(['workItemToothStep.workItem.service', 'workItemToothStep.workItem.doctor', 'workItemToothStep.step', 'invoice'])
+        $lines = InvoiceLine::with(['workItemToothStep.workItem.service', 'workItemToothStep.workItem.doctor', 'workItemToothStep.workItem.appointment', 'workItemToothStep.step', 'invoice'])
             ->whereHas('invoice', fn ($q) => $q->where('patient_id', $patient->id))
             ->orderByDesc('created_at')
             ->get();
@@ -88,6 +88,7 @@ class PatientBillingController extends Controller
         return $lines->map(function (InvoiceLine $line) {
             $toothStep = $line->workItemToothStep;
             $workItem = $toothStep?->workItem;
+            $appointment = $workItem?->appointment;
 
             // A flat (non-per-tooth) charge's one invoice line can cover
             // several teeth — every tooth_step tagged with this same line
@@ -101,6 +102,15 @@ class PatientBillingController extends Controller
                 'item_id' => $workItem?->id,
                 'plan_id' => $workItem?->id,
                 'batch_id' => $line->id ? "line-{$line->id}" : null,
+                // The real "one visit" grouping key — every charge billed
+                // under work done at the same appointment groups together
+                // here, regardless of how many separate services/invoice
+                // lines it was split across. Falls back to batch_id (the
+                // old per-invoice-line grouping) when a row has no linked
+                // appointment at all (legacy data, or a work item that was
+                // since rescheduled to a follow-up and lost this link).
+                'appointment_id' => $appointment?->id,
+                'appointment_date' => $appointment ? display_datetime($appointment->starts_at) : null,
                 'created_at' => $line->created_at,
                 'date' => display_datetime($line->created_at),
                 'service_name' => $workItem?->service?->name,

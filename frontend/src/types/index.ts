@@ -130,7 +130,17 @@ export interface Appointment {
   status: 'scheduled' | 'confirmed' | 'done' | 'cancelled' | 'no_show'
   created_via: 'web' | 'bot'
   notes?: string | null
-  work_items?: { id: number; service_name: string | null; service_color: string | null; doctor_name: string | null; status: string; teeth: number[] }[]
+  work_items?: {
+    id: number
+    service_name: string | null
+    service_color: string | null
+    doctor_name: string | null
+    status: string
+    teeth: number[]
+    pending: { tooth_number: number; step_title: string }[]
+  }[]
+  has_pending_work?: boolean
+  follow_up_appointment?: { id: number; starts_at_display: string } | null
 }
 
 export interface AppointmentTimelineEntry {
@@ -254,6 +264,8 @@ export interface Visit {
   item_id: number | null
   plan_id: number | null
   batch_id: string | null
+  appointment_id: number | null
+  appointment_date: string | null
   created_at: string
   date: string
   service_name: string | null
