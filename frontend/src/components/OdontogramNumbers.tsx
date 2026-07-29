@@ -1,4 +1,4 @@
-import { useLayoutEffect, useState, type DependencyList, type RefObject } from 'react'
+import { useLayoutEffect, useState, type DependencyList, type MouseEvent, type RefObject } from 'react'
 import { fadeHex } from '../lib/dental'
 
 interface Point {
@@ -174,7 +174,8 @@ export function OdontogramClickOverlay({
 }: {
   geometry: Geometry
   toothNumbers: number[]
-  onSelect: (n: number) => void
+  /** Passes along the click's ctrlKey/metaKey so callers can support "click one tooth, ctrl+click another to select the range between them" without a separate mode toggle. */
+  onSelect: (n: number, event: MouseEvent) => void
 }) {
   const radius = safeClickRadius(geometry)
   return (
@@ -190,7 +191,7 @@ export function OdontogramClickOverlay({
             r={radius}
             fill="transparent"
             style={{ pointerEvents: 'all', cursor: 'pointer' }}
-            onClick={() => onSelect(number)}
+            onClick={(e) => onSelect(number, e)}
           />
         )
       })}

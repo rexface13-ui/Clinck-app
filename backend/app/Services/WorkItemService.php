@@ -315,7 +315,24 @@ class WorkItemService
 
         foreach ($byTooth as $toothNumber => $steps) {
             $completedCount = $steps->filter(fn ($ts) => $ts->completed_at)->count();
+
+            // A bridge/appliance's "pontic" teeth (the ones in the middle,
+            // spanning between the billed anchor teeth) often never get a
+            // step individually checked off — nothing's separately done
+            // to them. Without this they'd never get a ToothFinding at
+            // all, and the chart would only ever color the anchor teeth,
+            // leaving a "floating" bridge line over blank teeth. A
+            // spans_teeth service still records them (as 'planned', no
+            // commission) purely so the whole span reads as one
+            // appliance; any other service keeps the original behavior
+            // of staying silent until something's actually done.
             if ($completedCount === 0) {
+                if ($workItem->service->spans_teeth) {
+                    ToothFinding::updateOrCreate(
+                        ['patient_id' => $workItem->patient_id, 'tooth_number' => $toothNumber, 'service_id' => $workItem->service_id],
+                        ['finding_type' => $workItem->service->name, 'status' => 'planned', 'doctor_id' => $doctorId, 'work_item_tooth_step_id' => $steps->first()->id, 'recorded_at' => now()],
+                    );
+                }
                 continue;
             }
 

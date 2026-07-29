@@ -96,8 +96,8 @@ export default function WorkPlanningPanel({
   const [activeWorkItemId, setActiveWorkItemId] = useState<number | null>(null)
 
   const [selectedTeeth, setSelectedTeeth] = useState<number[]>([])
-  const [rangeMode, setRangeMode] = useState(false)
-  const [rangeStart, setRangeStart] = useState<number | null>(null)
+  /** Anchor for ctrl+click range selection — click a tooth normally, then ctrl+click another to select everything between them, no separate "range mode" toggle needed. */
+  const [lastClickedTooth, setLastClickedTooth] = useState<number | null>(null)
   const [newServiceId, setNewServiceId] = useState('')
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
@@ -149,21 +149,17 @@ export default function WorkPlanningPanel({
     return stateByTooth.get(number) === 'missing' && !selectedService?.allows_missing_teeth
   }
 
-  function toggleTooth(number: number) {
-    if (rangeMode) {
-      if (rangeStart === null) {
-        setRangeStart(number)
-        return
-      }
-      const startIdx = toothNumbers.indexOf(rangeStart)
+  function toggleTooth(number: number, event?: { ctrlKey?: boolean; metaKey?: boolean }) {
+    if ((event?.ctrlKey || event?.metaKey) && lastClickedTooth !== null) {
+      const startIdx = toothNumbers.indexOf(lastClickedTooth)
       const endIdx = toothNumbers.indexOf(number)
       const [lo, hi] = startIdx <= endIdx ? [startIdx, endIdx] : [endIdx, startIdx]
       const rangeNumbers = toothNumbers.slice(lo, hi + 1).filter((n) => !toothBlocked(n))
       setSelection((prev) => Array.from(new Set([...prev, ...rangeNumbers])))
-      setRangeStart(null)
-      setRangeMode(false)
+      setLastClickedTooth(number)
       return
     }
+    setLastClickedTooth(number)
     setSelection((prev) => {
       if (prev.includes(number)) return prev.filter((n) => n !== number)
       if (toothBlocked(number)) return prev
@@ -379,7 +375,13 @@ export default function WorkPlanningPanel({
         if (toothSteps.length === 0) continue
         const done = toothSteps.every((ts) => ts.completed)
         const anyDone = toothSteps.some((ts) => ts.completed)
-        if (!anyDone) continue
+        // A bridge/appliance's pontic teeth often never get a step of
+        // their own checked off — nothing is separately done to them —
+        // but they're still part of the appliance, so they show faded
+        // (matching "not done yet" everywhere else) instead of blank.
+        // Non-bridge services keep the old behavior: stay uncolored
+        // until something's actually progressed.
+        if (!anyDone && !w.service_spans_teeth) continue
         map.set(toothNumber, { color: w.service_color, done })
       }
     }
@@ -420,6 +422,9 @@ export default function WorkPlanningPanel({
       if (finding.status === 'planned' || finding.status === 'in_progress') return STATUS_COLOR.planned
       return STATUS_COLOR.done
     }
+    // A bridge's pontic tooth with no finding of its own — fall back to the group's color (see ToothChart.tsx's toothColor for the full reasoning).
+    const bridge = bridgeColorByTooth.get(tooth)
+    if (bridge) return bridge.done ? bridge.color : fadeHex(bridge.color, 0.55)
     return DEFAULT_TOOTH_FILL
   }
 
@@ -444,6 +449,12 @@ export default function WorkPlanningPanel({
     return Array.from(groups.values()).filter((g) => g.teeth.length > 1)
   }, [toothFindings])
 
+  const bridgeColorByTooth = useMemo(() => {
+    const map = new Map<number, { color: string; done: boolean }>()
+    for (const g of bridgeGroups) for (const n of g.teeth) map.set(n, { color: g.color, done: g.done })
+    return map
+  }, [bridgeGroups])
+
   /** One condition group per distinct picker color actually in use — selection/range-anchor highlighting is handled separately via defaultSelected, since the library's own "selected" styling already reads clearly on top. */
   const teethConditions = useMemo(() => {
     const groups = new Map<string, { fillColor: string; outlineColor: string; teeth: string[] }>()
@@ -458,7 +469,7 @@ export default function WorkPlanningPanel({
     if (isChild) result.push({ label: 'phantom', fillColor: '#e5e7eb', outlineColor: '#d1d5db', teeth: CHILD_PHANTOM_LIBRARY_IDS })
     return result
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [toothWorkColor, stateByTooth, activeFindingByTooth, isChild])
+  }, [toothWorkColor, stateByTooth, activeFindingByTooth, bridgeColorByTooth, isChild])
 
   const geometry = useOdontogramGeometry(containerRef, toothNumbers, toLibraryId, [chartKey, isChild])
 
@@ -632,20 +643,18 @@ export default function WorkPlanningPanel({
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-sm font-medium text-ink/70">إضافة شغل جديد — حدد الأسنان</h2>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => {
-                setRangeMode((v) => !v)
-                setRangeStart(null)
-              }}
-              className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs ${
-                rangeMode ? 'border-accent bg-accent-soft text-accent' : 'border-border text-muted hover:border-accent hover:text-accent'
-              }`}
-            >
+            <span className="flex items-center gap-1.5 text-xs text-muted">
               <FontAwesomeIcon icon={faObjectGroup} />
-              {rangeMode ? (rangeStart ? `حدد آخر سن بالنطاق (من ${rangeStart})` : 'اضغط أول سن بالنطاق') : 'تحديد نطاق'}
-            </button>
+              اضغط سن، وبعدين Ctrl+ضغط سن تاني تحدد كل النطاق بينهم
+            </span>
             {selectedTeeth.length > 0 && (
-              <button onClick={() => setSelection([])} className="text-xs text-danger hover:underline">
+              <button
+                onClick={() => {
+                  setSelection([])
+                  setLastClickedTooth(null)
+                }}
+                className="text-xs text-danger hover:underline"
+              >
                 مسح التحديد ({selectedTeeth.length})
               </button>
             )}
@@ -658,7 +667,7 @@ export default function WorkPlanningPanel({
             layout="circle"
             notation="FDI"
             maxTeeth={8}
-            defaultSelected={[...selectedTeeth, ...(rangeStart !== null ? [rangeStart] : [])].map(toLibraryId)}
+            defaultSelected={selectedTeeth.map(toLibraryId)}
             singleSelect={false}
             onChange={() => {}}
             teethConditions={teethConditions}
@@ -670,7 +679,7 @@ export default function WorkPlanningPanel({
             colors={{ darkBlue: 'var(--color-accent)', baseBlue: '#c9b8a8', lightBlue: 'transparent' }}
           />
           {geometry && <OdontogramBridgeOverlay geometry={geometry} groups={bridgeGroups} />}
-          {geometry && <OdontogramSelectionOverlay geometry={geometry} selected={[...selectedTeeth, ...(rangeStart !== null ? [rangeStart] : [])]} />}
+          {geometry && <OdontogramSelectionOverlay geometry={geometry} selected={selectedTeeth} />}
           {geometry && <OdontogramNumberOverlay geometry={geometry} toothNumbers={toothNumbers} />}
           {geometry && <OdontogramClickOverlay geometry={geometry} toothNumbers={toothNumbers} onSelect={toggleTooth} />}
         </div>
