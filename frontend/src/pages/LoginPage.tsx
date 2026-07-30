@@ -9,7 +9,7 @@ import { Card, Button, Input } from '../components/ui'
 export default function LoginPage() {
   const { login } = useAuth()
   const navigate = useNavigate()
-  const [email, setEmail] = useState('owner@dentaflow.local')
+  const [username, setUsername] = useState('owner')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -28,7 +28,7 @@ export default function LoginPage() {
     setError(null)
     setSubmitting(true)
     try {
-      await login(email, password)
+      await login(username, password)
       navigate('/')
     } catch {
       setError('بيانات الدخول غير صحيحة.')
@@ -56,10 +56,10 @@ export default function LoginPage() {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <Input
-            type="email"
-            label="البريد الإلكتروني"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            type="text"
+            label="اسم المستخدم"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
             required
           />
           <Input

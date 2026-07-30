@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Cashbox;
+use App\Models\PurchaseInvoice;
 use App\Models\Supplier;
 use App\Models\SupplierTransaction;
 use App\Services\SupplierService;
@@ -96,6 +97,22 @@ class SupplierController extends Controller
             'outstanding_ils' => round($running, 2),
             'transactions' => $rows->reverse()->values(),
         ];
+    }
+
+    public function destroy(Request $request, Supplier $supplier)
+    {
+        abort_unless($request->user()->can('suppliers.manage'), 403);
+
+        abort_if(
+            PurchaseInvoice::where('supplier_id', $supplier->id)->exists()
+                || SupplierTransaction::where('supplier_id', $supplier->id)->exists(),
+            422,
+            'هذا المورد له فواتير شراء أو حركات مالية مسجّلة — لا يمكن حذفه نهائياً حفاظاً على السجل. عطّله من "تعديل" بدلاً من ذلك.',
+        );
+
+        $supplier->delete();
+
+        return response()->noContent();
     }
 
     public function pay(Request $request, Supplier $supplier, SupplierService $supplierService)

@@ -107,7 +107,8 @@ class WorkItemController extends Controller
             'doctor_id' => ['required', 'integer', 'exists:doctors,id'],
             'discount_amount' => ['sometimes', 'numeric', 'min:0'],
             'pay_cashbox_id' => ['nullable', 'integer', 'exists:cashboxes,id'],
-            'pay_method' => ['nullable', 'string', 'in:cash,card,transfer'],
+            'pay_method' => ['nullable', 'string', 'in:cash,card,transfer,check'],
+            'pay_amount' => ['nullable', 'numeric', 'min:0'],
             'appointment_id' => ['nullable', 'integer', 'exists:appointments,id'],
         ]);
 
@@ -121,6 +122,7 @@ class WorkItemController extends Controller
             payCashboxId: $data['pay_cashbox_id'] ?? null,
             payMethod: $data['pay_method'] ?? null,
             appointmentId: $data['appointment_id'] ?? null,
+            payAmount: isset($data['pay_amount']) ? (float) $data['pay_amount'] : null,
         );
 
         return [

@@ -6,3 +6,4 @@
 /backend.log
 /frontend.log
 frontend_dev.log
+.claude/

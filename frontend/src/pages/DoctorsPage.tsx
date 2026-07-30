@@ -127,13 +127,26 @@ export default function DoctorsPage() {
     }
   }
 
-  async function deleteDoctor(doctorId: number) {
+  async function deleteDoctor(doctorId: number, doctorName: string) {
     if (!window.confirm('حذف هذا الطبيب نهائياً؟')) return
     try {
       await api.delete(`/doctors/${doctorId}`)
       load()
     } catch (err: unknown) {
       const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      if (message?.includes('شغل مسجّل') || message?.includes('عمولات')) {
+        const typed = window.prompt(
+          `${message}\n\nلحذفه نهائياً مع كل شي مرتبط فيه (استخدم هذا فقط لبيانات تجريبية) — اكتب اسمه بالضبط:\n${doctorName}`,
+        )
+        if (typed !== doctorName) return
+        try {
+          await api.delete(`/doctors/${doctorId}/force-delete`, { data: { confirm: typed } })
+          load()
+        } catch {
+          window.alert('تعذّر الحذف النهائي.')
+        }
+        return
+      }
       window.alert(message ?? 'تعذّر حذف الطبيب.')
     }
   }
@@ -320,7 +333,7 @@ export default function DoctorsPage() {
                       <FontAwesomeIcon icon={faPen} />
                       تعديل
                     </button>
-                    <button onClick={() => deleteDoctor(d.id)} className="flex items-center gap-1 text-xs text-danger hover:underline">
+                    <button onClick={() => deleteDoctor(d.id, d.full_name)} className="flex items-center gap-1 text-xs text-danger hover:underline">
                       <FontAwesomeIcon icon={faTrash} />
                       حذف
                     </button>

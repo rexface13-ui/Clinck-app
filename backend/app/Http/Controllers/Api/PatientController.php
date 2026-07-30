@@ -12,12 +12,18 @@ use App\Http\Resources\PatientResource;
 use App\Http\Resources\ToothFindingResource;
 use App\Http\Resources\ToothStateResource;
 use App\Models\Appointment;
+use App\Models\Attachment;
+use App\Models\CashboxTransaction;
+use App\Models\DoctorTransaction;
+use App\Models\Note;
 use App\Models\Patient;
+use App\Models\Payment;
 use App\Models\PatientTransaction;
 use App\Models\ToothFinding;
 use App\Models\WorkItem;
 use App\Support\Arabic;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class PatientController extends Controller
 {
@@ -98,6 +104,46 @@ class PatientController extends Controller
         );
 
         $patient->delete();
+
+        return response()->noContent();
+    }
+
+    /**
+     * Wipes a patient AND every trace of them — appointments, work items,
+     * invoices, payments, ledger, tooth chart, notes, attachments, and
+     * reverses whatever side effects their (fake/test) history caused
+     * elsewhere: cashbox balances inflated by their payments, and doctor
+     * commissions earned off their findings. Meant for cleaning up test
+     * patients, not real ones — gated behind typing the patient's exact
+     * name so it can't be fired by a stray click, and still behind the same
+     * permission as the normal (heavily guarded) delete above.
+     */
+    public function forceDestroy(Request $request, Patient $patient)
+    {
+        $this->authorize('delete', $patient);
+
+        $data = $request->validate(['confirm' => ['required', 'string']]);
+        abort_unless($data['confirm'] === $patient->full_name, 422, 'اكتب اسم المريض بالضبط للتأكيد.');
+
+        DB::transaction(function () use ($patient) {
+            $paymentIds = Payment::where('patient_id', $patient->id)->pluck('id');
+            foreach (Payment::with('cashbox')->where('patient_id', $patient->id)->get() as $payment) {
+                $payment->cashbox?->decrement('balance', $payment->amount);
+            }
+            CashboxTransaction::where('reference_type', 'payment')->whereIn('reference_id', $paymentIds)->delete();
+
+            $findingIds = ToothFinding::where('patient_id', $patient->id)->pluck('id');
+            DoctorTransaction::whereIn('tooth_finding_id', $findingIds)->delete();
+
+            Note::where('notable_type', $patient->getMorphClass())->where('notable_id', $patient->id)->delete();
+            Attachment::where('attachable_type', $patient->getMorphClass())->where('attachable_id', $patient->id)->delete();
+
+            // Cascades: appointments, work_items (+ their steps), invoices
+            // (+ lines), payments, patient_transactions, tooth_states,
+            // tooth_findings, treatment_plans, lab_cases, prescriptions —
+            // all FK cascadeOnDelete() on patient_id.
+            $patient->delete();
+        });
 
         return response()->noContent();
     }

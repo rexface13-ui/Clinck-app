@@ -16,7 +16,7 @@ class LoginController extends Controller
 
         if (! Auth::attempt([...$credentials, 'is_active' => true], remember: true)) {
             throw ValidationException::withMessages([
-                'email' => 'بيانات الدخول غير صحيحة.',
+                'username' => 'بيانات الدخول غير صحيحة.',
             ]);
         }
 

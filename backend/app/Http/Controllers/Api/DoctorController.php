@@ -9,6 +9,7 @@ use App\Http\Resources\DoctorResource;
 use App\Models\Doctor;
 use App\Models\DoctorTransaction;
 use App\Models\WorkItem;
+use Illuminate\Http\Request;
 
 class DoctorController extends Controller
 {
@@ -71,6 +72,25 @@ class DoctorController extends Controller
             422,
             'هذا الطبيب عنده شغل مسجّل أو عمولات — لا يمكن حذفه نهائياً حفاظاً على السجل المالي. عطّله من "تعديل" بدلاً من ذلك.',
         );
+
+        $doctor->delete();
+
+        return response()->noContent();
+    }
+
+    /**
+     * Bypasses the billed-work/commission guard above for cleaning up a
+     * test-only doctor — gated behind typing the doctor's exact name.
+     * work_items just lose the doctor_id link (nullOnDelete, the patient's
+     * clinical/billing record is untouched); availability, commission
+     * settings, and any doctor_transactions cascade-delete with them.
+     */
+    public function forceDestroy(Request $request, Doctor $doctor)
+    {
+        $this->authorize('delete', $doctor);
+
+        $data = $request->validate(['confirm' => ['required', 'string']]);
+        abort_unless($data['confirm'] === $doctor->full_name, 422, 'اكتب اسم الطبيب بالضبط للتأكيد.');
 
         $doctor->delete();
 

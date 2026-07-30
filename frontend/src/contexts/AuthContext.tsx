@@ -5,7 +5,7 @@ import type { BootstrapData } from '../types'
 interface AuthContextValue {
   data: BootstrapData | null
   loading: boolean
-  login: (email: string, password: string) => Promise<void>
+  login: (username: string, password: string) => Promise<void>
   logout: () => Promise<void>
   can: (permission: string) => boolean
   refresh: () => Promise<void>
@@ -30,9 +30,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loadBootstrap().finally(() => setLoading(false))
   }, [])
 
-  const login = async (email: string, password: string) => {
+  const login = async (username: string, password: string) => {
     await authApi.get('/sanctum/csrf-cookie')
-    await authApi.post('/login', { email, password })
+    await authApi.post('/login', { username, password })
     await loadBootstrap()
   }
 

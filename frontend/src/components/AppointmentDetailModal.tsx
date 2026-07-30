@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faCheck, faXmark, faUser, faClockRotateLeft, faCalendarPlus, faTriangleExclamation } from '@fortawesome/free-solid-svg-icons'
+import { faCheck, faUser, faClockRotateLeft, faCalendarPlus, faTriangleExclamation, faTrash } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import { formatDate, formatTime } from '../lib/formatDate'
-import { Modal, Badge } from './ui'
+import DatePicker from './DatePicker'
+import { Modal, Badge, Button } from './ui'
 import type { BadgeVariant } from './ui'
-import type { Appointment, AppointmentTimelineEntry } from '../types'
+import type { Appointment, AppointmentTimelineEntry, Doctor } from '../types'
 
 const STATUS_VARIANTS: Record<Appointment['status'], BadgeVariant> = {
   scheduled: 'info',
@@ -37,8 +38,16 @@ export default function AppointmentDetailModal({ appointmentId, onClose, onChang
   const [appointment, setAppointment] = useState<Appointment | null>(null)
   const [notes, setNotes] = useState('')
   const [savingNotes, setSavingNotes] = useState(false)
-  const [cancelling, setCancelling] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [timeline, setTimeline] = useState<AppointmentTimelineEntry[] | null>(null)
+  const [doctors, setDoctors] = useState<Doctor[]>([])
+
+  const [rescheduling, setRescheduling] = useState(false)
+  const [newDate, setNewDate] = useState('')
+  const [newTime, setNewTime] = useState('10:00')
+  const [newDoctorId, setNewDoctorId] = useState('')
+  const [rescheduleError, setRescheduleError] = useState<string | null>(null)
+  const [savingReschedule, setSavingReschedule] = useState(false)
 
   function load() {
     api.get<{ data: Appointment }>(`/appointments/${appointmentId}`).then((res) => {
@@ -49,6 +58,9 @@ export default function AppointmentDetailModal({ appointmentId, onClose, onChang
   }
 
   useEffect(load, [appointmentId])
+  useEffect(() => {
+    api.get('/doctors').then((res) => setDoctors(res.data.data))
+  }, [])
 
   async function saveNotes() {
     setSavingNotes(true)
@@ -60,19 +72,54 @@ export default function AppointmentDetailModal({ appointmentId, onClose, onChang
     }
   }
 
-  async function cancelAppointment() {
-    if (!window.confirm('إلغاء هذا الموعد؟')) return
-    setCancelling(true)
+  async function deleteAppointment() {
+    if (!window.confirm('حذف هذا الموعد نهائياً؟')) return
+    setDeleting(true)
     try {
-      await api.put(`/appointments/${appointmentId}`, { status: 'cancelled' })
+      await api.delete(`/appointments/${appointmentId}`)
       onChanged()
       onClose()
+    } catch (err) {
+      const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      window.alert(message ?? 'تعذّر حذف الموعد.')
     } finally {
-      setCancelling(false)
+      setDeleting(false)
     }
   }
 
-  const pending = appointment && (appointment.status === 'scheduled' || appointment.status === 'confirmed')
+  function openReschedule() {
+    if (!appointment) return
+    const d = new Date(appointment.starts_at)
+    setNewDate(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`)
+    setNewTime(`${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`)
+    setNewDoctorId(appointment.doctor_id ? String(appointment.doctor_id) : '')
+    setRescheduleError(null)
+    setRescheduling(true)
+  }
+
+  async function saveReschedule() {
+    if (!appointment || !newDate) return
+    setSavingReschedule(true)
+    setRescheduleError(null)
+    try {
+      const durationMs = new Date(appointment.ends_at).getTime() - new Date(appointment.starts_at).getTime()
+      const startsAt = new Date(`${newDate}T${newTime}:00`)
+      const endsAt = new Date(startsAt.getTime() + durationMs)
+      await api.put(`/appointments/${appointmentId}`, {
+        doctor_id: newDoctorId ? Number(newDoctorId) : null,
+        starts_at: startsAt.toISOString(),
+        ends_at: endsAt.toISOString(),
+      })
+      setRescheduling(false)
+      load()
+      onChanged()
+    } catch (err) {
+      const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      setRescheduleError(message ?? 'تعذّر تأجيل الموعد.')
+    } finally {
+      setSavingReschedule(false)
+    }
+  }
 
   return (
     <Modal title="تفاصيل الموعد" onClose={onClose} width="w-[520px]">
@@ -194,24 +241,67 @@ export default function AppointmentDetailModal({ appointmentId, onClose, onChang
             </div>
           )}
 
-          {pending && can('appointments.manage') && (
-            <div className="flex gap-2 border-t border-border/70 pt-3">
+          {can('appointments.manage') && (
+            <div className="space-y-2 border-t border-border/70 pt-3">
               <Link
                 to={`/patients/${appointment.patient_id}?tab=work`}
                 onClick={onClose}
-                className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-accent py-2 text-sm font-medium text-white hover:bg-accent-hover"
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-accent py-2 text-sm font-medium text-white hover:bg-accent-hover"
               >
                 <FontAwesomeIcon icon={faCheck} />
-                تمّت الزيارة
+                تمّت الزيارة — تخطيط العمل
               </Link>
-              <button
-                onClick={cancelAppointment}
-                disabled={cancelling}
-                className="flex items-center justify-center gap-2 rounded-lg bg-danger-soft px-4 py-2 text-sm font-medium text-danger hover:bg-danger hover:text-white disabled:opacity-50"
-              >
-                <FontAwesomeIcon icon={faXmark} />
-                إلغاء الموعد
-              </button>
+
+              {!rescheduling ? (
+                <div className="flex gap-2">
+                  <button
+                    onClick={openReschedule}
+                    className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-warning-soft px-4 py-2 text-sm font-medium text-warning hover:bg-warning hover:text-white"
+                  >
+                    <FontAwesomeIcon icon={faClockRotateLeft} />
+                    تأجيل (يوم/وقت تاني)
+                  </button>
+                  <button
+                    onClick={deleteAppointment}
+                    disabled={deleting}
+                    className="flex items-center justify-center gap-2 rounded-lg bg-danger-soft px-4 py-2 text-sm font-medium text-danger hover:bg-danger hover:text-white disabled:opacity-50"
+                  >
+                    <FontAwesomeIcon icon={faTrash} />
+                    حذف الموعد
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-2 rounded-lg bg-background p-3">
+                  <DatePicker value={newDate} onChange={(iso) => iso && setNewDate(iso)} allowClear={false} />
+                  <div className="flex gap-2">
+                    <input
+                      type="time"
+                      value={newTime}
+                      onChange={(e) => setNewTime(e.target.value)}
+                      className="flex-1 rounded-lg border border-border px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
+                    />
+                    <select
+                      value={newDoctorId}
+                      onChange={(e) => setNewDoctorId(e.target.value)}
+                      className="flex-1 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
+                    >
+                      <option value="">بدون طبيب محدد</option>
+                      {doctors.map((d) => (
+                        <option key={d.id} value={d.id}>{d.full_name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {rescheduleError && <p className="text-xs text-danger">{rescheduleError}</p>}
+                  <div className="flex gap-2">
+                    <Button onClick={saveReschedule} loading={savingReschedule} className="flex-1 justify-center px-3 py-1.5 text-xs">
+                      حفظ الموعد الجديد
+                    </Button>
+                    <button onClick={() => setRescheduling(false)} className="rounded-lg px-3 py-1.5 text-xs text-muted hover:bg-background">
+                      إلغاء
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

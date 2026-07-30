@@ -9,6 +9,7 @@ import type { Branch } from '../types'
 interface UserRow {
   id: number
   name: string
+  username: string
   email: string
   is_active: boolean
   roles: string[]
@@ -24,6 +25,7 @@ export default function UsersPage() {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [form, setForm] = useState({
     name: '',
+    username: '',
     email: '',
     password: '',
     roles: [] as string[],
@@ -46,29 +48,29 @@ export default function UsersPage() {
     e.preventDefault()
     setError(null)
     try {
+      const payload: Partial<typeof form> = { ...form, email: form.email || undefined }
       if (editingId) {
-        const payload: Partial<typeof form> = { ...form }
         if (!payload.password) delete payload.password
         await api.put(`/users/${editingId}`, payload)
       } else {
-        await api.post('/users', form)
+        await api.post('/users', payload)
       }
       closeForm()
       load()
     } catch {
-      setError('تحقق من الحقول (البريد فريد، كلمة مرور 8 أحرف على الأقل).')
+      setError('تحقق من الحقول (اسم المستخدم فريد).')
     }
   }
 
   function closeForm() {
     setShowForm(false)
     setEditingId(null)
-    setForm({ name: '', email: '', password: '', roles: [], branch_ids: [] })
+    setForm({ name: '', username: '', email: '', password: '', roles: [], branch_ids: [] })
   }
 
   function startEdit(u: UserRow) {
     setEditingId(u.id)
-    setForm({ name: u.name, email: u.email, password: '', roles: u.roles, branch_ids: u.branches.map((b) => b.id) })
+    setForm({ name: u.name, username: u.username, email: u.email, password: '', roles: u.roles, branch_ids: u.branches.map((b) => b.id) })
     setError(null)
     setShowForm(true)
   }
@@ -104,11 +106,10 @@ export default function UsersPage() {
           <form onSubmit={handleCreate} className="grid grid-cols-2 gap-4">
             <Input label="الاسم" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
             <Input
-              type="email"
-              label="البريد الإلكتروني"
+              label="اسم المستخدم (لتسجيل الدخول)"
               required
-              value={form.email}
-              onChange={(e) => setForm({ ...form, email: e.target.value })}
+              value={form.username}
+              onChange={(e) => setForm({ ...form, username: e.target.value })}
             />
             <Input
               type="password"
@@ -116,6 +117,12 @@ export default function UsersPage() {
               required={!editingId}
               value={form.password}
               onChange={(e) => setForm({ ...form, password: e.target.value })}
+            />
+            <Input
+              type="email"
+              label="البريد الإلكتروني (اختياري)"
+              value={form.email}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
             />
             <div>
               <label className="mb-1 block text-sm text-muted">الأدوار</label>
@@ -171,7 +178,7 @@ export default function UsersPage() {
           <Table>
             <Thead>
               <Th>الاسم</Th>
-              <Th>البريد</Th>
+              <Th>اسم المستخدم</Th>
               <Th>الأدوار</Th>
               <Th>الفروع</Th>
               <Th></Th>
@@ -183,7 +190,7 @@ export default function UsersPage() {
                 users.map((u) => (
                   <Tr key={u.id}>
                     <Td>{u.name}</Td>
-                    <Td className="text-muted">{u.email}</Td>
+                    <Td className="text-muted">{u.username}</Td>
                     <Td className="text-muted">{u.roles.join(', ')}</Td>
                     <Td className="text-muted">{u.branches.map((b) => b.name).join(', ')}</Td>
                     <Td>

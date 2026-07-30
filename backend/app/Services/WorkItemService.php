@@ -92,17 +92,66 @@ class WorkItemService
     /** Toggles one tooth's progress on one step, and/or saves its field values. Nothing is billed here — billing happens at checkout(). */
     public function updateToothStep(WorkItemToothStep $toothStep, ?bool $completed, ?array $fieldValues): WorkItemToothStep
     {
-        $data = [];
         if ($fieldValues !== null) {
-            $data['field_values'] = $fieldValues;
-        }
-        if ($completed !== null) {
-            $data['completed_at'] = $completed ? ($toothStep->completed_at ?? now()) : null;
+            $toothStep->update(['field_values' => $fieldValues]);
         }
 
-        $toothStep->update($data);
+        if ($completed === true) {
+            $toothStep->update(['completed_at' => $toothStep->completed_at ?? now()]);
+        } elseif ($completed === false) {
+            if ($toothStep->invoice_line_id) {
+                // Already billed in a prior checkout — un-checking it isn't a
+                // free no-op, it has to give the money back too, otherwise
+                // the tooth reads as "not done" while the patient was still
+                // charged for it.
+                $this->reverseBilledToothStep($toothStep);
+            } else {
+                $toothStep->update(['completed_at' => null]);
+            }
+        }
 
         return $toothStep->fresh();
+    }
+
+    /**
+     * Undoes a tooth-step that was already invoiced in an earlier session:
+     * deletes its invoice line, shrinks the invoice total, and records a
+     * matching negative adjustment on the patient's ledger so the reversal
+     * is visible there too. Only possible for price_per_tooth services —
+     * a flat-fee step's single invoice line is shared across every tooth
+     * that had it, so there's no single tooth's worth of price to hand back.
+     */
+    protected function reverseBilledToothStep(WorkItemToothStep $toothStep): void
+    {
+        $toothStep->loadMissing('workItem');
+        abort_unless($toothStep->workItem->price_per_tooth, 422, 'ما فيك تلغي سن واحد من خطوة سعرها إجمالي وليس فردي — لازم تلغي كل الخطوة.');
+
+        DB::transaction(function () use ($toothStep) {
+            $line = InvoiceLine::find($toothStep->invoice_line_id);
+
+            if ($line) {
+                $invoice = $line->invoice;
+                $price = (float) $line->amount_ils;
+                $line->delete();
+                $invoice->decrement('total_amount_ils', $price);
+
+                PatientTransaction::create([
+                    'patient_id' => $toothStep->workItem->patient_id,
+                    'type' => 'adjustment',
+                    'reference_type' => 'invoice_line_reversal',
+                    'reference_id' => $invoice->id,
+                    'amount' => -$price,
+                    'currency' => 'ILS',
+                    'exchange_rate' => 1,
+                    'amount_ils' => -$price,
+                    'occurred_at' => now(),
+                ]);
+
+                $this->paymentService->refreshInvoiceStatus($invoice->fresh());
+            }
+
+            $toothStep->update(['completed_at' => null, 'invoice_line_id' => null]);
+        });
     }
 
     /** Copies one tooth's step field values (and completion) to every other tooth in the same work item — the "طبّق نفس القيم على كل الأسنان" shortcut. */
@@ -138,10 +187,11 @@ class WorkItemService
         ?int $payCashboxId = null,
         ?string $payMethod = null,
         ?int $appointmentId = null,
+        ?float $payAmount = null,
     ): array {
         abort_if(empty($workItemIds), 422, 'لازم تختار شغل واحد عالأقل.');
 
-        return DB::transaction(function () use ($patient, $workItemIds, $doctorId, $discountAmount, $payCashboxId, $payMethod, $appointmentId) {
+        return DB::transaction(function () use ($patient, $workItemIds, $doctorId, $discountAmount, $payCashboxId, $payMethod, $appointmentId, $payAmount) {
             $workItems = WorkItem::with(['teeth', 'service', 'toothSteps.step'])
                 ->where('patient_id', $patient->id)
                 ->whereIn('id', $workItemIds)
@@ -224,12 +274,19 @@ class WorkItemService
                     ]);
                 }
 
-                if ($payCashboxId) {
+                // Partial payment is allowed on purpose — a patient can pay
+                // any amount (including zero) at checkout and the rest just
+                // stays as debt on their ledger, no forced full-pay-or-defer
+                // choice.
+                $amountToCollect = $payAmount ?? (float) $invoice->fresh()->total_amount_ils;
+                $amountToCollect = min(max(0, $amountToCollect), (float) $invoice->fresh()->total_amount_ils);
+
+                if ($payCashboxId && $amountToCollect > 0) {
                     $cashbox = Cashbox::findOrFail($payCashboxId);
                     $this->paymentService->collect(
                         patient: $patient,
                         cashbox: $cashbox,
-                        amount: (float) $invoice->fresh()->total_amount_ils,
+                        amount: $amountToCollect,
                         currency: $cashbox->currency,
                         exchangeRate: 1,
                         method: $payMethod ?? 'cash',

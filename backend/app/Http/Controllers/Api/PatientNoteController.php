@@ -18,6 +18,8 @@ class PatientNoteController extends Controller
         $note = $patient->notes()->create([
             'user_id' => $request->user()->id,
             'body' => $request->validated('body'),
+            'tooth_number' => $request->validated('tooth_number'),
+            'is_important' => $request->boolean('is_important'),
         ]);
 
         return new NoteResource($note->load('user'));
@@ -28,7 +30,12 @@ class PatientNoteController extends Controller
         $this->authorize('update', $patient);
         abort_unless($note->notable_type === $patient->getMorphClass() && $note->notable_id === $patient->id, 404);
 
-        $note->update(['body' => $request->validate(['body' => ['required', 'string']])['body']]);
+        $data = $request->validate([
+            'body' => ['sometimes', 'string'],
+            'is_important' => ['sometimes', 'boolean'],
+        ]);
+
+        $note->update($data);
 
         return new NoteResource($note->load('user'));
     }

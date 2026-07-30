@@ -1,21 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
-import { useParams, useSearchParams, Link } from 'react-router-dom'
+import { useParams, useSearchParams, Link, useNavigate } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import {
   faArrowRight,
   faCalendarPlus,
   faTriangleExclamation,
-  faCheck,
-  faClockRotateLeft,
-  faUserXmark,
   faPen,
   faTrash,
   faPaperclip,
   faDownload,
   faUpload,
+  faNoteSticky,
 } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import ToothChart from '../components/ToothChart'
+import ToothNotesModal from '../components/ToothNotesModal'
 import WorkPlanningPanel from '../components/WorkPlanningPanel'
 import PatientLedgerPanel from '../components/PatientLedgerPanel'
 import VisitHistoryPanel from '../components/VisitHistoryPanel'
@@ -43,6 +42,7 @@ function isToday(iso: string): boolean {
 export default function PatientProfilePage() {
   const { id } = useParams()
   const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
   const { can } = useAuth()
   const canViewBilling = can('billing.view')
   const [profile, setProfile] = useState<PatientProfile | null>(null)
@@ -54,7 +54,6 @@ export default function PatientProfilePage() {
   const [uploadingAttachment, setUploadingAttachment] = useState(false)
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
   const attachmentInputRef = useRef<HTMLInputElement>(null)
-  const [updatingVisit, setUpdatingVisit] = useState(false)
   const [activeTab, setActiveTab] = useState(searchParams.get('tab') === 'work' ? 'work' : 'overview')
   const [doctors, setDoctors] = useState<Doctor[]>([])
   const [editingAppointmentId, setEditingAppointmentId] = useState<number | null>(null)
@@ -73,11 +72,22 @@ export default function PatientProfilePage() {
     medical_notes: '',
   })
   const [savingPatient, setSavingPatient] = useState(false)
+  const [deleteConfirmText, setDeleteConfirmText] = useState('')
+  const [deletingPatient, setDeletingPatient] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
   const tabsRef = useRef<HTMLDivElement>(null)
+  /** Teeth selected from the overview chart's "بدء العمل" button — seeds WorkPlanningPanel's own selection once it mounts on the work tab, so the patient doesn't have to re-pick the same teeth twice. */
+  const [pendingWorkTeeth, setPendingWorkTeeth] = useState<number[]>([])
+  const [notesModalTooth, setNotesModalTooth] = useState<number | null>(null)
 
   function goToWorkTab() {
     setActiveTab('work')
     requestAnimationFrame(() => tabsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+  }
+
+  function startWorkOnTeeth(toothNumbers: number[]) {
+    setPendingWorkTeeth(toothNumbers)
+    goToWorkTab()
   }
 
   function load() {
@@ -133,16 +143,6 @@ export default function PatientProfilePage() {
     load()
   }
 
-  async function setVisitOutcome(appointmentId: number, status: 'done' | 'cancelled' | 'no_show') {
-    setUpdatingVisit(true)
-    try {
-      await api.put(`/appointments/${appointmentId}`, { status })
-      load()
-    } finally {
-      setUpdatingVisit(false)
-    }
-  }
-
   function openEditPatient() {
     if (!profile) return
     const p = profile.patient
@@ -172,6 +172,21 @@ export default function PatientProfilePage() {
       load()
     } finally {
       setSavingPatient(false)
+    }
+  }
+
+  async function forceDeletePatient() {
+    if (!profile) return
+    setDeletingPatient(true)
+    setDeleteError(null)
+    try {
+      await api.delete(`/patients/${id}/force-delete`, { data: { confirm: deleteConfirmText } })
+      navigate('/patients')
+    } catch (err) {
+      const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      setDeleteError(message ?? 'تعذّر الحذف.')
+    } finally {
+      setDeletingPatient(false)
     }
   }
 
@@ -226,6 +241,15 @@ export default function PatientProfilePage() {
   if (!profile) return <p className="text-sm text-muted">جارِ التحميل...</p>
 
   const { patient, tooth_states, tooth_findings, appointments, notes, attachments } = profile
+  const generalNotes = notes.filter((n) => n.tooth_number === null)
+  const toothNotesByTooth = new Map<number, typeof notes>()
+  for (const n of notes) {
+    if (n.tooth_number === null) continue
+    const list = toothNotesByTooth.get(n.tooth_number) ?? []
+    list.push(n)
+    toothNotesByTooth.set(n.tooth_number, list)
+  }
+  const toothNoteNumbers = Array.from(toothNotesByTooth.keys()).sort((a, b) => a - b)
   const todayAppointment = appointments.find((a) => isToday(a.starts_at) && (a.status === 'scheduled' || a.status === 'confirmed'))
   const hasDebt = !!ledger && ledger.outstanding_ils > 0
   const nextAppointment = appointments
@@ -286,10 +310,6 @@ export default function PatientProfilePage() {
             <FontAwesomeIcon icon={faPen} />
             تعديل
           </button>
-          <Button variant="secondary" onClick={goToWorkTab}>
-            <FontAwesomeIcon icon={faCheck} />
-            اجاني هلق (بدون موعد)
-          </Button>
           <Link to={`/appointments?patient_id=${patient.id}`}>
             <Button>
               <FontAwesomeIcon icon={faCalendarPlus} />
@@ -298,45 +318,6 @@ export default function PatientProfilePage() {
           </Link>
         </div>
       </Card>
-
-      {todayAppointment && (
-        <Card className="mb-6 flex flex-wrap items-center justify-between gap-3 p-5">
-          <div>
-            <h2 className="text-sm font-semibold text-ink/80">زيارة اليوم</h2>
-            <p className="mt-0.5 text-sm text-muted">
-              مع {todayAppointment.doctor_name} — {todayAppointment.starts_at_display}
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={goToWorkTab}
-              className="flex items-center gap-2 rounded-xl bg-success-soft px-3 py-2 text-sm font-medium text-success hover:opacity-80"
-            >
-              <FontAwesomeIcon icon={faCheck} />
-              تمت الزيارة
-            </button>
-            <button
-              onClick={() => setVisitOutcome(todayAppointment.id, 'cancelled')}
-              disabled={updatingVisit}
-              className="flex items-center gap-2 rounded-xl bg-warning-soft px-3 py-2 text-sm font-medium text-warning hover:opacity-80 disabled:opacity-50"
-            >
-              <FontAwesomeIcon icon={faClockRotateLeft} />
-              تأجيل
-            </button>
-            <button
-              onClick={() => setVisitOutcome(todayAppointment.id, 'no_show')}
-              disabled={updatingVisit}
-              className="flex items-center gap-2 rounded-xl bg-danger-soft px-3 py-2 text-sm font-medium text-danger hover:opacity-80 disabled:opacity-50"
-            >
-              <FontAwesomeIcon icon={faUserXmark} />
-              لم يحضر
-            </button>
-          </div>
-          <p className="w-full text-xs text-muted">
-            "تمت الزيارة" بتوديك لتبويب "تخطيط العمل" — سجّل الشغل هناك وبينربط بهالموعد تلقائياً.
-          </p>
-        </Card>
-      )}
 
       <div ref={tabsRef}>
       <Tabs
@@ -420,6 +401,8 @@ export default function PatientProfilePage() {
                     services={services}
                     doctors={doctors}
                     onChanged={load}
+                    notes={notes}
+                    onStartWork={startWorkOnTeeth}
                   />
                 </div>
               </div>
@@ -439,6 +422,9 @@ export default function PatientProfilePage() {
                 defaultDoctorId={todayAppointment?.doctor_id}
                 toothStates={tooth_states}
                 toothFindings={tooth_findings}
+                initialSelectedTeeth={pendingWorkTeeth}
+                onInitialSelectionConsumed={() => setPendingWorkTeeth([])}
+                notes={notes}
               />
             ),
           },
@@ -452,6 +438,7 @@ export default function PatientProfilePage() {
                 isChild={patient.is_child}
                 medicalAlerts={patient.medical_alerts}
                 onChanged={load}
+                notes={notes}
               />
             ),
           },
@@ -568,11 +555,11 @@ export default function PatientProfilePage() {
               إضافة
             </Button>
           </div>
-          {notes.length === 0 ? (
-            <p className="text-sm text-muted">لا توجد ملاحظات.</p>
+          {generalNotes.length === 0 ? (
+            <p className="text-sm text-muted">لا توجد ملاحظات عامة.</p>
           ) : (
             <ul className="space-y-2">
-              {notes.map((n) => (
+              {generalNotes.map((n) => (
                 <li key={n.id} className="border-b border-border/70 pb-2 text-sm last:border-0">
                   {editingNoteId === n.id ? (
                     <div className="flex gap-2">
@@ -660,12 +647,51 @@ export default function PatientProfilePage() {
             </ul>
           )}
         </Card>
+
+        <Card className="col-span-2 p-6">
+          <h2 className="mb-3 text-sm font-medium text-ink/70">
+            <FontAwesomeIcon icon={faNoteSticky} className="ml-2 text-muted" />
+            دفتر ملاحظات الأسنان — كل الملاحظات المكتوبة لأي سن لهذا المريض، من أي مكان بالنظام
+          </h2>
+          {toothNoteNumbers.length === 0 ? (
+            <p className="text-sm text-muted">ما في ملاحظات مكتوبة لأي سن بعد.</p>
+          ) : (
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+              {toothNoteNumbers.map((toothNumber) => {
+                const list = toothNotesByTooth.get(toothNumber)!.slice().sort((a, b) => b.id - a.id)
+                return (
+                  <button
+                    key={toothNumber}
+                    onClick={() => setNotesModalTooth(toothNumber)}
+                    className="rounded-lg border border-ink/10 p-3 text-start hover:border-accent hover:bg-accent-soft/30"
+                  >
+                    <div className="mb-1 flex items-center justify-between">
+                      <span className="text-sm font-medium text-ink">السن {toothNumber}</span>
+                      <span className="rounded-full bg-accent-soft px-1.5 text-[11px] text-accent">{list.length}</span>
+                    </div>
+                    <p className="truncate text-xs text-muted">{list[0].body}</p>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </Card>
               </div>
             ),
           },
         ]}
       />
       </div>
+
+      {notesModalTooth !== null && (
+        <ToothNotesModal
+          patientId={patient.id}
+          toothNumber={notesModalTooth}
+          notes={notes}
+          onClose={() => setNotesModalTooth(null)}
+          onChanged={load}
+        />
+      )}
 
       {openAppointmentId && (
         <AppointmentDetailModal
@@ -711,6 +737,33 @@ export default function PatientProfilePage() {
                 {savingPatient ? 'جارِ الحفظ...' : 'حفظ'}
               </Button>
             </div>
+
+            {can('patients.manage') && (
+              <div className="col-span-2 mt-2 rounded-xl border border-danger/30 bg-danger-soft/40 p-4">
+                <p className="mb-2 text-sm font-semibold text-danger">منطقة خطر — حذف نهائي</p>
+                <p className="mb-3 text-xs text-danger/80">
+                  بيحذف المريض وكل شي مرتبط فيه نهائياً (مواعيد، شغل، فواتير، دفعات، حساب، ملاحظات، مرفقات) — ما فيه رجوع.
+                  للتأكيد، اكتب اسم المريض بالضبط: <span className="font-semibold">{patient.full_name}</span>
+                </p>
+                <div className="flex gap-2">
+                  <input
+                    value={deleteConfirmText}
+                    onChange={(e) => setDeleteConfirmText(e.target.value)}
+                    placeholder={patient.full_name}
+                    className="flex-1 rounded-lg border border-danger/30 bg-surface px-2 py-1.5 text-sm focus:border-danger focus:outline-none"
+                  />
+                  <Button
+                    variant="danger"
+                    onClick={forceDeletePatient}
+                    loading={deletingPatient}
+                    disabled={deleteConfirmText !== patient.full_name || deletingPatient}
+                  >
+                    حذف نهائي
+                  </Button>
+                </div>
+                {deleteError && <p className="mt-2 text-xs text-danger">{deleteError}</p>}
+              </div>
+            )}
           </div>
         </Modal>
       )}

@@ -101,6 +101,7 @@ class ClinicSeeder extends Seeder
                 [
                     'clinic_id' => $clinic->id,
                     'name' => 'مالك العيادة',
+                    'username' => 'owner',
                     'password' => 'password',
                     'is_active' => true,
                 ],

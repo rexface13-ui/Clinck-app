@@ -9,11 +9,14 @@ import {
   faCopy,
   faObjectGroup,
   faTriangleExclamation,
+  faNoteSticky,
 } from '@fortawesome/free-solid-svg-icons'
 import { Odontogram } from 'react-odontogram'
 import 'react-odontogram/style.css'
 import { api } from '../lib/api'
 import DatePicker from './DatePicker'
+import ToothNotesModal from './ToothNotesModal'
+import ReceiveCheckModal from './ReceiveCheckModal'
 import { Card, Button, Select, SearchableSelect, Badge } from './ui'
 import type { BadgeVariant } from './ui'
 import {
@@ -33,7 +36,7 @@ import {
   fadeHex,
   toLibraryToothId,
 } from '../lib/dental'
-import type { Branch, Cashbox, Doctor, Service, ToothFinding, ToothState, WorkItem } from '../types'
+import type { Cashbox, Doctor, Note, Service, ToothFinding, ToothState, WorkItem } from '../types'
 
 /** Same phantom-slot muting as ToothChart.tsx — see its comment for why. */
 const CHILD_PHANTOM_LIBRARY_IDS = [16, 17, 18, 26, 27, 28, 36, 37, 38, 46, 47, 48].map((n) => `teeth-${n}`)
@@ -54,6 +57,9 @@ export default function WorkPlanningPanel({
   defaultDoctorId,
   toothStates = [],
   toothFindings = [],
+  initialSelectedTeeth = [],
+  onInitialSelectionConsumed,
+  notes = [],
 }: {
   patientId: number
   patientName: string
@@ -67,6 +73,11 @@ export default function WorkPlanningPanel({
   /** Same chart data as the overview tab — shown on the tooth-picker here too so existing work/findings are visible while selecting teeth, not just today's in-progress items. */
   toothStates?: ToothState[]
   toothFindings?: ToothFinding[]
+  /** Teeth pre-selected from the overview chart's "بدء العمل" button — seeded into the tooth-picker once, then cleared via onInitialSelectionConsumed so re-renders don't keep overwriting the user's own subsequent clicks. */
+  initialSelectedTeeth?: number[]
+  onInitialSelectionConsumed?: () => void
+  /** Same patient notes list the overview tab's notebook button uses — surfaced here too so a note can be added mid-work without switching tabs. */
+  notes?: Note[]
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const toothNumbers = isChild ? [...UPPER_PRIMARY, ...LOWER_PRIMARY] : [...UPPER_PERMANENT, ...LOWER_PERMANENT]
@@ -85,13 +96,6 @@ export default function WorkPlanningPanel({
   const [doctors, setDoctors] = useState<Doctor[]>([])
   const [services, setServices] = useState<Service[]>([])
   const [cashboxes, setCashboxes] = useState<Cashbox[]>([])
-  const [branches, setBranches] = useState<Branch[]>([])
-  const [walkInStartTime, setWalkInStartTime] = useState(() => {
-    const now = new Date()
-    return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
-  })
-  const [walkInDurationHours, setWalkInDurationHours] = useState(0)
-  const [walkInDurationMinutes, setWalkInDurationMinutes] = useState(30)
   const [doctorId, setDoctorId] = useState(defaultDoctorId ? String(defaultDoctorId) : '')
   const [workItems, setWorkItems] = useState<WorkItem[]>([])
   const [activeWorkItemId, setActiveWorkItemId] = useState<number | null>(null)
@@ -99,6 +103,7 @@ export default function WorkPlanningPanel({
   const [selectedTeeth, setSelectedTeeth] = useState<number[]>([])
   /** Anchor for ctrl+click range selection — click a tooth normally, then ctrl+click another to select everything between them, no separate "range mode" toggle needed. */
   const [lastClickedTooth, setLastClickedTooth] = useState<number | null>(null)
+  const [notesToothNumber, setNotesToothNumber] = useState<number | null>(null)
   const [newServiceId, setNewServiceId] = useState('')
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
@@ -107,12 +112,17 @@ export default function WorkPlanningPanel({
   const [discount, setDiscount] = useState('')
   const [priceEditMode, setPriceEditMode] = useState<'final' | 'amount' | 'percent'>('final')
   const checkoutSectionRef = useRef<HTMLDivElement>(null)
-  const [payMode, setPayMode] = useState<'now' | 'defer'>('now')
+  /** Amount actually being paid today — free-typed, defaults to the full total but can be lowered to any partial amount (or 0). Whatever's left over just stays as debt on the patient's ledger, no forced pay-now/defer choice. */
+  const [paidAmount, setPaidAmount] = useState('')
+  const [paidAmountTouched, setPaidAmountTouched] = useState(false)
   const [cashboxId, setCashboxId] = useState('')
-  const [method, setMethod] = useState<'cash' | 'card' | 'transfer'>('cash')
+  const [method, setMethod] = useState<'cash' | 'card' | 'transfer' | 'check'>('cash')
   const [checkingOut, setCheckingOut] = useState(false)
   const [checkoutError, setCheckoutError] = useState<string | null>(null)
   const [checkoutResult, setCheckoutResult] = useState<string | null>(null)
+  /** A cheque isn't a cashbox movement — it opens the same "استلام شيك" form used on الشيكات right after the session's work/invoice is saved, instead of going through pay_cashbox_id/pay_method. */
+  const [showCheckModal, setShowCheckModal] = useState(false)
+  const [checkAmountForModal, setCheckAmountForModal] = useState(0)
 
   const [schedulingId, setSchedulingId] = useState<number | null>(null)
   const [scheduleDate, setScheduleDate] = useState('')
@@ -138,10 +148,16 @@ export default function WorkPlanningPanel({
       const ils = res.data.find((c: Cashbox) => c.currency === 'ILS')
       if (ils) setCashboxId(String(ils.id))
     })
-    if (!appointmentId) api.get('/branches').then((res) => setBranches(res.data))
     loadWorkItems()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [patientId])
+
+  useEffect(() => {
+    if (initialSelectedTeeth.length === 0) return
+    setSelection(initialSelectedTeeth)
+    onInitialSelectionConsumed?.()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialSelectedTeeth])
 
   const selectedService = services.find((s) => String(s.id) === newServiceId)
 
@@ -208,8 +224,22 @@ export default function WorkPlanningPanel({
   }
 
   async function toggleToothStep(workItem: WorkItem, toothStepId: number, completed: boolean) {
-    await api.patch(`/work-items/${workItem.id}/tooth-steps/${toothStepId}`, { completed })
-    loadWorkItems()
+    if (!completed) {
+      const step = workItem.steps.find((s) => s.tooth_steps.some((ts) => ts.id === toothStepId))
+      const toothStep = step?.tooth_steps.find((ts) => ts.id === toothStepId)
+      if (toothStep?.invoiced) {
+        const when = toothStep.completed_at ? ` بتاريخ ${toothStep.completed_at}` : ''
+        const priceNote = workItem.price_per_tooth && step ? ` وسعره (${step.price} ₪) رح يرجع كخصم على حساب المريض.` : ''
+        if (!window.confirm(`هالخطوة كانت منجزة ومحسوبة من جلسة سابقة${when}. متأكد إنك بدك تلغيها؟${priceNote}`)) return
+      }
+    }
+    try {
+      await api.patch(`/work-items/${workItem.id}/tooth-steps/${toothStepId}`, { completed })
+      loadWorkItems()
+    } catch (err) {
+      const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      window.alert(message ?? 'صار خطأ أثناء الإلغاء.')
+    }
   }
 
   async function saveField(workItem: WorkItem, toothStepId: number, fieldLabel: string, value: string, currentValues: Record<string, string>) {
@@ -269,6 +299,9 @@ export default function WorkPlanningPanel({
   )
   const discountAmount = Math.max(0, Number(discount) || 0)
   const finalTotal = Math.max(0, checkoutTotal - discountAmount)
+  /** Once the clinic owner types an amount, that's what's paid; until then it tracks the full total (adjusting live as the discount changes) so it reads correctly by default without them having to touch it. */
+  const paidAmountValue = paidAmountTouched ? Math.max(0, Math.min(finalTotal, Number(paidAmount) || 0)) : finalTotal
+  const remainingAsDebt = Math.max(0, finalTotal - paidAmountValue)
 
   function toggleCheckoutId(id: number) {
     setCheckoutIds((prev) => {
@@ -296,52 +329,47 @@ export default function WorkPlanningPanel({
       setCheckoutError('اختر الطبيب.')
       return
     }
-    if (payMode === 'now' && !cashboxId) {
+    const isCheck = method === 'check' && paidAmountValue > 0
+    if (paidAmountValue > 0 && !isCheck && !cashboxId) {
       setCheckoutError('اختر الصندوق.')
-      return
-    }
-    const walkInDuration = walkInDurationHours * 60 + walkInDurationMinutes
-    if (!appointmentId && walkInDuration <= 0) {
-      setCheckoutError('حدد مدة الزيارة.')
       return
     }
     setCheckingOut(true)
     setCheckoutError(null)
     try {
-      let effectiveAppointmentId = appointmentId ?? null
-      if (!effectiveAppointmentId) {
-        const mainBranch = branches.find((b) => b.is_main) ?? branches[0]
-        const now = new Date()
-        const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-        const startsAt = new Date(`${todayIso}T${walkInStartTime}:00`)
-        const endsAt = new Date(startsAt.getTime() + walkInDuration * 60000)
-        const apptRes = await api.post('/appointments', {
-          branch_id: mainBranch?.id,
-          patient_id: patientId,
-          doctor_id: Number(doctorId),
-          starts_at: startsAt.toISOString(),
-          ends_at: endsAt.toISOString(),
-        })
-        effectiveAppointmentId = apptRes.data.data.id
-      }
+      // A cheque isn't a cashbox movement, so it's never sent as
+      // pay_cashbox_id/pay_method here — the invoice is saved unpaid and
+      // ReceiveCheckModal (opened right after) is what actually settles
+      // the patient's balance, same as it does from الشيكات directly.
+      const checkAmount = paidAmountValue
+      // No appointment_id means a walk-in with nothing booked today — the
+      // backend resolves/creates a same-day appointment on its own, no
+      // manual time/duration entry needed here.
       const res = await api.post('/work-items/checkout', {
         patient_id: patientId,
         work_item_ids: Array.from(checkoutIds),
         doctor_id: Number(doctorId),
         discount_amount: discountAmount,
-        pay_cashbox_id: payMode === 'now' ? Number(cashboxId) : null,
-        pay_method: payMode === 'now' ? method : null,
-        appointment_id: effectiveAppointmentId,
+        pay_cashbox_id: paidAmountValue > 0 && !isCheck ? Number(cashboxId) : null,
+        pay_method: paidAmountValue > 0 && !isCheck ? method : null,
+        pay_amount: paidAmountValue,
+        appointment_id: appointmentId ?? null,
       })
       setCheckoutResult(`تمّ الحفظ — الإجمالي ${money(res.data.total_ils)} ₪`)
       const checkedOutIds = Array.from(checkoutIds)
       setCheckoutIds(new Set())
       setDiscount('')
+      setPaidAmount('')
+      setPaidAmountTouched(false)
       setActiveWorkItemId(null)
       const freshItems = await loadWorkItems()
       setPendingScheduleIds(freshItems.filter((w) => checkedOutIds.includes(w.id)).map((w) => w.id))
       onChanged?.()
       setTimeout(() => setCheckoutResult(null), 4000)
+      if (isCheck) {
+        setCheckAmountForModal(checkAmount)
+        setShowCheckModal(true)
+      }
     } catch (err) {
       const backendMessage = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
       setCheckoutError(backendMessage ?? 'صار خطأ أثناء الحفظ.')
@@ -601,7 +629,12 @@ export default function WorkPlanningPanel({
                           </div>
                           <div className="space-y-2">
                             {step.tooth_steps.map((ts) => (
-                              <div key={ts.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-ink/10 bg-white p-2">
+                              <div
+                                key={ts.id}
+                                className={`flex flex-wrap items-center gap-2 rounded-lg border p-2 ${
+                                  ts.invoiced ? 'border-ink/5 bg-background/60 opacity-70' : 'border-ink/10 bg-white'
+                                }`}
+                              >
                                 <label className="flex items-center gap-1.5 text-xs font-medium text-ink">
                                   <input
                                     type="checkbox"
@@ -611,6 +644,19 @@ export default function WorkPlanningPanel({
                                   />
                                   سن {ts.tooth_number}
                                 </label>
+                                {ts.invoiced && (
+                                  <span className="text-[11px] text-muted">— تم إنجازه بجلسة سابقة{ts.completed_at ? ` بتاريخ ${ts.completed_at}` : ''}</span>
+                                )}
+                                <button
+                                  onClick={() => setNotesToothNumber(ts.tooth_number)}
+                                  title="دفتر ملاحظات السن"
+                                  className="flex items-center gap-1 text-[11px] text-accent hover:underline"
+                                >
+                                  <FontAwesomeIcon icon={faNoteSticky} />
+                                  {notes.filter((n) => n.tooth_number === ts.tooth_number).length > 0
+                                    ? `ملاحظات (${notes.filter((n) => n.tooth_number === ts.tooth_number).length})`
+                                    : 'ملاحظة'}
+                                </button>
                                 {step.fields.map((f) => (
                                   <input
                                     key={f.id}
@@ -801,68 +847,48 @@ export default function WorkPlanningPanel({
             {discountAmount > 0 ? `خصم ${money(discountAmount)} ₪ — الإجمالي بعد الخصم ${money(finalTotal)} ₪.` : `بدون خصم — الإجمالي ${money(finalTotal)} ₪.`}
           </p>
 
-          {!appointmentId && (
-            <div className="mb-3">
-              <label className="mb-1 block text-xs text-muted">وقت البدء والمدة (ما في موعد محجوز اليوم)</label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="time"
-                  value={walkInStartTime}
-                  onChange={(e) => setWalkInStartTime(e.target.value)}
-                  className="rounded-lg border border-border px-2 py-1.5 text-sm"
-                />
-                <input
-                  type="number"
-                  min={0}
-                  max={8}
-                  value={walkInDurationHours}
-                  onChange={(e) => setWalkInDurationHours(Number(e.target.value))}
-                  className="w-16 rounded-lg border border-border px-2 py-1.5 text-sm"
-                />
-                <span className="text-xs text-muted">ساعة</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={59}
-                  step={5}
-                  value={walkInDurationMinutes}
-                  onChange={(e) => setWalkInDurationMinutes(Number(e.target.value))}
-                  className="w-16 rounded-lg border border-border px-2 py-1.5 text-sm"
-                />
-                <span className="text-xs text-muted">دقيقة</span>
-              </div>
+          <div className="mb-3">
+            <label className="mb-1 block text-xs text-muted">المبلغ المدفوع</label>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min={0}
+                max={finalTotal}
+                value={paidAmountTouched ? paidAmount : finalTotal}
+                onChange={(e) => {
+                  setPaidAmountTouched(true)
+                  setPaidAmount(e.target.value)
+                }}
+                placeholder={String(finalTotal)}
+                className="w-32 rounded-lg border border-border px-2 py-1.5 text-sm font-semibold"
+              />
+              <span className="text-xs text-muted">₪</span>
+              {remainingAsDebt > 0 && <span className="text-xs text-warning">الباقي {money(remainingAsDebt)} ₪ بيضل دين على المريض</span>}
             </div>
-          )}
-
-          <div className="mb-3 flex gap-1 rounded-lg border border-border bg-white p-1">
-            <button
-              onClick={() => setPayMode('now')}
-              className={`flex-1 rounded-md py-1.5 text-xs font-medium transition-colors ${payMode === 'now' ? 'bg-accent text-white' : 'text-ink/60 hover:bg-background'}`}
-            >
-              دفع الآن
-            </button>
-            <button
-              onClick={() => setPayMode('defer')}
-              className={`flex-1 rounded-md py-1.5 text-xs font-medium transition-colors ${payMode === 'defer' ? 'bg-accent text-white' : 'text-ink/60 hover:bg-background'}`}
-            >
-              تأجيل (يضل دين)
-            </button>
           </div>
 
-          {payMode === 'now' && (
-            <div className="mb-3 flex gap-2">
-              <SearchableSelect
-                options={cashboxes.map((c) => ({ value: String(c.id), label: c.name, sublabel: c.currency }))}
-                value={cashboxId}
-                onChange={setCashboxId}
-                placeholder="الصندوق..."
-                className="flex-1"
-              />
-              <Select value={method} onChange={(e) => setMethod(e.target.value as typeof method)}>
-                <option value="cash">نقدي</option>
-                <option value="card">بطاقة</option>
-                <option value="transfer">تحويل</option>
-              </Select>
+          {paidAmountValue > 0 && (
+            <div className="mb-3">
+              <div className="flex gap-2">
+                {method !== 'check' && (
+                  <SearchableSelect
+                    options={cashboxes.map((c) => ({ value: String(c.id), label: c.name, sublabel: c.currency }))}
+                    value={cashboxId}
+                    onChange={setCashboxId}
+                    placeholder="الصندوق..."
+                    className="flex-1"
+                  />
+                )}
+                <Select value={method} onChange={(e) => setMethod(e.target.value as typeof method)}>
+                  <option value="cash">نقدي</option>
+                  <option value="card">بطاقة</option>
+                  <option value="transfer">تحويل</option>
+                  <option value="check">شيك</option>
+                </Select>
+              </div>
+              {method === 'check' && (
+                <p className="mt-1.5 text-xs text-muted">بعد الحفظ رح يفتحلك فورم استلام الشيك — تعبّي بياناته وصورته وبيروح لصفحة "الشيكات" تلقائياً.</p>
+              )}
             </div>
           )}
 
@@ -879,6 +905,26 @@ export default function WorkPlanningPanel({
           </Button>
         </Card>
         </div>
+      )}
+
+      {notesToothNumber !== null && (
+        <ToothNotesModal
+          patientId={patientId}
+          toothNumber={notesToothNumber}
+          notes={notes}
+          onClose={() => setNotesToothNumber(null)}
+          onChanged={() => onChanged?.()}
+        />
+      )}
+
+      {showCheckModal && (
+        <ReceiveCheckModal
+          partyType="patient"
+          partyId={patientId}
+          initialAmount={checkAmountForModal}
+          onClose={() => setShowCheckModal(false)}
+          onCreated={() => onChanged?.()}
+        />
       )}
     </div>
   )

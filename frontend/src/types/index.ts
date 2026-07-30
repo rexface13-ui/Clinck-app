@@ -161,12 +161,21 @@ export interface Attachment {
   download_url: string
 }
 
+export interface Note {
+  id: number
+  body: string
+  author: string | null
+  created_at: string
+  tooth_number: number | null
+  is_important: boolean
+}
+
 export interface PatientProfile {
   patient: Patient
   tooth_states: ToothState[]
   tooth_findings: ToothFinding[]
   appointments: Appointment[]
-  notes: { id: number; body: string; author: string | null; created_at: string }[]
+  notes: Note[]
   attachments: Attachment[]
 }
 
@@ -183,6 +192,8 @@ export interface WorkItemToothStepRow {
   field_values: Record<string, string>
   completed: boolean
   invoiced: boolean
+  /** Only meaningful once invoiced — when this tooth-step was billed, i.e. which prior session it belongs to. */
+  completed_at: string | null
 }
 
 export interface WorkItemStepRow {

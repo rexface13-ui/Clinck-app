@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faPlus, faTruck, faPen, faMagnifyingGlass } from '@fortawesome/free-solid-svg-icons'
+import { faPlus, faTruck, faPen, faMagnifyingGlass, faTrash } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import { Card, PageHeader, Button, Table, Thead, Th, Td, Tr, EmptyRow, SearchableSelect } from '../components/ui'
@@ -76,6 +76,23 @@ export default function SuppliersPage() {
       setSelected(res.data)
       setEditing(false)
       loadSuppliers()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function deleteSupplier() {
+    if (!selected) return
+    if (!window.confirm('حذف هذا المورد نهائياً؟')) return
+    setBusy(true)
+    try {
+      await api.delete(`/suppliers/${selected.id}`)
+      setSelected(null)
+      setLedger(null)
+      loadSuppliers()
+    } catch (err) {
+      const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      window.alert(message ?? 'تعذّر حذف المورد.')
     } finally {
       setBusy(false)
     }
@@ -178,10 +195,16 @@ export default function SuppliersPage() {
                     </p>
                   </div>
                   {canManage && !editing && (
-                    <button onClick={startEdit} className="flex items-center gap-1 text-xs text-accent hover:underline">
-                      <FontAwesomeIcon icon={faPen} />
-                      تعديل
-                    </button>
+                    <div className="flex items-center gap-3">
+                      <button onClick={startEdit} className="flex items-center gap-1 text-xs text-accent hover:underline">
+                        <FontAwesomeIcon icon={faPen} />
+                        تعديل
+                      </button>
+                      <button onClick={deleteSupplier} className="flex items-center gap-1 text-xs text-danger hover:underline">
+                        <FontAwesomeIcon icon={faTrash} />
+                        حذف
+                      </button>
+                    </div>
                   )}
                 </div>
                 {editing && (

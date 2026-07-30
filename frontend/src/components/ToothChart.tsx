@@ -1,10 +1,11 @@
 import { useMemo, useRef, useState } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faPen, faTrash } from '@fortawesome/free-solid-svg-icons'
+import { faPen, faTrash, faNoteSticky, faPlay } from '@fortawesome/free-solid-svg-icons'
 import { Odontogram } from 'react-odontogram'
 import 'react-odontogram/style.css'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
+import ToothNotesModal from './ToothNotesModal'
 import {
   OdontogramBridgeOverlay,
   OdontogramClickOverlay,
@@ -24,7 +25,7 @@ import {
   fadeHex,
   toLibraryToothId,
 } from '../lib/dental'
-import type { Doctor, Service, ToothFinding, ToothState } from '../types'
+import type { Doctor, Note, Service, ToothFinding, ToothState } from '../types'
 
 /**
  * Primary dentition only has 5 teeth per quadrant, but the library's
@@ -51,9 +52,24 @@ interface Props {
   onPickTooth?: (toothNumbers: number[]) => void
   /** Tooth numbers that already have an item on a draft/approved treatment plan, mapped to a short description of what — surfaced so a second plan isn't accidentally created for the same tooth. */
   busyToothNumbers?: Map<number, string[]>
+  /** Per-tooth notebook entries — same patient notes list the "الملاحظات" tab uses, just scoped here to whichever tooth is selected. */
+  notes?: Note[]
+  /** Jumps to the Work tab with these teeth pre-selected, ready to start work — skips the manual re-select-then-switch-tabs round trip. */
+  onStartWork?: (toothNumbers: number[]) => void
 }
 
-export default function ToothChart({ patientId, isChild, toothStates, toothFindings, onChanged, pickMode = false, onPickTooth, busyToothNumbers }: Props) {
+export default function ToothChart({
+  patientId,
+  isChild,
+  toothStates,
+  toothFindings,
+  onChanged,
+  pickMode = false,
+  onPickTooth,
+  busyToothNumbers,
+  notes = [],
+  onStartWork,
+}: Props) {
   const { can } = useAuth()
   const containerRef = useRef<HTMLDivElement>(null)
   const toothNumbers = isChild ? [...UPPER_PRIMARY, ...LOWER_PRIMARY] : [...UPPER_PERMANENT, ...LOWER_PERMANENT]
@@ -73,7 +89,7 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
   const [markMissing, setMarkMissing] = useState(false)
   const [performedExternally, setPerformedExternally] = useState(false)
   const [markDecay, setMarkDecay] = useState(false)
-  const [note, setNote] = useState('')
+  const [notesToothNumber, setNotesToothNumber] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [editingFindingId, setEditingFindingId] = useState<number | null>(null)
@@ -155,7 +171,6 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
     setMarkMissing(false)
     setPerformedExternally(false)
     setMarkDecay(false)
-    setNote('')
     setError(null)
     setEditingFindingId(null)
     setEditingFinding(null)
@@ -166,7 +181,6 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
     setMarkMissing(f.marks_missing)
     setPerformedExternally(f.performed_externally)
     setMarkDecay(f.finding_type === 'تسوس')
-    setNote(f.note ?? '')
     setError(null)
     setEditingFindingId(f.id)
     setEditingFinding(f)
@@ -277,7 +291,6 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
       if (editingFindingId) {
         const isSession = !!editingFinding?.work_item_tooth_step_id
         await api.patch(`/patients/${patientId}/chart/findings/${editingFindingId}`, {
-          note: note || null,
           marks_missing: markMissing,
           performed_externally: performedExternally,
           // Session-linked findings keep the service's own finding_type
@@ -294,7 +307,6 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
             status: 'done',
             marks_missing: markMissing,
             performed_externally: performedExternally,
-            note: note || null,
           })
         }
       }
@@ -314,7 +326,7 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
   const geometry = useOdontogramGeometry(containerRef, toothNumbers, toLibraryId, [chartKey, isChild])
 
   return (
-    <div className="flex flex-col gap-6 2xl:flex-row">
+    <div className="flex flex-col gap-6 lg:flex-row">
       <div className="min-w-0 flex-1 rounded-xl bg-white p-4 shadow-sm">
         {pickMode && (
           <p className="mb-3 rounded-lg bg-accent/10 px-3 py-2 text-center text-xs font-medium text-accent">
@@ -351,7 +363,7 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
             </button>
           )}
         </div>
-        <div ref={containerRef} className="relative mx-auto" style={{ maxWidth: 560 }}>
+        <div ref={containerRef} className="relative mx-auto" style={{ maxWidth: 460 }}>
           <Odontogram
             key={chartKey}
             layout="circle"
@@ -404,9 +416,9 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
       </div>
 
       {selectedTeeth.length > 0 && (
-        <div className="w-full shrink-0 rounded-xl bg-white p-4 shadow-sm 2xl:w-72">
+        <div className="w-full shrink-0 rounded-xl bg-white p-4 shadow-sm lg:w-72">
           <div className="mb-3 flex items-center justify-between">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <h3 className="font-medium text-ink">
                 {singleSelectedTooth ? `السن ${singleSelectedTooth}` : `${selectedTeeth.length} سن محدد`}
               </h3>
@@ -427,6 +439,41 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
               إغلاق
             </button>
           </div>
+
+          {singleSelectedTooth && !pickMode && (
+            <div className="mb-3 flex flex-wrap gap-2">
+              <button
+                onClick={() => setNotesToothNumber(singleSelectedTooth)}
+                className="flex items-center gap-1.5 rounded-lg bg-accent-soft px-2.5 py-1.5 text-xs font-medium text-accent hover:opacity-80"
+              >
+                <FontAwesomeIcon icon={faNoteSticky} />
+                دفتر الملاحظات
+                {notes.filter((n) => n.tooth_number === singleSelectedTooth).length > 0 && (
+                  <span className="rounded-full bg-accent px-1.5 text-[10px] text-white">
+                    {notes.filter((n) => n.tooth_number === singleSelectedTooth).length}
+                  </span>
+                )}
+              </button>
+              {onStartWork && (
+                <button
+                  onClick={() => onStartWork(selectedTeeth)}
+                  className="flex items-center gap-1.5 rounded-lg bg-success-soft px-2.5 py-1.5 text-xs font-medium text-success hover:opacity-80"
+                >
+                  <FontAwesomeIcon icon={faPlay} />
+                  بدء العمل
+                </button>
+              )}
+            </div>
+          )}
+          {!singleSelectedTooth && selectedTeeth.length > 0 && onStartWork && !pickMode && (
+            <button
+              onClick={() => onStartWork(selectedTeeth)}
+              className="mb-3 flex items-center gap-1.5 rounded-lg bg-success-soft px-2.5 py-1.5 text-xs font-medium text-success hover:opacity-80"
+            >
+              <FontAwesomeIcon icon={faPlay} />
+              بدء العمل على ({selectedTeeth.length}) سن
+            </button>
+          )}
 
           {!singleSelectedTooth && (
             <p className="mb-3 text-xs text-ink/50">
@@ -538,14 +585,6 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
                 </label>
               )}
 
-              <label className="mb-1 block text-xs text-ink/60">ملاحظة</label>
-              <textarea
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                rows={2}
-                className="mb-3 w-full rounded-lg border border-ink/10 px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
-              />
-
               {error && <p className="mb-2 text-xs text-danger">{error}</p>}
 
               <div className="flex gap-2">
@@ -554,7 +593,7 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
                   disabled={saving}
                   className="flex-1 rounded-lg bg-accent py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60"
                 >
-                  {saving ? 'جارِ الحفظ...' : editingFindingId ? 'تحديث' : singleSelectedTooth ? 'حفظ ملاحظة' : `حفظ لـ${selectedTeeth.length} سن`}
+                  {saving ? 'جارِ الحفظ...' : editingFindingId ? 'تحديث' : `حفظ لـ${selectedTeeth.length} سن`}
                 </button>
                 {editingFindingId && (
                   <button onClick={resetForm} className="rounded-lg border border-ink/10 px-3 py-2 text-sm text-ink/60 hover:bg-background">
@@ -565,6 +604,16 @@ export default function ToothChart({ patientId, isChild, toothStates, toothFindi
             </>
           )}
         </div>
+      )}
+
+      {notesToothNumber !== null && (
+        <ToothNotesModal
+          patientId={patientId}
+          toothNumber={notesToothNumber}
+          notes={notes}
+          onClose={() => setNotesToothNumber(null)}
+          onChanged={onChanged}
+        />
       )}
     </div>
   )

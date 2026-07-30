@@ -35,6 +35,10 @@ class WorkItemResource extends JsonResource
                     'field_values' => $ts->field_values ?? (object) [],
                     'completed' => $ts->completed_at !== null,
                     'invoiced' => $ts->invoice_line_id !== null,
+                    // Only meaningful once invoiced (billed) — that's what marks a
+                    // tooth-step as belonging to an already-closed prior session,
+                    // as opposed to something just checked off today.
+                    'completed_at' => $ts->completed_at ? display_datetime($ts->completed_at) : null,
                 ]) : [],
             ])),
         ];

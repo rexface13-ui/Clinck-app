@@ -15,6 +15,8 @@ class StoreNoteRequest extends FormRequest
     {
         return [
             'body' => ['required', 'string'],
+            'tooth_number' => ['nullable', 'integer', 'min:1', 'max:85'],
+            'is_important' => ['sometimes', 'boolean'],
         ];
     }
 }

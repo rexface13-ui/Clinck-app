@@ -62,6 +62,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('users', UserController::class);
 
     Route::apiResource('doctors', DoctorController::class);
+    Route::delete('doctors/{doctor}/force-delete', [DoctorController::class, 'forceDestroy']);
     Route::post('doctors/{doctor}/availability', [DoctorAvailabilityController::class, 'store']);
     Route::delete('doctors/{doctor}/availability/{availability}', [DoctorAvailabilityController::class, 'destroy']);
     Route::post('doctors/{doctor}/commissions', [DoctorServiceCommissionController::class, 'store']);
@@ -78,6 +79,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('services/{service}/branch-prices/{branchPrice}', [BranchServicePriceController::class, 'destroy']);
 
     Route::apiResource('patients', PatientController::class);
+    Route::delete('patients/{patient}/force-delete', [PatientController::class, 'forceDestroy']);
     Route::get('patients/{patient}/profile', [PatientController::class, 'profile']);
     Route::post('patients/{patient}/notes', [PatientNoteController::class, 'store']);
     Route::patch('patients/{patient}/notes/{note}', [PatientNoteController::class, 'update']);
@@ -140,12 +142,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('suppliers', [SupplierController::class, 'store']);
     Route::get('suppliers/{supplier}', [SupplierController::class, 'show']);
     Route::put('suppliers/{supplier}', [SupplierController::class, 'update']);
+    Route::delete('suppliers/{supplier}', [SupplierController::class, 'destroy']);
     Route::get('suppliers/{supplier}/ledger', [SupplierController::class, 'ledger']);
     Route::post('suppliers/{supplier}/pay', [SupplierController::class, 'pay']);
 
     Route::get('item-categories', [ItemCategoryController::class, 'index']);
     Route::post('item-categories', [ItemCategoryController::class, 'store']);
-    Route::apiResource('items', ItemController::class)->except(['destroy']);
+    Route::apiResource('items', ItemController::class);
 
     Route::get('purchase-invoices', [PurchaseInvoiceController::class, 'index']);
     Route::post('purchase-invoices', [PurchaseInvoiceController::class, 'store']);

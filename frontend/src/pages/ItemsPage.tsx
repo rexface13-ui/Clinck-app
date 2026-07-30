@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faPlus, faBoxesStacked, faPen, faMagnifyingGlass } from '@fortawesome/free-solid-svg-icons'
+import { faPlus, faBoxesStacked, faPen, faMagnifyingGlass, faTrash } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import { Card, PageHeader, Button, Modal, Table, Thead, Th, Td, Tr, EmptyRow, TableSkeleton } from '../components/ui'
@@ -82,6 +82,17 @@ export default function ItemsPage() {
     setForm({ item_category_id: '', name: '', type: 'simple_stock', unit: 'piece' })
     setShowItemForm(false)
     setEditingId(null)
+  }
+
+  async function deleteItem(itemId: number) {
+    if (!window.confirm('حذف هذا الصنف نهائياً؟')) return
+    try {
+      await api.delete(`/items/${itemId}`)
+      loadAll()
+    } catch (err) {
+      const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      window.alert(message ?? 'تعذّر حذف الصنف.')
+    }
   }
 
   function startEdit(i: Item) {
@@ -190,9 +201,14 @@ export default function ItemsPage() {
                     <Td className="text-muted">{i.unit}</Td>
                     <Td>
                       {canManage && (
-                        <button onClick={() => startEdit(i)} className="text-xs text-accent hover:underline">
-                          <FontAwesomeIcon icon={faPen} />
-                        </button>
+                        <span className="flex items-center gap-3">
+                          <button onClick={() => startEdit(i)} className="text-xs text-accent hover:underline">
+                            <FontAwesomeIcon icon={faPen} />
+                          </button>
+                          <button onClick={() => deleteItem(i.id)} className="text-xs text-danger hover:underline">
+                            <FontAwesomeIcon icon={faTrash} />
+                          </button>
+                        </span>
                       )}
                     </Td>
                   </Tr>

@@ -10,7 +10,7 @@ import { Card, Badge, SearchableSelect } from './ui'
 import type { BadgeVariant } from './ui'
 import { describeTeeth } from '../lib/dental'
 import MiniToothDiagram from './MiniToothDiagram'
-import type { Cashbox, Prescription, Visit } from '../types'
+import type { Cashbox, Note, Prescription, Visit } from '../types'
 
 interface VisitGroup {
   key: string
@@ -73,12 +73,15 @@ export default function VisitHistoryPanel({
   isChild = false,
   medicalAlerts = [],
   onChanged,
+  notes = [],
 }: {
   patientId: number
   patientName?: string
   isChild?: boolean
   medicalAlerts?: string[]
   onChanged?: () => void
+  /** Same patient notes list the tooth notebooks use — surfaced per visit here, filtered to that visit's own teeth, so a session's notes are visible without hunting through the notebook separately. */
+  notes?: Note[]
 }) {
   const { can } = useAuth()
   const canCollect = can('billing.manage')
@@ -319,6 +322,24 @@ export default function VisitHistoryPanel({
         {openKey === rowKey && (
                 <div className="space-y-3 border-t border-ink/10 p-3">
                   {v.note && <p className="text-sm text-ink">{v.note}</p>}
+
+                  {(() => {
+                    const toothNotes = notes
+                      .filter((n) => n.tooth_number !== null && teeth.includes(n.tooth_number))
+                      .sort((a, b) => b.id - a.id)
+                    if (toothNotes.length === 0) return null
+                    return (
+                      <div className="space-y-1.5 rounded-lg bg-background p-2">
+                        <p className="text-[11px] font-medium text-muted">ملاحظات الأسنان المشمولة بهالجلسة</p>
+                        {toothNotes.map((n) => (
+                          <p key={n.id} className="text-xs text-ink">
+                            <span className="font-medium text-accent">سن {n.tooth_number}:</span> {n.body}
+                            <span className="text-muted"> — {n.created_at}</span>
+                          </p>
+                        ))}
+                      </div>
+                    )
+                  })()}
 
                   <div className="border-t border-ink/5 pt-2">
                     {prescribingFor === rowKey ? (

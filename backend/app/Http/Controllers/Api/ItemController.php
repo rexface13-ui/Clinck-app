@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Item;
+use App\Models\PurchaseInvoiceLine;
+use App\Models\StockMovement;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
@@ -60,5 +62,26 @@ class ItemController extends Controller
         abort_unless($request->user()->can('inventory.view'), 403);
 
         return $item->load(['category', 'lots', 'supplierPrices']);
+    }
+
+    public function destroy(Request $request, Item $item)
+    {
+        abort_unless($request->user()->can('inventory.manage'), 403);
+
+        // purchase_invoice_lines/stock_movements cascade-delete on item_id
+        // at the DB level — those are real purchasing/stock history, so
+        // block on them rather than silently wiping a supplier's invoice
+        // lines. lots/supplierPrices/price history are just item metadata,
+        // safe to let go with it.
+        abort_if(
+            PurchaseInvoiceLine::where('item_id', $item->id)->exists()
+                || StockMovement::where('item_id', $item->id)->exists(),
+            422,
+            'هذا الصنف له فواتير شراء أو حركة مخزون مسجّلة — لا يمكن حذفه نهائياً حفاظاً على السجل. عطّله من "تعديل" بدلاً من ذلك.',
+        );
+
+        $item->delete();
+
+        return response()->noContent();
     }
 }

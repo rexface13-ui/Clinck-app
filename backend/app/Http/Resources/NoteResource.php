@@ -14,6 +14,8 @@ class NoteResource extends JsonResource
             'body' => $this->body,
             'author' => $this->whenLoaded('user', fn () => $this->user->name),
             'created_at' => display_datetime($this->created_at),
+            'tooth_number' => $this->tooth_number,
+            'is_important' => (bool) $this->is_important,
         ];
     }
 }
