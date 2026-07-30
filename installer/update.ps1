@@ -42,7 +42,18 @@ Pause-Exit "اضغط Enter للمتابعة"
 Write-Host ""
 Write-Host "=== [1/3] سحب آخر نسخة من GitHub ===" -ForegroundColor Cyan
 Set-Location $ROOT
-git remote set-url origin $repoUrl 2>&1 | Out-Null
+
+# النسخة المنزّلة (ZIP) ما فيها مجلد .git أصلاً (تمّ حذفه قصداً قبل الرفع
+# حتى ما ينكشف التوكن) — أول تحديث بيبلّش الريبو محلياً من الصفر بدل ما
+# يفترض وجوده، وإلا git remote/fetch بتفشل بصمت وما كان في نسخة كاملة.
+if (-not (Test-Path (Join-Path $ROOT ".git"))) {
+    Write-Host "[*] أول تحديث — تجهيز git محلياً..." -ForegroundColor Yellow
+    git init -q
+    git remote add origin $repoUrl
+} else {
+    git remote set-url origin $repoUrl 2>&1 | Out-Null
+}
+
 git fetch origin
 if ($LASTEXITCODE -ne 0) {
     Write-Host "[!] فشل الاتصال بـ GitHub — تحقق من الإنترنت والتوكن" -ForegroundColor Red

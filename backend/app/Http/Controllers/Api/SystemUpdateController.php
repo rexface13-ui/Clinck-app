@@ -35,9 +35,20 @@ class SystemUpdateController extends Controller
         $repoUrl = "https://{$token}@{$repo}";
         $log = '';
 
+        // The shipped ZIP has .git stripped out on purpose (so the embedded
+        // token in the deploy repo's history never ends up on a customer's
+        // disk) — the first update ever run has no repo to "set-url"/fetch
+        // against, so that step silently no-ops instead of erroring and the
+        // customer ends up with a half-updated install (e.g. index.html
+        // pointing at asset files that were never actually pulled). Bootstrap
+        // the repo locally on first run instead of assuming it exists.
+        $gitSteps = is_dir($root.'\\.git')
+            ? [['git', 'remote', 'set-url', 'origin', $repoUrl]]
+            : [['git', 'init', '-q'], ['git', 'remote', 'add', 'origin', $repoUrl]];
+
         $steps = [
             'سحب آخر نسخة من GitHub' => [
-                ['git', 'remote', 'set-url', 'origin', $repoUrl],
+                ...$gitSteps,
                 ['git', 'fetch', 'origin'],
                 ['git', 'reset', '--hard', 'origin/main'],
             ],
