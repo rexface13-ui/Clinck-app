@@ -3,8 +3,9 @@
  * Router for `php -S` serving the built frontend (frontend/dist).
  *
  * Two jobs:
- *  1. Anything under /api/* is proxied straight through to the backend
- *     (php artisan serve on :8010) and the response streamed back as-is.
+ *  1. Anything under /api/*, plus /login, /logout, and /sanctum/* (Sanctum's
+ *     own auth routes), is proxied straight through to the backend (php
+ *     artisan serve on :8010) and the response streamed back as-is.
  *     This keeps the browser talking to ONE origin (this server's port),
  *     so the frontend's existing relative `baseURL: '/api'` just works —
  *     no CORS setup, no cross-origin cookie issues for Sanctum auth,
@@ -17,7 +18,14 @@ const BACKEND_ORIGIN = 'http://127.0.0.1:8010';
 
 $uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 
-if (str_starts_with($uri, '/api/')) {
+// /login, /logout, and /sanctum/* are Sanctum's own routes (not under
+// /api/) — the SPA's login form posts to these directly, so they need the
+// same backend proxying or "login" silently falls through to the SPA
+// catch-all below and returns index.html with a 200 instead of actually
+// authenticating.
+$isBackendRoute = str_starts_with($uri, '/api/') || in_array($uri, ['/login', '/logout'], true) || str_starts_with($uri, '/sanctum/');
+
+if ($isBackendRoute) {
     $ch = curl_init(BACKEND_ORIGIN . $_SERVER['REQUEST_URI']);
 
     $headers = [];

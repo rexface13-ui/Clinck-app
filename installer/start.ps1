@@ -45,7 +45,8 @@ if (-not $ready) {
 
 # ── [2/3] الواجهة (خادم PHP الثابت مع الـ router اللي بيمرّر /api للباك إند) ──
 Write-Host "[2/3] Starting frontend server (port 5183)..."
-Start-Process -FilePath "cmd.exe" -ArgumentList "/k", "title DentaFlow - Frontend && `"$PHP`" -S 0.0.0.0:5183 `"$ROUTER`""
+$FRONTEND_DIST = Join-Path $ROOT "frontend\dist"
+Start-Process -FilePath "cmd.exe" -ArgumentList "/k", "title DentaFlow - Frontend && `"$PHP`" -S 0.0.0.0:5183 -t `"$FRONTEND_DIST`" `"$ROUTER`""
 
 Start-Sleep -Seconds 2
 
