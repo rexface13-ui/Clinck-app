@@ -97,10 +97,16 @@ class ReportController extends Controller
                 ->when($data['to'] ?? null, fn ($q, $to) => $q->where('created_at', '<=', $to.' 23:59:59'))
                 ->sum('amount_ils');
 
+            // A "session" is one work item (one visit's worth of work), which
+            // can span several teeth/steps and therefore several invoice
+            // lines — count distinct work items, not invoice lines, so a
+            // single multi-tooth visit isn't counted as several sessions.
             $sessionsCount = InvoiceLine::whereHas('workItemToothStep.workItem', fn ($q) => $q->where('doctor_id', $doctor->id))
                 ->when($data['from'] ?? null, fn ($q, $from) => $q->where('created_at', '>=', $from))
                 ->when($data['to'] ?? null, fn ($q, $to) => $q->where('created_at', '<=', $to.' 23:59:59'))
-                ->count();
+                ->join('work_item_tooth_steps', 'invoice_lines.work_item_tooth_step_id', '=', 'work_item_tooth_steps.id')
+                ->distinct('work_item_tooth_steps.work_item_id')
+                ->count('work_item_tooth_steps.work_item_id');
 
             $commission = DoctorTransaction::where('doctor_id', $doctor->id)
                 ->where('type', 'commission')

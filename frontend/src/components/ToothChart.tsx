@@ -261,6 +261,21 @@ export default function ToothChart({
   }, [toothFindings])
 
   /**
+   * Legend mapping each service's own color to its name, built only from
+   * services actually present on this patient's chart right now (not the
+   * full services catalog) so the legend stays short and relevant.
+   */
+  const serviceColorLegend = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const f of toothFindings) {
+      if (f.service_id && f.service_color && f.service_name && !map.has(f.service_color)) {
+        map.set(f.service_color, f.service_name)
+      }
+    }
+    return Array.from(map.entries()).map(([color, name]) => ({ color, name }))
+  }, [toothFindings])
+
+  /**
    * One condition group per distinct color actually in use, plus a
    * separate outline color for externally-performed work (no dashed-ring
    * equivalent in the library, so a distinct outline is the closest cue),
@@ -413,6 +428,16 @@ export default function ToothChart({
             <span className="inline-block size-2.5 rounded-full" style={{ background: '#5b3a29' }} /> تسوس
           </span>
         </div>
+
+        {serviceColorLegend.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-3 border-t border-ink/10 pt-3 text-xs text-ink/60">
+            {serviceColorLegend.map(({ color, name }) => (
+              <span key={color} className="flex items-center gap-1">
+                <span className="inline-block size-3 rounded" style={{ background: color }} /> {name}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       {selectedTeeth.length > 0 && (

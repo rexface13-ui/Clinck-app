@@ -5,8 +5,8 @@ import { api } from '../lib/api'
 import { formatDate } from '../lib/formatDate'
 import { printDocument, metaRow } from '../lib/print'
 import { useClinicProfile } from '../lib/useClinicProfile'
-import { Card, PageHeader, Button, Tabs } from '../components/ui'
-import type { Patient, Ledger, WorkItem } from '../types'
+import { Card, PageHeader, Button, Tabs, SearchableSelect } from '../components/ui'
+import type { Patient, Ledger, WorkItem, Medication } from '../types'
 
 function PatientPicker({ patient, onPick }: { patient: Patient | null; onPick: (p: Patient) => void }) {
   const [query, setQuery] = useState('')
@@ -62,6 +62,28 @@ function PrescriptionTab({ patient }: { patient: Patient | null }) {
   const [doctorName, setDoctorName] = useState('')
   const [diagnosis, setDiagnosis] = useState('')
   const [medications, setMedications] = useState('')
+  const [catalog, setCatalog] = useState<Medication[]>([])
+  const [pickedMedicationId, setPickedMedicationId] = useState('')
+
+  useEffect(() => {
+    api.get<Medication[]>('/medications').then((res) => setCatalog(res.data)).catch(() => {})
+  }, [])
+
+  /** Appends the picked medication's name + usage instructions as a new line instead of replacing the box — a prescription is usually more than one drug. */
+  function insertMedication(medicationId: string) {
+    const med = catalog.find((m) => String(m.id) === medicationId)
+    if (!med) return
+    const line = med.usage_instructions ? `${med.name} — ${med.usage_instructions}` : med.name
+    setMedications((current) => (current ? `${current}\n${line}` : line))
+    // Reset instead of keeping the picked value shown, so the field reads as
+    // ready to add another medication right away, not "stuck" on one choice.
+    setPickedMedicationId('')
+  }
+
+  /** Medications picked (by name match in the free-text box) that are linked to one of the patient's own known allergies — a safety net since the box itself stays free text. */
+  const conflictingMedications = catalog.filter(
+    (m) => medications.includes(m.name) && m.allergies.some((a) => (patient?.medical_alerts ?? []).includes(a.name)),
+  )
 
   function print() {
     if (!patient) return
@@ -89,15 +111,31 @@ function PrescriptionTab({ patient }: { patient: Patient | null }) {
       </div>
       <label className="mb-1 block text-xs text-muted">التشخيص/الملاحظة (اختياري)</label>
       <textarea value={diagnosis} onChange={(e) => setDiagnosis(e.target.value)} rows={2} className="mb-3 w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none" />
+      {catalog.length > 0 && (
+        <div className="mb-2">
+          <label className="mb-1 block text-xs text-muted">أضف دواء من القائمة...</label>
+          <SearchableSelect
+            options={catalog.map((m) => ({ value: String(m.id), label: m.name, sublabel: m.form ?? undefined }))}
+            value={pickedMedicationId}
+            onChange={insertMedication}
+            placeholder="ابحث عن دواء..."
+          />
+        </div>
+      )}
       <label className="mb-1 block text-xs text-muted">الأدوية</label>
       <textarea
         value={medications}
         onChange={(e) => setMedications(e.target.value)}
         rows={6}
         placeholder={'مثال:\nAmoxicillin 500mg — كل 8 ساعات لمدة 5 أيام\nIbuprofen 400mg — عند الحاجة للألم'}
-        className="mb-4 w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none"
+        className="mb-2 w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none"
       />
-      <Button onClick={print} disabled={!patient || !medications.trim()}>
+      {conflictingMedications.map((m) => (
+        <p key={m.id} className="mb-2 rounded-lg bg-danger-soft px-3 py-2 text-xs text-danger">
+          ⚠ "{m.name}" مرتبط بحساسية عند هذا المريض ({m.allergies.filter((a) => (patient?.medical_alerts ?? []).includes(a.name)).map((a) => a.name).join('، ')}) — تأكد قبل الطباعة.
+        </p>
+      ))}
+      <Button onClick={print} disabled={!patient || !medications.trim()} className={conflictingMedications.length > 0 ? 'mt-2' : undefined}>
         <FontAwesomeIcon icon={faPrint} />
         طباعة الوصفة
       </Button>

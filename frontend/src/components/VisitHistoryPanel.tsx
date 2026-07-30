@@ -147,12 +147,14 @@ export default function VisitHistoryPanel({
 
   /** Appends the medication's name + usage instructions to the prescription textarea instead of replacing it — a prescription is usually more than one drug. */
   function insertMedication(rowKey: string, medicationId: string) {
-    setPickedMedicationId({ ...pickedMedicationId, [rowKey]: medicationId })
     const med = medications.find((m) => String(m.id) === medicationId)
     if (!med) return
     const line = med.usage_instructions ? `${med.name} — ${med.usage_instructions}` : med.name
     const current = medsText[rowKey] ?? ''
     setMedsText({ ...medsText, [rowKey]: current ? `${current}\n${line}` : line })
+    // Reset instead of keeping the picked value shown, so the field reads as
+    // ready to add another medication right away, not "stuck" on one choice.
+    setPickedMedicationId({ ...pickedMedicationId, [rowKey]: '' })
   }
 
   /** Medications picked for this prescription (by name match in the free-text box) that are linked to one of the patient's own known allergies — a safety net since the box itself stays free text. */
