@@ -80,6 +80,7 @@ export interface Patient {
   branch_id: number
   full_name: string
   birth_date: string | null
+  age: number | null
   gender: 'male' | 'female'
   is_child: boolean
   phone: string | null
@@ -88,6 +89,20 @@ export interface Patient {
   medical_alerts: string[]
   medical_notes: string | null
   created_at: string
+}
+
+export interface Allergy {
+  id: number
+  name: string
+}
+
+export interface Medication {
+  id: number
+  name: string
+  form: string | null
+  usage_instructions: string | null
+  is_active: boolean
+  allergies: Allergy[]
 }
 
 export interface ToothState {

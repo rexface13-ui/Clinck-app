@@ -293,7 +293,7 @@ export default function PatientProfilePage() {
             <span>{patient.code}</span>
             <span>·</span>
             <span>{patient.gender === 'male' ? 'ذكر' : 'أنثى'}</span>
-            {patient.birth_date && <span>· {patient.birth_date}</span>}
+            {patient.age !== null && <span>· {patient.age} سنة</span>}
             {patient.is_child && <Badge variant="accent">طفل</Badge>}
             {patient.phone && <span>· {patient.phone}</span>}
           </div>
@@ -341,10 +341,10 @@ export default function PatientProfilePage() {
                         <dt className="text-muted">الجنس</dt>
                         <dd className="text-ink">{patient.gender === 'male' ? 'ذكر' : 'أنثى'}{patient.is_child && <Badge variant="accent">طفل</Badge>}</dd>
                       </div>
-                      {patient.birth_date && (
+                      {patient.age !== null && (
                         <div className="flex items-center justify-between">
-                          <dt className="text-muted">تاريخ الميلاد</dt>
-                          <dd className="text-ink">{patient.birth_date}</dd>
+                          <dt className="text-muted">العمر</dt>
+                          <dd className="text-ink">{patient.age} سنة</dd>
                         </div>
                       )}
                       {patient.phone && (

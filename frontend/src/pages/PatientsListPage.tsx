@@ -4,20 +4,9 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faPlus, faUser, faBolt, faMagnifyingGlass } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
-import DatePicker from '../components/DatePicker'
 import MedicalHistoryField from '../components/MedicalHistoryField'
 import { Card, PageHeader, Badge, Button, Modal, Table, Thead, Th, Td, Tr, EmptyRow, TableSkeleton, Input, Select } from '../components/ui'
 import type { Branch, Doctor, Patient } from '../types'
-
-/** Same rule as backend/app/Models/Patient.php: under 12 defaults to child. */
-function isChildFromBirthDate(birthDate: string): boolean {
-  const parsed = new Date(birthDate + 'T00:00:00')
-  const now = new Date()
-  let age = now.getFullYear() - parsed.getFullYear()
-  const monthDiff = now.getMonth() - parsed.getMonth()
-  if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < parsed.getDate())) age--
-  return age < 12
-}
 
 export default function PatientsListPage() {
   const { data, can } = useAuth()
@@ -46,7 +35,7 @@ export default function PatientsListPage() {
     branch_id: branches[0]?.id ?? 1,
     full_name: searchParams.get('name') ?? '',
     gender: 'male' as 'male' | 'female',
-    birth_date: '',
+    age: '',
     isChildOverride: null as boolean | null,
     phone: '',
     guardian_name: '',
@@ -75,7 +64,7 @@ export default function PatientsListPage() {
     api.get('/doctors').then((res) => setDoctors(res.data.data))
   }, [])
 
-  const inferredIsChild = form.birth_date ? isChildFromBirthDate(form.birth_date) : null
+  const inferredIsChild = form.age !== '' ? Number(form.age) < 12 : null
   const effectiveIsChild = form.isChildOverride ?? inferredIsChild
 
   async function handleCreate(e: FormEvent) {
@@ -87,7 +76,7 @@ export default function PatientsListPage() {
         branch_id: form.branch_id,
         full_name: form.full_name,
         gender: form.gender,
-        birth_date: form.birth_date || null,
+        age: form.age ? Number(form.age) : null,
         is_child: form.isChildOverride ?? undefined,
         guardian_name: form.guardian_name || null,
         guardian_phone: form.guardian_phone || null,
@@ -179,13 +168,14 @@ export default function PatientsListPage() {
             <option value="male">ذكر</option>
             <option value="female">أنثى</option>
           </Select>
-          <div>
-            <label className="mb-1 block text-sm text-muted">تاريخ الميلاد (يوم/شهر/سنة)</label>
-            <DatePicker
-              value={form.birth_date}
-              onChange={(iso) => setForm({ ...form, birth_date: iso, isChildOverride: null })}
-            />
-          </div>
+          <Input
+            type="number"
+            label="العمر"
+            min={0}
+            max={120}
+            value={form.age}
+            onChange={(e) => setForm({ ...form, age: e.target.value, isChildOverride: null })}
+          />
 
           <div className="col-span-2 flex items-center gap-3 rounded-xl bg-background px-4 py-3">
             <span className="text-sm text-ink/70">الفئة العمرية:</span>
@@ -208,7 +198,7 @@ export default function PatientsListPage() {
               طفل
             </button>
             {inferredIsChild !== null && form.isChildOverride === null && (
-              <span className="text-xs text-ink/40">(محسوبة تلقائياً من تاريخ الميلاد — بإمكانك تغييرها)</span>
+              <span className="text-xs text-ink/40">(محسوبة تلقائياً من العمر — بإمكانك تغييرها)</span>
             )}
           </div>
 

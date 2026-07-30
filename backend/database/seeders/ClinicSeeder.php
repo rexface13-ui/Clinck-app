@@ -38,6 +38,7 @@ class ClinicSeeder extends Seeder
         'checks.view', 'checks.manage',
         'inventory.view', 'inventory.manage',
         'reports.view',
+        'medications.view', 'medications.manage',
     ];
 
     protected array $rolePermissions = [
@@ -46,6 +47,7 @@ class ClinicSeeder extends Seeder
             'patients.view', 'dental_chart.manage',
             'appointments.view', 'appointments.manage',
             'services.view', 'treatment_plans.view',
+            'medications.view', 'medications.manage',
         ],
         'secretary' => [
             'patients.view', 'patients.manage',
@@ -55,6 +57,7 @@ class ClinicSeeder extends Seeder
             'billing.view', 'billing.manage',
             'purchasing.view', 'purchasing.manage',
             'checks.view', 'checks.manage',
+            'medications.view',
         ],
         'accountant' => [
             'patients.view', 'doctors.view',

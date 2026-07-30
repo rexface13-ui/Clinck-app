@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\AllergyController;
 use App\Http\Controllers\Api\AppointmentController;
 use App\Http\Controllers\Api\BackupController;
 use App\Http\Controllers\Api\BranchController;
@@ -19,6 +20,7 @@ use App\Http\Controllers\Api\IncomeController;
 use App\Http\Controllers\Api\ItemCategoryController;
 use App\Http\Controllers\Api\ItemController;
 use App\Http\Controllers\Api\LabCaseController;
+use App\Http\Controllers\Api\MedicationController;
 use App\Http\Controllers\Api\PatientAttachmentController;
 use App\Http\Controllers\Api\PatientBillingController;
 use App\Http\Controllers\Api\ActivityLogController;
@@ -168,6 +170,16 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('prescriptions', [PrescriptionController::class, 'index']);
     Route::post('prescriptions', [PrescriptionController::class, 'store']);
+
+    Route::get('allergies', [AllergyController::class, 'index']);
+    Route::post('allergies', [AllergyController::class, 'store']);
+    Route::put('allergies/{allergy}', [AllergyController::class, 'update']);
+    Route::delete('allergies/{allergy}', [AllergyController::class, 'destroy']);
+
+    Route::get('medications', [MedicationController::class, 'index']);
+    Route::post('medications', [MedicationController::class, 'store']);
+    Route::put('medications/{medication}', [MedicationController::class, 'update']);
+    Route::delete('medications/{medication}', [MedicationController::class, 'destroy']);
 
     Route::get('activity-logs', [ActivityLogController::class, 'index']);
 

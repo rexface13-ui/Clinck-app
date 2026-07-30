@@ -7,6 +7,7 @@ import PatientsListPage from './pages/PatientsListPage'
 import PatientProfilePage from './pages/PatientProfilePage'
 import DoctorsPage from './pages/DoctorsPage'
 import ServicesPage from './pages/ServicesPage'
+import MedicationsPage from './pages/MedicationsPage'
 import UsersPage from './pages/UsersPage'
 import AppointmentsPage from './pages/AppointmentsPage'
 import AppointmentsLogPage from './pages/AppointmentsLogPage'
@@ -76,6 +77,14 @@ function App() {
               element={
                 <ProtectedRoute permission="services.view">
                   <ServicesPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/medications"
+              element={
+                <ProtectedRoute permission="medications.view">
+                  <MedicationsPage />
                 </ProtectedRoute>
               }
             />

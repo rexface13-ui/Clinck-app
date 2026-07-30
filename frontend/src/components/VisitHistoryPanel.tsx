@@ -10,7 +10,7 @@ import { Card, Badge, SearchableSelect } from './ui'
 import type { BadgeVariant } from './ui'
 import { describeTeeth } from '../lib/dental'
 import MiniToothDiagram from './MiniToothDiagram'
-import type { Cashbox, Note, Prescription, Visit } from '../types'
+import type { Cashbox, Medication, Note, Prescription, Visit } from '../types'
 
 interface VisitGroup {
   key: string
@@ -132,6 +132,8 @@ export default function VisitHistoryPanel({
   const [payCashboxId, setPayCashboxId] = useState<Record<string, string>>({})
   const [payExchangeRate, setPayExchangeRate] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
+  const [medications, setMedications] = useState<Medication[]>([])
+  const [pickedMedicationId, setPickedMedicationId] = useState<Record<string, string>>({})
 
   function load() {
     api.get(`/patients/${patientId}/visits`).then((res) => setVisits(res.data))
@@ -140,7 +142,27 @@ export default function VisitHistoryPanel({
   useEffect(() => {
     load()
     api.get('/cashboxes').then((res) => setCashboxes(res.data))
+    api.get<Medication[]>('/medications').then((res) => setMedications(res.data)).catch(() => {})
   }, [patientId])
+
+  /** Appends the medication's name + usage instructions to the prescription textarea instead of replacing it — a prescription is usually more than one drug. */
+  function insertMedication(rowKey: string, medicationId: string) {
+    setPickedMedicationId({ ...pickedMedicationId, [rowKey]: medicationId })
+    const med = medications.find((m) => String(m.id) === medicationId)
+    if (!med) return
+    const line = med.usage_instructions ? `${med.name} — ${med.usage_instructions}` : med.name
+    const current = medsText[rowKey] ?? ''
+    setMedsText({ ...medsText, [rowKey]: current ? `${current}\n${line}` : line })
+  }
+
+  /** Medications picked for this prescription (by name match in the free-text box) that are linked to one of the patient's own known allergies — a safety net since the box itself stays free text. */
+  function conflictingMedications(rowKey: string): Medication[] {
+    const text = medsText[rowKey] ?? ''
+    if (!text.trim() || medicalAlerts.length === 0) return []
+    return medications.filter(
+      (m) => text.includes(m.name) && m.allergies.some((a) => medicalAlerts.includes(a.name)),
+    )
+  }
 
   useEffect(() => {
     api.get('/prescriptions', { params: { patient_id: patientId } }).then((res) => setPrescriptions(res.data.data))
@@ -350,6 +372,22 @@ export default function VisitHistoryPanel({
                             <span>تنبيه حساسية: {medicalAlerts.join('، ')}</span>
                           </div>
                         )}
+                        {medications.length > 0 && (
+                          <SearchableSelect
+                            options={medications.map((m) => ({ value: String(m.id), label: m.name, sublabel: m.form ?? undefined }))}
+                            value={pickedMedicationId[rowKey] ?? ''}
+                            onChange={(value) => insertMedication(rowKey, value)}
+                            placeholder="أضف دواء من القائمة..."
+                          />
+                        )}
+                        {conflictingMedications(rowKey).map((m) => (
+                          <div key={m.id} className="flex items-start gap-2 rounded-lg bg-danger-soft px-3 py-2 text-xs font-medium text-danger">
+                            <FontAwesomeIcon icon={faTriangleExclamation} className="mt-0.5" />
+                            <span>
+                              "{m.name}" مرتبط بحساسية عند هذا المريض ({m.allergies.filter((a) => medicalAlerts.includes(a.name)).map((a) => a.name).join('، ')}) — تأكد قبل الطباعة.
+                            </span>
+                          </div>
+                        ))}
                         <textarea
                           value={medsText[rowKey] ?? ''}
                           onChange={(e) => setMedsText({ ...medsText, [rowKey]: e.target.value })}

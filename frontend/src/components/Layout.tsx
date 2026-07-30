@@ -5,6 +5,7 @@ import {
   faUsers,
   faUserDoctor,
   faList,
+  faPills,
   faCalendarDays,
   faUserGear,
   faRightFromBracket,
@@ -56,6 +57,7 @@ const navGroups: NavGroup[] = [
       { to: '/appointments', label: 'المواعيد', icon: faCalendarDays, permission: 'appointments.view' },
       { to: '/doctors', label: 'الأطباء', icon: faUserDoctor, permission: 'doctors.view' },
       { to: '/services', label: 'الخدمات', icon: faList, permission: 'services.view' },
+      { to: '/medications', label: 'الأدوية', icon: faPills, permission: 'medications.view' },
     ],
   },
   {

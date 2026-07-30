@@ -18,6 +18,7 @@ class StorePatientRequest extends FormRequest
             'branch_id' => ['required', Rule::exists('branches', 'id')],
             'full_name' => ['required', 'string', 'max:255'],
             'birth_date' => ['nullable', 'date', 'before_or_equal:today'],
+            'age' => ['nullable', 'integer', 'min:0', 'max:120'],
             'gender' => ['required', Rule::in(['male', 'female'])],
             'is_child' => ['sometimes', 'boolean'],
             'phone' => ['nullable', 'string', 'max:50'],

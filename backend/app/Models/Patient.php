@@ -15,7 +15,7 @@ class Patient extends Model
     use BelongsToClinic, HasNotesAndAttachments;
 
     protected $fillable = [
-        'clinic_id', 'branch_id', 'code', 'full_name', 'birth_date', 'gender',
+        'clinic_id', 'branch_id', 'code', 'full_name', 'birth_date', 'age', 'gender',
         'is_child', 'phone', 'guardian_name', 'guardian_phone', 'medical_alerts', 'medical_notes',
     ];
 
@@ -36,9 +36,12 @@ class Patient extends Model
             }
 
             if (is_null($patient->getAttribute('is_child'))) {
-                $patient->is_child = $patient->birth_date
-                    ? Carbon::parse($patient->birth_date)->age < 12
-                    : false;
+                // age (plain number staff actually know) takes priority —
+                // birth_date is legacy/optional and only used as a fallback
+                // for records that happen to have one but no age set.
+                $patient->is_child = $patient->age !== null
+                    ? $patient->age < 12
+                    : ($patient->birth_date ? Carbon::parse($patient->birth_date)->age < 12 : false);
             }
         });
     }
