@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faPlus, faBoxesStacked, faPen, faMagnifyingGlass, faTrash } from '@fortawesome/free-solid-svg-icons'
+import { faPlus, faBoxesStacked, faPen, faMagnifyingGlass, faTrash, faClockRotateLeft } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import { Card, PageHeader, Button, Modal, Table, Thead, Th, Td, Tr, EmptyRow, TableSkeleton } from '../components/ui'
-import type { Item, ItemCategory } from '../types'
+import type { Item, ItemCategory, ItemPriceHistoryRow } from '../types'
 
 const TYPE_LABELS: Record<Item['type'], string> = {
   direct_expense: 'مصروف مباشر',
@@ -23,9 +23,11 @@ export default function ItemsPage() {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [showCategoryForm, setShowCategoryForm] = useState(false)
   const [categoryName, setCategoryName] = useState('')
-  const [form, setForm] = useState({ item_category_id: '', name: '', type: 'simple_stock' as Item['type'], unit: 'piece' })
+  const [form, setForm] = useState({ item_category_id: '', name: '', type: 'simple_stock' as Item['type'], unit: 'piece', default_price: '', default_currency: 'ILS' })
   const [busy, setBusy] = useState(false)
   const [search, setSearch] = useState('')
+  const [historyItem, setHistoryItem] = useState<Item | null>(null)
+  const [history, setHistory] = useState<ItemPriceHistoryRow[] | null>(null)
 
   function loadAll() {
     api.get('/item-categories').then((res) => setCategories(res.data))
@@ -64,6 +66,8 @@ export default function ItemsPage() {
       name: form.name,
       type: form.type,
       unit: form.unit || 'piece',
+      default_price: form.default_price ? Number(form.default_price) : null,
+      default_currency: form.default_price ? form.default_currency : null,
     }
     try {
       if (editingId) {
@@ -79,9 +83,15 @@ export default function ItemsPage() {
   }
 
   function closeItemForm() {
-    setForm({ item_category_id: '', name: '', type: 'simple_stock', unit: 'piece' })
+    setForm({ item_category_id: '', name: '', type: 'simple_stock', unit: 'piece', default_price: '', default_currency: 'ILS' })
     setShowItemForm(false)
     setEditingId(null)
+  }
+
+  function openHistory(item: Item) {
+    setHistoryItem(item)
+    setHistory(null)
+    api.get<ItemPriceHistoryRow[]>(`/items/${item.id}/price-history`).then((res) => setHistory(res.data))
   }
 
   async function deleteItem(itemId: number) {
@@ -102,6 +112,8 @@ export default function ItemsPage() {
       name: i.name,
       type: i.type,
       unit: i.unit,
+      default_price: i.default_price ?? '',
+      default_currency: i.default_currency ?? 'ILS',
     })
     setShowItemForm(true)
   }
@@ -152,6 +164,21 @@ export default function ItemsPage() {
               <option value="tracked">دفعات وصلاحية</option>
             </select>
             <input placeholder="الوحدة" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
+            <div className="flex gap-2">
+              <input
+                type="number"
+                placeholder="السعر الافتراضي (اختياري)"
+                value={form.default_price}
+                onChange={(e) => setForm({ ...form, default_price: e.target.value })}
+                className="flex-1 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
+              />
+              <select value={form.default_currency} onChange={(e) => setForm({ ...form, default_currency: e.target.value })} className="rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
+                <option value="ILS">ILS</option>
+                <option value="USD">USD</option>
+                <option value="JOD">JOD</option>
+              </select>
+            </div>
+            <p className="text-xs text-muted">هذا السعر بيتعبى تلقائياً أول ما تختار هالصنف بفاتورة شراء (إذا ما في سعر أحدث مسجّل لنفس المورد).</p>
             <Button onClick={submitItem} loading={busy} className="w-full justify-center">
               {editingId ? 'حفظ التعديل' : 'حفظ'}
             </Button>
@@ -179,6 +206,7 @@ export default function ItemsPage() {
               <Th>التصنيف</Th>
               <Th>النوع</Th>
               <Th>الوحدة</Th>
+              <Th>السعر الافتراضي</Th>
               <Th></Th>
             </Thead>
             <tbody>
@@ -188,7 +216,7 @@ export default function ItemsPage() {
                   ? items.filter((i) => i.name.toLowerCase().includes(q) || (i.category?.name ?? '').toLowerCase().includes(q))
                   : items
                 if (filtered.length === 0) {
-                  return <EmptyRow colSpan={5}>{q ? 'لا توجد نتائج مطابقة.' : 'لا توجد أصناف.'}</EmptyRow>
+                  return <EmptyRow colSpan={6}>{q ? 'لا توجد نتائج مطابقة.' : 'لا توجد أصناف.'}</EmptyRow>
                 }
                 return filtered.map((i) => (
                   <Tr key={i.id}>
@@ -199,17 +227,23 @@ export default function ItemsPage() {
                     <Td className="text-muted">{i.category?.name ?? '—'}</Td>
                     <Td className="text-muted">{TYPE_LABELS[i.type]}</Td>
                     <Td className="text-muted">{i.unit}</Td>
+                    <Td className="text-muted">{i.default_price ? `${i.default_price} ${i.default_currency}` : '—'}</Td>
                     <Td>
-                      {canManage && (
-                        <span className="flex items-center gap-3">
-                          <button onClick={() => startEdit(i)} className="text-xs text-accent hover:underline">
-                            <FontAwesomeIcon icon={faPen} />
-                          </button>
-                          <button onClick={() => deleteItem(i.id)} className="text-xs text-danger hover:underline">
-                            <FontAwesomeIcon icon={faTrash} />
-                          </button>
-                        </span>
-                      )}
+                      <span className="flex items-center gap-3">
+                        <button onClick={() => openHistory(i)} className="text-xs text-ink/50 hover:text-accent" title="سجل الأسعار">
+                          <FontAwesomeIcon icon={faClockRotateLeft} />
+                        </button>
+                        {canManage && (
+                          <>
+                            <button onClick={() => startEdit(i)} className="text-xs text-accent hover:underline">
+                              <FontAwesomeIcon icon={faPen} />
+                            </button>
+                            <button onClick={() => deleteItem(i.id)} className="text-xs text-danger hover:underline">
+                              <FontAwesomeIcon icon={faTrash} />
+                            </button>
+                          </>
+                        )}
+                      </span>
                     </Td>
                   </Tr>
                 ))
@@ -218,6 +252,33 @@ export default function ItemsPage() {
           </Table>
         )}
       </Card>
+
+      {historyItem && (
+        <Modal title={`سجل أسعار — ${historyItem.name}`} onClose={() => setHistoryItem(null)}>
+          {!history ? (
+            <p className="text-center text-sm text-muted">جارِ التحميل...</p>
+          ) : history.length === 0 ? (
+            <p className="text-center text-sm text-muted">ما في سجل أسعار لهالصنف بعد.</p>
+          ) : (
+            <Table>
+              <Thead>
+                <Th>السعر</Th>
+                <Th>المصدر</Th>
+                <Th>التاريخ</Th>
+              </Thead>
+              <tbody>
+                {history.map((h) => (
+                  <Tr key={h.id}>
+                    <Td className="font-medium text-ink">{h.price} {h.currency}</Td>
+                    <Td className="text-muted">{h.supplier_name ?? 'السعر الافتراضي'}</Td>
+                    <Td className="text-muted">{h.recorded_at}</Td>
+                  </Tr>
+                ))}
+              </tbody>
+            </Table>
+          )}
+        </Modal>
+      )}
     </div>
   )
 }

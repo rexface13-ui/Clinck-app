@@ -34,4 +34,10 @@ class ItemPriceHistory extends Model
     {
         return $this->belongsTo(Supplier::class);
     }
+
+    /** No supplier means it's a default-price edit on the item itself, not a purchase. */
+    public function isDefault(): bool
+    {
+        return $this->supplier_id === null;
+    }
 }

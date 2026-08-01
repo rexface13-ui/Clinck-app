@@ -381,8 +381,18 @@ export interface Item {
   name: string
   type: 'direct_expense' | 'simple_stock' | 'tracked'
   unit: string
+  default_price: string | null
+  default_currency: string | null
   is_active: boolean
   category?: { id: number; name: string } | null
+}
+
+export interface ItemPriceHistoryRow {
+  id: number
+  price: string
+  currency: string
+  supplier_name: string | null
+  recorded_at: string
 }
 
 export interface PurchaseInvoiceLine {

@@ -154,6 +154,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('item-categories', [ItemCategoryController::class, 'index']);
     Route::post('item-categories', [ItemCategoryController::class, 'store']);
     Route::apiResource('items', ItemController::class);
+    Route::get('items/{item}/price-history', [ItemController::class, 'priceHistory']);
 
     Route::get('purchase-invoices', [PurchaseInvoiceController::class, 'index']);
     Route::post('purchase-invoices', [PurchaseInvoiceController::class, 'store']);

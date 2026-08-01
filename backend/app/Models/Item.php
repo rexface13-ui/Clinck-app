@@ -11,11 +11,16 @@ class Item extends Model
 {
     use BelongsToClinic;
 
-    protected $fillable = ['clinic_id', 'item_category_id', 'name', 'type', 'unit', 'is_active'];
+    protected $fillable = ['clinic_id', 'item_category_id', 'name', 'type', 'unit', 'default_price', 'default_currency', 'is_active'];
 
     protected function casts(): array
     {
-        return ['is_active' => 'boolean'];
+        return ['is_active' => 'boolean', 'default_price' => 'decimal:2'];
+    }
+
+    public function priceHistory(): HasMany
+    {
+        return $this->hasMany(ItemPriceHistory::class);
     }
 
     public function category(): BelongsTo

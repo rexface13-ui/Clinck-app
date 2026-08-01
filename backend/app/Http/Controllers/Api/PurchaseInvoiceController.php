@@ -339,6 +339,18 @@ class PurchaseInvoiceController extends Controller
             ->where('supplier_id', $data['supplier_id'])
             ->first();
 
-        return $price ?: response()->json(null);
+        if ($price) {
+            return $price;
+        }
+
+        // Never bought this item from this supplier before — fall back to
+        // the item's own default price (set on the item itself) instead of
+        // leaving the price field empty.
+        $item = Item::find($data['item_id']);
+        if ($item?->default_price) {
+            return ['last_price' => $item->default_price, 'currency' => $item->default_currency ?? 'ILS'];
+        }
+
+        return response()->json(null);
     }
 }
