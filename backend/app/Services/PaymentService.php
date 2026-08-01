@@ -79,6 +79,46 @@ class PaymentService
         });
     }
 
+    /**
+     * Corrects an already-issued invoice's total after the fact — e.g. a
+     * discount agreed with the patient after checkout. Posts the signed
+     * difference as an 'adjustment' ledger entry (never rewrites the
+     * original charge lines) so the transaction history stays an honest
+     * audit trail, same pattern as a session price correction.
+     */
+    public function adjustTotal(Invoice $invoice, float $newTotal): Invoice
+    {
+        abort_if($invoice->status === 'void', 422, 'الفاتورة ملغاة — ما فيك تعدّلها.');
+        abort_if($newTotal < 0, 422, 'المبلغ ما فيه يكون سالب.');
+
+        $delta = round($newTotal - (float) $invoice->total_amount_ils, 2);
+
+        if ($delta === 0.0) {
+            return $invoice;
+        }
+
+        return DB::transaction(function () use ($invoice, $newTotal, $delta) {
+            $invoice->update(['total_amount_ils' => $newTotal]);
+
+            PatientTransaction::create([
+                'clinic_id' => $invoice->clinic_id,
+                'patient_id' => $invoice->patient_id,
+                'type' => 'adjustment',
+                'reference_type' => 'invoice_discount',
+                'reference_id' => $invoice->id,
+                'amount' => $delta,
+                'currency' => 'ILS',
+                'exchange_rate' => 1,
+                'amount_ils' => $delta,
+                'occurred_at' => now(),
+            ]);
+
+            $this->refreshInvoiceStatus($invoice->fresh());
+
+            return $invoice->fresh(['lines', 'payments']);
+        });
+    }
+
     public function refreshInvoiceStatus(Invoice $invoice): void
     {
         $paidIls = Payment::where('invoice_id', $invoice->id)->sum('amount_ils');

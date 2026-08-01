@@ -117,6 +117,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // Billing / ledger
     Route::get('patients/{patient}/invoices', [PatientBillingController::class, 'invoices']);
     Route::get('invoices/{invoice}', [PatientBillingController::class, 'showInvoice']);
+    Route::patch('invoices/{invoice}', [PatientBillingController::class, 'adjustInvoice']);
     Route::get('patients/{patient}/ledger', [PatientBillingController::class, 'ledger']);
     Route::post('patients/{patient}/payments', [PatientBillingController::class, 'storePayment']);
     Route::get('patients/{patient}/visits', [PatientBillingController::class, 'visits']);

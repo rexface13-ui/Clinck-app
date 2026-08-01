@@ -37,6 +37,19 @@ class PatientBillingController extends Controller
         return new InvoiceResource($invoice->load(['lines', 'payments']));
     }
 
+    public function adjustInvoice(Request $request, Invoice $invoice, PaymentService $paymentService)
+    {
+        abort_unless($request->user()->can('billing.manage'), 403);
+
+        $data = $request->validate([
+            'total_amount_ils' => ['required', 'numeric', 'min:0'],
+        ]);
+
+        $invoice = $paymentService->adjustTotal($invoice, (float) $data['total_amount_ils']);
+
+        return new InvoiceResource($invoice);
+    }
+
     /**
      * Unified ILS ledger — running balance in display order (oldest first)
      * so "outstanding" is simply the final row's balance.

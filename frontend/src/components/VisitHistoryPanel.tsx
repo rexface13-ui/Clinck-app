@@ -11,6 +11,7 @@ import type { BadgeVariant } from './ui'
 import { describeTeeth } from '../lib/dental'
 import MiniToothDiagram from './MiniToothDiagram'
 import ToothNotesModal from './ToothNotesModal'
+import InvoiceDetailModal from './InvoiceDetailModal'
 import type { Cashbox, Medication, Note, Prescription, Visit } from '../types'
 
 interface VisitGroup {
@@ -91,6 +92,7 @@ export default function VisitHistoryPanel({
   const [medsText, setMedsText] = useState<Record<string, string>>({})
   const [prescriptionsVersion, setPrescriptionsVersion] = useState(0)
   const [notesFor, setNotesFor] = useState<{ toothNumber: number; workItemId?: number; sessionLabel?: string } | null>(null)
+  const [viewingInvoiceId, setViewingInvoiceId] = useState<number | null>(null)
 
   function printPrescriptionFor(key: string, v: Visit) {
     const meds = medsText[key] ?? ''
@@ -279,7 +281,15 @@ export default function VisitHistoryPanel({
                   </div>
                   <div className="flex items-center gap-3">
                     <span className="text-ink">{totalPrice.toFixed(2)} ₪</span>
-                    <Badge variant={INVOICE_STATUS_VARIANTS[first.invoice_status]}>{INVOICE_STATUS_LABELS[first.invoice_status]}</Badge>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setViewingInvoiceId(first.invoice_id)
+                      }}
+                      title="عرض تفاصيل الفاتورة"
+                    >
+                      <Badge variant={INVOICE_STATUS_VARIANTS[first.invoice_status]}>{INVOICE_STATUS_LABELS[first.invoice_status]}</Badge>
+                    </button>
                     <span className="text-xs text-muted">{first.appointment_date ?? first.date}</span>
                   </div>
                 </div>
@@ -315,6 +325,17 @@ export default function VisitHistoryPanel({
         sessionLabel={notesFor.sessionLabel}
       />
     )}
+
+    {viewingInvoiceId && (
+      <InvoiceDetailModal
+        invoiceId={viewingInvoiceId}
+        onClose={() => setViewingInvoiceId(null)}
+        onChanged={() => {
+          load()
+          onChanged?.()
+        }}
+      />
+    )}
     </div>
   )
 
@@ -346,7 +367,17 @@ export default function VisitHistoryPanel({
           </div>
           <div className="flex items-center gap-3">
             <span className="text-ink">{v.price} ₪</span>
-            {!nested && <Badge variant={INVOICE_STATUS_VARIANTS[v.invoice_status]}>{INVOICE_STATUS_LABELS[v.invoice_status]}</Badge>}
+            {!nested && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setViewingInvoiceId(v.invoice_id)
+                }}
+                title="عرض تفاصيل الفاتورة"
+              >
+                <Badge variant={INVOICE_STATUS_VARIANTS[v.invoice_status]}>{INVOICE_STATUS_LABELS[v.invoice_status]}</Badge>
+              </button>
+            )}
             <span className="text-xs text-muted">{v.date}</span>
           </div>
         </div>
