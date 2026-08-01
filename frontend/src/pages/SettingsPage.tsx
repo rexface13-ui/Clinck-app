@@ -503,9 +503,9 @@ export default function SettingsPage() {
               <div className="mb-4 rounded-xl bg-background p-4 text-sm">
                 <p className="mb-2 text-ink/70">
                   افتح تيليغرام، دوّر على{' '}
-                  <span className="font-mono">@{status.bot_username || '(البوت لسا ما انضاف)'}</span>، وابعت:
+                  <span className="font-mono">@{status.bot_username || '(البوت لسا ما انضاف)'}</span>، اضغط "أنا طبيب/موظف بالعيادة"، وابعت هالكود:
                 </p>
-                <p className="font-mono text-lg font-semibold text-accent">/link {status.link_code}</p>
+                <p className="font-mono text-lg font-semibold text-accent">{status.link_code}</p>
               </div>
             ) : null}
 

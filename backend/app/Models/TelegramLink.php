@@ -13,7 +13,7 @@ class TelegramLink extends Model
     protected $fillable = [
         'clinic_id', 'user_id', 'patient_id', 'doctor_id', 'telegram_chat_id', 'link_code',
         'registered_name', 'registered_phone', 'pending_check_id', 'linked_at',
-        'booking_step', 'booking_doctor_id', 'booking_date',
+        'booking_step', 'booking_doctor_id', 'booking_date', 'pending_intent',
     ];
 
     protected function casts(): array

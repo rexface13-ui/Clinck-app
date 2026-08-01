@@ -43,7 +43,12 @@ class TelegramRegistrationController extends Controller
 
         $link->update(['user_id' => $data['user_id'], 'linked_at' => now()]);
 
-        $telegram->sendMessage((int) $link->telegram_chat_id, 'تم ربط حسابك بنجاح! أرسل /appointments لعرض مواعيد اليوم.');
+        $keyboard = [['📅 مواعيد اليوم', '🗓 مواعيد الأسبوع']];
+        if ($link->user?->hasAnyRole(['owner', 'accountant'])) {
+            $keyboard[] = ['💰 كشف حساب مريض'];
+            $keyboard[] = ['📋 بحث ديون', '🚚 كشف حساب مورد'];
+        }
+        $telegram->sendMessage((int) $link->telegram_chat_id, 'تم ربط حسابك بنجاح! ✅', $keyboard);
 
         return $link->fresh('user');
     }
@@ -66,7 +71,7 @@ class TelegramRegistrationController extends Controller
 
         $link->update(['doctor_id' => $data['doctor_id'], 'linked_at' => now()]);
 
-        $telegram->sendMessage((int) $link->telegram_chat_id, 'تم ربط حسابك بنجاح! أرسل /today لعرض مواعيد اليوم.');
+        $telegram->sendMessage((int) $link->telegram_chat_id, 'تم ربط حسابك بنجاح! ✅', [['📅 مواعيد اليوم', '🗓 مواعيد الأسبوع']]);
 
         return $link->fresh('doctor');
     }
@@ -98,7 +103,12 @@ class TelegramRegistrationController extends Controller
 
         $telegram->sendMessage(
             (int) $link->telegram_chat_id,
-            "تم ربط حسابك بملفك الطبي بنجاح!\nالأوامر المتاحة:\n/appointments — مواعيدي القادمة\n/account — كشف حسابي",
+            'تم ربط حسابك بملفك الطبي بنجاح! ✅',
+            [
+                ['📅 مواعيدي', '➕ حجز موعد'],
+                ['💳 كشف حسابي', '💊 وصفاتي'],
+                ['🦷 وضع أسناني'],
+            ],
         );
 
         return $link->fresh('patient');

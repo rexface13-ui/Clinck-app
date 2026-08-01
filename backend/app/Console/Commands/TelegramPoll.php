@@ -24,12 +24,55 @@ class TelegramPoll extends Command
 {
     protected $signature = 'telegram:poll';
 
-    protected $description = 'Long-poll the Telegram Bot API for updates and handle linking/quick commands';
+    protected $description = 'Long-poll the Telegram Bot API for updates and handle a fully button-driven chat flow';
+
+    // Registration (unlinked chats)
+    protected const BTN_STAFF = '👨‍⚕️ أنا طبيب/موظف بالعيادة';
+
+    protected const BTN_PATIENT = '🧑 أنا مريض';
+
+    // Staff
+    protected const BTN_TODAY = '📅 مواعيد اليوم';
+
+    protected const BTN_WEEK = '🗓 مواعيد الأسبوع';
+
+    protected const BTN_PATIENT_ACCOUNT = '💰 كشف حساب مريض';
+
+    protected const BTN_DEBTS = '📋 بحث ديون';
+
+    protected const BTN_SUPPLIER = '🚚 كشف حساب مورد';
+
+    // Patient
+    protected const BTN_MY_APPOINTMENTS = '📅 مواعيدي';
+
+    protected const BTN_BOOK = '➕ حجز موعد';
+
+    protected const BTN_MY_ACCOUNT = '💳 كشف حسابي';
+
+    protected const BTN_PRESCRIPTIONS = '💊 وصفاتي';
+
+    protected const BTN_TEETH = '🦷 وضع أسناني';
+
+    protected const BTN_CANCEL_BOOKING = '❌ إلغاء الحجز';
+
+    protected const BTN_TODAY_SHORT = 'اليوم';
+
+    protected const BTN_TOMORROW = 'بكرا';
+
+    /**
+     * Which button/prompt an *unlinked* chat is currently answering — kept
+     * in memory (not the DB) since these chats have no TelegramLink row
+     * yet and telegram_chat_id is unique, so persisting a half-registered
+     * row here would collide with the real one once they actually link.
+     * Lost on process restart, which just means the person re-taps a
+     * button — harmless.
+     */
+    protected array $unlinkedIntent = [];
 
     public function handle(TelegramService $telegram, CheckService $checkService): int
     {
         if ($telegram->token() === '') {
-            $this->warn('التوكن غير معرّف بعد — من صفحة الإعدادات على الموقع. الأمر متوقف.');
+            $this->warn('التوكن غير معرّف بعد — من صفحة تيليغرام على الموقع. الأمر متوقف.');
 
             return self::SUCCESS;
         }
@@ -85,93 +128,115 @@ class TelegramPoll extends Command
             return;
         }
 
-        // Not yet linked at all — either a fresh /start, a staff /link code,
-        // or (if a name/phone was already submitted) still pending review.
+        // Not yet linked at all — either just starting, mid-registration,
+        // or already submitted and waiting on the owner to classify them.
         $this->handleUnlinkedMessage($chatId, $text, $telegram);
     }
 
     // ---------------------------------------------------------------
-    // Unlinked chats: /start, /link <code> (staff), or open registration
+    // Unlinked chats: two buttons decide the path, no commands typed.
     // ---------------------------------------------------------------
 
     protected function handleUnlinkedMessage(int $chatId, string $text, TelegramService $telegram): void
     {
-        if ($text === '/start') {
-            $telegram->sendMessage(
-                $chatId,
-                "أهلاً بك! 👋\n\nإذا كنت موظف/طبيب بالعيادة وعندك كود ربط من صفحة الإعدادات، أرسل:\n/link <الكود>\n\nإذا كنت مريض، أرسل اسمك الكامل ورقم هاتفك بهذا الشكل (كل واحد بسطر):\nمحمد أحمد\n0599123456",
-            );
+        $pendingReview = TelegramLink::where('telegram_chat_id', $chatId)->whereNull('linked_at')->whereNotNull('registered_name')->first();
+        if ($pendingReview) {
+            $telegram->sendMessage($chatId, 'طلب تسجيلك لسا قيد المراجعة من إدارة العيادة، رح نعلمك أول ما يتفعّل.', []);
 
             return;
         }
 
-        if (str_starts_with($text, '/link')) {
-            $this->handleLink($chatId, $text, $telegram);
+        if ($text === self::BTN_STAFF) {
+            $this->unlinkedIntent[$chatId] = 'staff';
+            $telegram->sendMessage($chatId, 'ابعتلي الكود يلي أعطتك ياه إدارة العيادة.', []);
 
             return;
         }
 
-        $pending = TelegramLink::where('telegram_chat_id', $chatId)->whereNull('linked_at')->whereNotNull('registered_name')->first();
-        if ($pending) {
-            $telegram->sendMessage($chatId, 'طلب تسجيلك لسا قيد المراجعة من إدارة العيادة، رح نعلمك أول ما يتفعّل.');
+        if ($text === self::BTN_PATIENT) {
+            $this->unlinkedIntent[$chatId] = 'patient';
+            $telegram->sendMessage($chatId, 'اكتبلي اسمك الكامل:', []);
 
             return;
         }
 
-        $this->tryRegister($chatId, $text, $telegram);
+        $intent = $this->unlinkedIntent[$chatId] ?? null;
+
+        if ($intent === 'staff' && $text !== '' && $text !== '/start') {
+            $this->tryStaffCode($chatId, $text, $telegram);
+
+            return;
+        }
+
+        if ($intent === 'patient' && $text !== '' && $text !== '/start') {
+            $this->tryRegisterPatient($chatId, $text, $telegram);
+
+            return;
+        }
+
+        $telegram->sendMessage(
+            $chatId,
+            'أهلاً بك! 👋 اختر واحد من الأزرار تحت 👇',
+            [[self::BTN_PATIENT], [self::BTN_STAFF]],
+        );
     }
 
-    protected function handleLink(int $chatId, string $text, TelegramService $telegram): void
+    protected function tryStaffCode(int $chatId, string $text, TelegramService $telegram): void
     {
-        $code = trim(substr($text, strlen('/link')));
-
-        if ($code === '') {
-            $telegram->sendMessage($chatId, 'الرجاء إرسال الكود بهذا الشكل: /link 123456');
-
-            return;
-        }
-
+        $code = trim($text);
         $link = TelegramLink::where('link_code', $code)->whereNull('linked_at')->first();
 
         if (! $link) {
-            $telegram->sendMessage($chatId, 'كود غير صحيح أو منتهي. تأكد من الكود من صفحة الإعدادات.');
+            $telegram->sendMessage($chatId, 'كود غير صحيح أو منتهي. تأكد منه من إدارة العيادة وأعد المحاولة.');
 
             return;
         }
 
         $link->update(['telegram_chat_id' => $chatId, 'linked_at' => now()]);
-        $telegram->sendMessage($chatId, 'تم ربط حسابك بنجاح! أرسل /appointments لعرض مواعيد اليوم.');
+        unset($this->unlinkedIntent[$chatId]);
+
+        $telegram->sendMessage($chatId, 'تم ربط حسابك بنجاح! ✅', $this->staffKeyboard($link->user));
     }
 
     /**
-     * Parses "الاسم\nالهاتف" from a cold /start message and files it as a
-     * pending registration for the owner to classify (staff vs. patient)
-     * from the Settings page — see TelegramRegistrationController.
+     * Just the name — no phone required, so an owner classifying this
+     * request later still has to pick a branch/gender for a brand-new
+     * patient (see TelegramRegistrationController::linkPatient).
      */
-    protected function tryRegister(int $chatId, string $text, TelegramService $telegram): void
+    protected function tryRegisterPatient(int $chatId, string $text, TelegramService $telegram): void
     {
-        $lines = array_values(array_filter(array_map('trim', explode("\n", $text))));
+        $name = trim($text);
 
-        if (count($lines) < 2 || mb_strlen($lines[0]) < 2 || ! preg_match('/\d{6,}/', $lines[1])) {
-            $telegram->sendMessage(
-                $chatId,
-                "ما قدرت أفهم الرسالة. أرسل اسمك الكامل ورقم هاتفك، كل واحد بسطر، مثلاً:\nمحمد أحمد\n0599123456",
-            );
+        if (mb_strlen($name) < 2) {
+            $telegram->sendMessage($chatId, 'الاسم قصير كتير، اكتبلي اسمك الكامل.');
 
             return;
         }
 
         TelegramLink::updateOrCreate(
             ['telegram_chat_id' => $chatId],
-            ['registered_name' => $lines[0], 'registered_phone' => $lines[1], 'linked_at' => null],
+            ['registered_name' => $name, 'linked_at' => null],
         );
+        unset($this->unlinkedIntent[$chatId]);
 
-        $telegram->sendMessage($chatId, 'تم استلام طلبك! رح تنراجع من إدارة العيادة وبنعلمك أول ما يتفعّل حسابك.');
+        $telegram->sendMessage($chatId, 'تم استلام طلبك! رح تنراجع من إدارة العيادة وبنعلمك أول ما يتفعّل حسابك.', []);
     }
 
     // ---------------------------------------------------------------
-    // Staff (user_id-linked) commands
+    // Staff (user_id-linked)
     // ---------------------------------------------------------------
+
+    protected function staffKeyboard(?User $user): array
+    {
+        $rows = [[self::BTN_TODAY, self::BTN_WEEK]];
+
+        if ($user?->hasAnyRole(['owner', 'accountant'])) {
+            $rows[] = [self::BTN_PATIENT_ACCOUNT];
+            $rows[] = [self::BTN_DEBTS, self::BTN_SUPPLIER];
+        }
+
+        return $rows;
+    }
 
     protected function handleStaffMessage(int $chatId, string $text, ?array $photos, TelegramLink $link, TelegramService $telegram, CheckService $checkService): void
     {
@@ -182,41 +247,61 @@ class TelegramPoll extends Command
         }
 
         $user = $link->user;
+        $keyboard = $this->staffKeyboard($user);
 
-        if ($text === '/appointments' || $text === '/today') {
-            $this->handleAppointments($chatId, $link, $telegram, 0);
-
-            return;
-        }
-
-        if ($text === '/week') {
-            $this->handleAppointments($chatId, $link, $telegram, 6);
+        if ($text === self::BTN_TODAY || $text === '/start') {
+            $this->handleAppointments($chatId, $link, $telegram, 0, $keyboard);
 
             return;
         }
 
-        if (str_starts_with($text, '/account')) {
-            $this->handleAccount($chatId, $text, $link, $telegram);
+        if ($text === self::BTN_WEEK) {
+            $this->handleAppointments($chatId, $link, $telegram, 6, $keyboard);
 
             return;
         }
 
-        if (str_starts_with($text, '/debts')) {
-            $this->handleDebtsSearch($chatId, $text, $user, $telegram);
+        $isPrivileged = $user?->hasAnyRole(['owner', 'accountant']);
+
+        if ($text === self::BTN_PATIENT_ACCOUNT && $isPrivileged) {
+            $link->update(['pending_intent' => 'account_search']);
+            $telegram->sendMessage($chatId, 'ابعتلي كود المريض (مثال: P-000001).', []);
 
             return;
         }
 
-        if (str_starts_with($text, '/supplier')) {
-            $this->handleSupplierSearch($chatId, $text, $user, $telegram);
+        if ($text === self::BTN_DEBTS && $isPrivileged) {
+            $link->update(['pending_intent' => 'debts_search']);
+            $telegram->sendMessage($chatId, 'ابعتلي اسم المريض للبحث، أو اكتب "الكل" لعرض أعلى الديون.', []);
 
             return;
         }
 
-        $telegram->sendMessage($chatId, "الأوامر المتاحة:\n/today — مواعيد اليوم\n/week — مواعيد ٧ أيام قادمة\n/account <كود المريض> — كشف حساب مختصر\n/debts <اسم> — بحث عن مرضى عليهم دين\n/supplier <اسم> — كشف حساب مورد");
+        if ($text === self::BTN_SUPPLIER && $isPrivileged) {
+            $link->update(['pending_intent' => 'supplier_search']);
+            $telegram->sendMessage($chatId, 'ابعتلي اسم المورد.', []);
+
+            return;
+        }
+
+        if ($isPrivileged && $link->pending_intent && $text !== '') {
+            $intent = $link->pending_intent;
+            $link->update(['pending_intent' => null]);
+
+            match ($intent) {
+                'account_search' => $this->handleAccount($chatId, $text, $telegram, $keyboard),
+                'debts_search' => $this->handleDebtsSearch($chatId, $text, $telegram, $keyboard),
+                'supplier_search' => $this->handleSupplierSearch($chatId, $text, $telegram, $keyboard),
+                default => null,
+            };
+
+            return;
+        }
+
+        $telegram->sendMessage($chatId, 'اختر من الأزرار تحت 👇', $keyboard);
     }
 
-    protected function handleAppointments(int $chatId, TelegramLink $link, TelegramService $telegram, int $daysAhead): void
+    protected function handleAppointments(int $chatId, TelegramLink $link, TelegramService $telegram, int $daysAhead, array $keyboard): void
     {
         $user = $link->user;
         $query = Appointment::with(['patient:id,full_name', 'doctor:id,full_name'])
@@ -231,7 +316,7 @@ class TelegramPoll extends Command
         $appointments = $query->get();
 
         if ($appointments->isEmpty()) {
-            $telegram->sendMessage($chatId, 'لا يوجد مواعيد بهذا النطاق.');
+            $telegram->sendMessage($chatId, 'لا يوجد مواعيد بهذا النطاق.', $keyboard);
 
             return;
         }
@@ -243,40 +328,28 @@ class TelegramPoll extends Command
             $a->doctor?->full_name,
         ));
 
-        $telegram->sendMessage($chatId, "المواعيد:\n".$lines->implode("\n"));
+        $telegram->sendMessage($chatId, "المواعيد:\n".$lines->implode("\n"), $keyboard);
     }
 
-    protected function handleAccount(int $chatId, string $text, TelegramLink $link, TelegramService $telegram): void
+    protected function handleAccount(int $chatId, string $text, TelegramService $telegram, array $keyboard): void
     {
-        $user = $link->user;
-        if (! $user || ! $user->hasAnyRole(['owner', 'accountant'])) {
-            $telegram->sendMessage($chatId, 'هذا الأمر متاح فقط لمالك العيادة أو المحاسب.');
-
-            return;
-        }
-
-        $code = trim(substr($text, strlen('/account')));
+        $code = trim($text);
         $patient = Patient::where('code', $code)->first();
 
         if (! $patient) {
-            $telegram->sendMessage($chatId, 'ما لقيت مريض بهذا الكود. استخدم: /account P-000001');
+            $telegram->sendMessage($chatId, 'ما لقيت مريض بهذا الكود.', $keyboard);
 
             return;
         }
 
         $balance = $patient->transactions()->sum('amount_ils');
-        $telegram->sendMessage($chatId, sprintf('كشف حساب %s: الرصيد الحالي %s ₪', $patient->full_name, number_format((float) $balance, 2)));
+        $telegram->sendMessage($chatId, sprintf('كشف حساب %s: الرصيد الحالي %s ₪', $patient->full_name, number_format((float) $balance, 2)), $keyboard);
     }
 
-    protected function handleDebtsSearch(int $chatId, string $text, ?User $user, TelegramService $telegram): void
+    protected function handleDebtsSearch(int $chatId, string $text, TelegramService $telegram, array $keyboard): void
     {
-        if (! $user || ! $user->hasAnyRole(['owner', 'accountant'])) {
-            $telegram->sendMessage($chatId, 'هذا الأمر متاح فقط لمالك العيادة أو المحاسب.');
-
-            return;
-        }
-
-        $term = trim(substr($text, strlen('/debts')));
+        $term = trim($text);
+        $term = $term === 'الكل' ? '' : $term;
 
         // Simplest correct debt search: pull outstanding balance per matching
         // patient directly, same signed-sum convention as DebtController.
@@ -291,34 +364,23 @@ class TelegramPoll extends Command
         })->filter()->sortByDesc(fn ($row) => $row[1])->take(15);
 
         if ($withDebt->isEmpty()) {
-            $telegram->sendMessage($chatId, $term !== '' ? 'ما لقيت مرضى بهالاسم عليهم دين.' : 'ما في مرضى عليهم دين حالياً.');
+            $telegram->sendMessage($chatId, $term !== '' ? 'ما لقيت مرضى بهالاسم عليهم دين.' : 'ما في مرضى عليهم دين حالياً.', $keyboard);
 
             return;
         }
 
         $lines = $withDebt->map(fn ($row) => sprintf('%s (%s) — %s ₪', $row[0]->full_name, $row[0]->code, number_format((float) $row[1], 2)));
-        $telegram->sendMessage($chatId, "المرضى الأعلى ديناً:\n".$lines->implode("\n"));
+        $telegram->sendMessage($chatId, "المرضى الأعلى ديناً:\n".$lines->implode("\n"), $keyboard);
     }
 
-    protected function handleSupplierSearch(int $chatId, string $text, ?User $user, TelegramService $telegram): void
+    protected function handleSupplierSearch(int $chatId, string $text, TelegramService $telegram, array $keyboard): void
     {
-        if (! $user || ! $user->hasAnyRole(['owner', 'accountant'])) {
-            $telegram->sendMessage($chatId, 'هذا الأمر متاح فقط لمالك العيادة أو المحاسب.');
-
-            return;
-        }
-
-        $term = trim(substr($text, strlen('/supplier')));
-        if ($term === '') {
-            $telegram->sendMessage($chatId, 'استخدم: /supplier اسم المورد');
-
-            return;
-        }
+        $term = trim($text);
 
         $suppliers = Supplier::where('name', 'like', "%{$term}%")->limit(10)->get();
 
         if ($suppliers->isEmpty()) {
-            $telegram->sendMessage($chatId, 'ما لقيت مورد بهالاسم.');
+            $telegram->sendMessage($chatId, 'ما لقيت مورد بهالاسم.', $keyboard);
 
             return;
         }
@@ -329,7 +391,7 @@ class TelegramPoll extends Command
             return sprintf('%s — مستحق %s ₪', $s->name, number_format((float) $balance, 2));
         });
 
-        $telegram->sendMessage($chatId, "نتائج البحث:\n".$lines->implode("\n"));
+        $telegram->sendMessage($chatId, "نتائج البحث:\n".$lines->implode("\n"), $keyboard);
     }
 
     /**
@@ -365,12 +427,21 @@ class TelegramPoll extends Command
         $link->update(['pending_check_id' => null]);
         @unlink($tmpPath);
 
-        $telegram->sendMessage($chatId, "تم حفظ صورة الشيك رقم {$check->check_number} بنجاح، شكراً! 📎");
+        $telegram->sendMessage($chatId, "تم حفظ صورة الشيك رقم {$check->check_number} بنجاح، شكراً! 📎", $this->staffKeyboard($link->user));
     }
 
     // ---------------------------------------------------------------
-    // Patient (patient_id-linked) self-service commands
+    // Patient (patient_id-linked) self-service
     // ---------------------------------------------------------------
+
+    protected function patientKeyboard(): array
+    {
+        return [
+            [self::BTN_MY_APPOINTMENTS, self::BTN_BOOK],
+            [self::BTN_MY_ACCOUNT, self::BTN_PRESCRIPTIONS],
+            [self::BTN_TEETH],
+        ];
+    }
 
     protected function handlePatientMessage(int $chatId, string $text, TelegramLink $link, TelegramService $telegram): void
     {
@@ -379,14 +450,16 @@ class TelegramPoll extends Command
             return;
         }
 
-        if ($text === '/cancel' && $link->booking_step) {
+        $keyboard = $this->patientKeyboard();
+
+        if ($text === self::BTN_CANCEL_BOOKING && $link->booking_step) {
             $link->update(['booking_step' => null, 'booking_doctor_id' => null, 'booking_date' => null]);
-            $telegram->sendMessage($chatId, 'تم إلغاء الحجز.');
+            $telegram->sendMessage($chatId, 'تم إلغاء الحجز.', $keyboard);
 
             return;
         }
 
-        // A /book conversation in progress takes priority over everything
+        // A booking conversation in progress takes priority over everything
         // else — the next message is the reply to whatever step we're on.
         if ($link->booking_step) {
             $this->handleBookingStep($chatId, $text, $link, $telegram, app(DoctorSlotService::class));
@@ -394,7 +467,7 @@ class TelegramPoll extends Command
             return;
         }
 
-        if ($text === '/appointments' || $text === '/start') {
+        if ($text === self::BTN_MY_APPOINTMENTS || $text === '/start') {
             $upcoming = Appointment::where('patient_id', $patient->id)
                 ->where('starts_at', '>=', now())
                 ->whereIn('status', ['scheduled', 'confirmed'])
@@ -402,55 +475,51 @@ class TelegramPoll extends Command
                 ->get();
 
             if ($upcoming->isEmpty()) {
-                $telegram->sendMessage($chatId, 'ما في مواعيد قادمة إلك حالياً.');
+                $telegram->sendMessage($chatId, 'ما في مواعيد قادمة إلك حالياً.', $keyboard);
             } else {
                 $lines = $upcoming->map(fn (Appointment $a) => sprintf('%s — %s', $a->starts_at->format('d/m/Y H:i'), $a->doctor_name ?? 'بدون طبيب محدد'));
-                $telegram->sendMessage($chatId, "مواعيدك القادمة:\n".$lines->implode("\n"));
-            }
-
-            if ($text === '/start') {
-                $telegram->sendMessage($chatId, "الأوامر المتاحة:\n/appointments — مواعيدي القادمة\n/book — حجز موعد جديد\n/account — كشف حسابي\n/prescriptions — آخر وصفاتي\n/teeth — وضع أسناني\n\nولأي استفسار، اكتبلنا رسالة عادية وبتوصل للعيادة مباشرة.");
+                $telegram->sendMessage($chatId, "مواعيدك القادمة:\n".$lines->implode("\n"), $keyboard);
             }
 
             return;
         }
 
-        if ($text === '/book') {
+        if ($text === self::BTN_BOOK) {
             $this->startBooking($chatId, $link, $telegram);
 
             return;
         }
 
-        if ($text === '/account') {
+        if ($text === self::BTN_MY_ACCOUNT) {
             $balance = $patient->transactions()->sum('amount_ils');
-            $telegram->sendMessage($chatId, sprintf('رصيدك الحالي: %s ₪', number_format((float) $balance, 2)));
+            $telegram->sendMessage($chatId, sprintf('رصيدك الحالي: %s ₪', number_format((float) $balance, 2)), $keyboard);
 
             return;
         }
 
-        if ($text === '/prescriptions') {
+        if ($text === self::BTN_PRESCRIPTIONS) {
             $prescriptions = Prescription::where('patient_id', $patient->id)->orderByDesc('created_at')->take(5)->get();
 
             if ($prescriptions->isEmpty()) {
-                $telegram->sendMessage($chatId, 'ما في وصفات مسجّلة إلك.');
+                $telegram->sendMessage($chatId, 'ما في وصفات مسجّلة إلك.', $keyboard);
 
                 return;
             }
 
             $lines = $prescriptions->map(fn (Prescription $p) => sprintf("%s\n%s", $p->created_at->format('d/m/Y'), $p->medications));
-            $telegram->sendMessage($chatId, "آخر وصفاتك:\n\n".$lines->implode("\n\n"));
+            $telegram->sendMessage($chatId, "آخر وصفاتك:\n\n".$lines->implode("\n\n"), $keyboard);
 
             return;
         }
 
-        if ($text === '/teeth') {
-            $this->sendTeethSummary($chatId, $patient, $telegram);
+        if ($text === self::BTN_TEETH) {
+            $this->sendTeethSummary($chatId, $patient, $telegram, $keyboard);
 
             return;
         }
 
         if ($text === '' || str_starts_with($text, '/')) {
-            $telegram->sendMessage($chatId, "الأوامر المتاحة:\n/appointments — مواعيدي القادمة\n/book — حجز موعد جديد\n/account — كشف حسابي\n/prescriptions — آخر وصفاتي\n/teeth — وضع أسناني");
+            $telegram->sendMessage($chatId, 'اختر من الأزرار تحت 👇', $keyboard);
 
             return;
         }
@@ -469,12 +538,12 @@ class TelegramPoll extends Command
             ]);
         }
 
-        $telegram->sendMessage($chatId, 'وصلت رسالتك للعيادة، رح يتم التواصل معك.');
+        $telegram->sendMessage($chatId, 'وصلت رسالتك للعيادة، رح يتم التواصل معك.', $keyboard);
     }
 
     // ---------------------------------------------------------------
-    // Doctor (doctor_id-linked) commands — doctors registered by name
-    // only, without a User login. Scoped to their own schedule only.
+    // Doctor (doctor_id-linked) — doctors registered by name only,
+    // without a User login. Scoped to their own schedule only.
     // ---------------------------------------------------------------
 
     protected function handleDoctorMessage(int $chatId, string $text, TelegramLink $link, TelegramService $telegram): void
@@ -484,26 +553,24 @@ class TelegramPoll extends Command
             return;
         }
 
-        if ($text === '/today' || $text === '/appointments' || $text === '/start') {
-            $this->handleDoctorAppointments($chatId, $doctor, $telegram, 0);
+        $keyboard = [[self::BTN_TODAY, self::BTN_WEEK]];
 
-            if ($text === '/start') {
-                $telegram->sendMessage($chatId, "الأوامر المتاحة:\n/today — مواعيد اليوم\n/week — مواعيد ٧ أيام قادمة");
-            }
+        if ($text === self::BTN_TODAY || $text === '/start') {
+            $this->handleDoctorAppointments($chatId, $doctor, $telegram, 0, $keyboard);
 
             return;
         }
 
-        if ($text === '/week') {
-            $this->handleDoctorAppointments($chatId, $doctor, $telegram, 6);
+        if ($text === self::BTN_WEEK) {
+            $this->handleDoctorAppointments($chatId, $doctor, $telegram, 6, $keyboard);
 
             return;
         }
 
-        $telegram->sendMessage($chatId, "الأوامر المتاحة:\n/today — مواعيد اليوم\n/week — مواعيد ٧ أيام قادمة");
+        $telegram->sendMessage($chatId, 'اختر من الأزرار تحت 👇', $keyboard);
     }
 
-    protected function handleDoctorAppointments(int $chatId, Doctor $doctor, TelegramService $telegram, int $daysAhead): void
+    protected function handleDoctorAppointments(int $chatId, Doctor $doctor, TelegramService $telegram, int $daysAhead, array $keyboard): void
     {
         $appointments = Appointment::with('patient:id,full_name')
             ->where('doctor_id', $doctor->id)
@@ -513,17 +580,18 @@ class TelegramPoll extends Command
             ->get();
 
         if ($appointments->isEmpty()) {
-            $telegram->sendMessage($chatId, 'لا يوجد مواعيد بهذا النطاق.');
+            $telegram->sendMessage($chatId, 'لا يوجد مواعيد بهذا النطاق.', $keyboard);
 
             return;
         }
 
         $lines = $appointments->map(fn (Appointment $a) => sprintf('%s — %s', $a->starts_at->format('d/m H:i'), $a->patient?->full_name));
-        $telegram->sendMessage($chatId, "مواعيدك:\n".$lines->implode("\n"));
+        $telegram->sendMessage($chatId, "مواعيدك:\n".$lines->implode("\n"), $keyboard);
     }
 
     // ---------------------------------------------------------------
-    // /book — multi-step self-service booking for linked patients
+    // حجز موعد — multi-step self-service booking for linked patients,
+    // each step offered as buttons instead of typed numbers/commands.
     // ---------------------------------------------------------------
 
     protected function startBooking(int $chatId, TelegramLink $link, TelegramService $telegram): void
@@ -531,15 +599,17 @@ class TelegramPoll extends Command
         $doctors = Doctor::where('is_active', true)->orderBy('full_name')->get();
 
         if ($doctors->isEmpty()) {
-            $telegram->sendMessage($chatId, 'ما في أطباء متاحين للحجز حالياً، تواصل مع العيادة مباشرة.');
+            $telegram->sendMessage($chatId, 'ما في أطباء متاحين للحجز حالياً، تواصل مع العيادة مباشرة.', $this->patientKeyboard());
 
             return;
         }
 
         $link->update(['booking_step' => 'doctor']);
 
-        $lines = $doctors->values()->map(fn (Doctor $d, int $i) => sprintf('%d. د. %s', $i + 1, $d->full_name));
-        $telegram->sendMessage($chatId, "اختر الطبيب (ابعت الرقم):\n".$lines->implode("\n")."\n\n(لإلغاء الحجز أي وقت: /cancel)");
+        $rows = $doctors->map(fn (Doctor $d) => ["د. {$d->full_name}"])->values()->all();
+        $rows[] = [self::BTN_CANCEL_BOOKING];
+
+        $telegram->sendMessage($chatId, 'اختر الطبيب:', $rows);
     }
 
     protected function handleBookingStep(int $chatId, string $text, TelegramLink $link, TelegramService $telegram, DoctorSlotService $slotService): void
@@ -547,17 +617,20 @@ class TelegramPoll extends Command
         $patient = $link->patient;
 
         if ($link->booking_step === 'doctor') {
-            $doctors = Doctor::where('is_active', true)->orderBy('full_name')->get()->values();
-            $index = (int) trim($text) - 1;
+            $doctor = Doctor::where('is_active', true)->get()->first(fn (Doctor $d) => "د. {$d->full_name}" === trim($text));
 
-            if (! isset($doctors[$index])) {
-                $telegram->sendMessage($chatId, 'رقم غير صحيح، ابعت رقم الطبيب من القائمة فوق.');
+            if (! $doctor) {
+                $telegram->sendMessage($chatId, 'اختر الطبيب من الأزرار تحت.');
 
                 return;
             }
 
-            $link->update(['booking_doctor_id' => $doctors[$index]->id, 'booking_step' => 'date']);
-            $telegram->sendMessage($chatId, "اختيار ممتاز! هلق ابعتلي التاريخ اللي بدك ياه بصيغة يوم/شهر/سنة، أو اكتب \"اليوم\" أو \"بكرا\".");
+            $link->update(['booking_doctor_id' => $doctor->id, 'booking_step' => 'date']);
+            $telegram->sendMessage(
+                $chatId,
+                'اختيار ممتاز! هلق اختر التاريخ، أو اكتبه بصيغة يوم/شهر/سنة.',
+                [[self::BTN_TODAY_SHORT, self::BTN_TOMORROW], [self::BTN_CANCEL_BOOKING]],
+            );
 
             return;
         }
@@ -566,7 +639,7 @@ class TelegramPoll extends Command
             $date = $this->parseSpokenDate(trim($text));
 
             if (! $date) {
-                $telegram->sendMessage($chatId, 'ما قدرت أفهم التاريخ. جرب بصيغة يوم/شهر/سنة، أو اكتب "اليوم" أو "بكرا".');
+                $telegram->sendMessage($chatId, 'ما قدرت أفهم التاريخ. اختر من الأزرار، أو اكتب بصيغة يوم/شهر/سنة.');
 
                 return;
             }
@@ -582,8 +655,10 @@ class TelegramPoll extends Command
 
             $link->update(['booking_date' => $date->toDateString(), 'booking_step' => 'slot']);
 
-            $lines = collect($slots)->values()->map(fn ($s, int $i) => sprintf('%d. %s', $i + 1, $s['starts_at_display']));
-            $telegram->sendMessage($chatId, "الأوقات الفاضية يوم {$date->format('d/m/Y')}:\n".$lines->implode("\n")."\n\nابعت رقم الوقت اللي بدك ياه.");
+            $rows = collect($slots)->map(fn ($s) => [$s['starts_at_display']])->values()->all();
+            $rows[] = [self::BTN_CANCEL_BOOKING];
+
+            $telegram->sendMessage($chatId, "الأوقات الفاضية يوم {$date->format('d/m/Y')}:", $rows);
 
             return;
         }
@@ -591,15 +666,14 @@ class TelegramPoll extends Command
         if ($link->booking_step === 'slot') {
             $doctor = $link->bookingDoctor;
             $slots = $slotService->availableSlots($doctor, $patient->branch_id, $link->booking_date->toDateString());
-            $index = (int) trim($text) - 1;
+            $slot = collect($slots)->first(fn ($s) => $s['starts_at_display'] === trim($text));
 
-            if (! isset($slots[$index])) {
-                $telegram->sendMessage($chatId, 'رقم غير صحيح، ابعت رقم الوقت من القائمة فوق.');
+            if (! $slot) {
+                $telegram->sendMessage($chatId, 'اختر الوقت من الأزرار تحت.');
 
                 return;
             }
 
-            $slot = $slots[$index];
             $appointment = Appointment::create([
                 'branch_id' => $patient->branch_id,
                 'patient_id' => $patient->id,
@@ -615,6 +689,7 @@ class TelegramPoll extends Command
             $telegram->sendMessage(
                 $chatId,
                 sprintf("تم حجز موعدك بنجاح! ✅\nد. %s — %s", $doctor->full_name, $slot['starts_at']->clone()->timezone(config('dentaflow.display_timezone'))->format('d/m/Y H:i')),
+                $this->patientKeyboard(),
             );
 
             $notifyEnabled = \App\Models\Setting::where('key', 'notify_new_appointment_enabled')->value('value');
@@ -649,10 +724,10 @@ class TelegramPoll extends Command
     }
 
     // ---------------------------------------------------------------
-    // /teeth — compact text summary of a patient's chart
+    // وضع أسناني — compact text summary of a patient's chart
     // ---------------------------------------------------------------
 
-    protected function sendTeethSummary(int $chatId, Patient $patient, TelegramService $telegram): void
+    protected function sendTeethSummary(int $chatId, Patient $patient, TelegramService $telegram, array $keyboard): void
     {
         $findings = ToothFinding::where('patient_id', $patient->id)
             ->whereNotNull('service_id')
@@ -660,7 +735,7 @@ class TelegramPoll extends Command
             ->get();
 
         if ($findings->isEmpty()) {
-            $telegram->sendMessage($chatId, 'ما في سجل أسنان محفوظ إلك بعد.');
+            $telegram->sendMessage($chatId, 'ما في سجل أسنان محفوظ إلك بعد.', $keyboard);
 
             return;
         }
@@ -683,6 +758,6 @@ class TelegramPoll extends Command
             $lines[] = "🕓 مخطط/قيد التنفيذ:\n".$summarize($inProgress);
         }
 
-        $telegram->sendMessage($chatId, "وضع أسنانك:\n\n".implode("\n\n", $lines));
+        $telegram->sendMessage($chatId, "وضع أسنانك:\n\n".implode("\n\n", $lines), $keyboard);
     }
 }
