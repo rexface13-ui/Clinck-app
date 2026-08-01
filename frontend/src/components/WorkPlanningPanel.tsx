@@ -104,6 +104,7 @@ export default function WorkPlanningPanel({
   /** Anchor for ctrl+click range selection — click a tooth normally, then ctrl+click another to select everything between them, no separate "range mode" toggle needed. */
   const [lastClickedTooth, setLastClickedTooth] = useState<number | null>(null)
   const [notesToothNumber, setNotesToothNumber] = useState<number | null>(null)
+  const [notesWorkItemId, setNotesWorkItemId] = useState<number | null>(null)
   const [newServiceId, setNewServiceId] = useState('')
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
@@ -648,7 +649,7 @@ export default function WorkPlanningPanel({
                                   <span className="text-[11px] text-muted">— تم إنجازه بجلسة سابقة{ts.completed_at ? ` بتاريخ ${ts.completed_at}` : ''}</span>
                                 )}
                                 <button
-                                  onClick={() => setNotesToothNumber(ts.tooth_number)}
+                                  onClick={() => { setNotesToothNumber(ts.tooth_number); setNotesWorkItemId(w.id) }}
                                   title="دفتر ملاحظات السن"
                                   className="flex items-center gap-1 text-[11px] text-accent hover:underline"
                                 >
@@ -912,8 +913,17 @@ export default function WorkPlanningPanel({
           patientId={patientId}
           toothNumber={notesToothNumber}
           notes={notes}
-          onClose={() => setNotesToothNumber(null)}
+          onClose={() => { setNotesToothNumber(null); setNotesWorkItemId(null) }}
           onChanged={() => onChanged?.()}
+          workItemId={notesWorkItemId ?? undefined}
+          sessionLabel={
+            notesWorkItemId
+              ? (() => {
+                  const w = workItems.find((wi) => wi.id === notesWorkItemId)
+                  return w ? `${w.service_name ?? 'جلسة'} — ${w.created_at}` : undefined
+                })()
+              : undefined
+          }
         />
       )}
 

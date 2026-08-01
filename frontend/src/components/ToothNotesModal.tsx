@@ -12,6 +12,9 @@ interface Props {
   onClose: () => void
   /** Called after any add/toggle/delete so the caller (patient profile) refreshes its notes list. */
   onChanged: () => void
+  /** When opened from inside an active work session, new notes get tagged with it so the notebook can show which session they were written during. */
+  workItemId?: number
+  sessionLabel?: string
 }
 
 /**
@@ -20,7 +23,7 @@ interface Props {
  * replaces the old single free-text "note" field on the finding form,
  * which only ever held the last thing typed.
  */
-export default function ToothNotesModal({ patientId, toothNumber, notes, onClose, onChanged }: Props) {
+export default function ToothNotesModal({ patientId, toothNumber, notes, onClose, onChanged, workItemId, sessionLabel }: Props) {
   const [draft, setDraft] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -30,7 +33,7 @@ export default function ToothNotesModal({ patientId, toothNumber, notes, onClose
     if (!draft.trim()) return
     setSaving(true)
     try {
-      await api.post(`/patients/${patientId}/notes`, { body: draft.trim(), tooth_number: toothNumber })
+      await api.post(`/patients/${patientId}/notes`, { body: draft.trim(), tooth_number: toothNumber, work_item_id: workItemId ?? null })
       setDraft('')
       onChanged()
     } finally {
@@ -51,6 +54,9 @@ export default function ToothNotesModal({ patientId, toothNumber, notes, onClose
 
   return (
     <Modal title={`دفتر ملاحظات — السن ${toothNumber}`} onClose={onClose} width="w-[28rem]">
+      {sessionLabel && (
+        <p className="mb-2 text-xs text-accent">أي ملاحظة تضيفها هلق بتترّبط تلقائياً بجلسة: {sessionLabel}</p>
+      )}
       <div className="mb-3 flex items-start gap-2">
         <textarea
           value={draft}
@@ -84,6 +90,7 @@ export default function ToothNotesModal({ patientId, toothNumber, notes, onClose
               className={`rounded-lg border p-2 text-sm ${n.is_important ? 'border-warning/40 bg-warning-soft' : 'border-ink/10 bg-background'}`}
             >
               <p className="whitespace-pre-wrap text-ink">{n.body}</p>
+              {n.session_label && <p className="mt-1 text-[11px] text-accent">🗓 تم تسجيلها أثناء جلسة: {n.session_label}</p>}
               <div className="mt-1 flex items-center justify-between text-[11px] text-ink/40">
                 <span>{n.author ?? '—'} — {n.created_at}</span>
                 <span className="flex items-center gap-2">

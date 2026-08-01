@@ -182,6 +182,8 @@ export interface Note {
   author: string | null
   created_at: string
   tooth_number: number | null
+  work_item_id: number | null
+  session_label: string | null
   is_important: boolean
 }
 

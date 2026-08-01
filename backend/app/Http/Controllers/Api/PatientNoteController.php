@@ -7,6 +7,7 @@ use App\Http\Requests\Note\StoreNoteRequest;
 use App\Http\Resources\NoteResource;
 use App\Models\Note;
 use App\Models\Patient;
+use App\Models\WorkItem;
 use Illuminate\Http\Request;
 
 class PatientNoteController extends Controller
@@ -15,14 +16,21 @@ class PatientNoteController extends Controller
     {
         $this->authorize('update', $patient);
 
+        $workItemId = $request->validated('work_item_id');
+        if ($workItemId) {
+            // Only tag the note with a session that actually belongs to this patient.
+            abort_unless(WorkItem::where('id', $workItemId)->where('patient_id', $patient->id)->exists(), 422, 'الجلسة المحددة لا تخص هذا المريض.');
+        }
+
         $note = $patient->notes()->create([
             'user_id' => $request->user()->id,
             'body' => $request->validated('body'),
             'tooth_number' => $request->validated('tooth_number'),
+            'work_item_id' => $workItemId,
             'is_important' => $request->boolean('is_important'),
         ]);
 
-        return new NoteResource($note->load('user'));
+        return new NoteResource($note->load(['user', 'workItem.service']));
     }
 
     public function update(Request $request, Patient $patient, Note $note)

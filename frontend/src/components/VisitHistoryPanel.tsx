@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faMoneyBill, faChevronDown, faChevronLeft, faTooth, faPrint, faTriangleExclamation, faFileMedical } from '@fortawesome/free-solid-svg-icons'
+import { faMoneyBill, faChevronDown, faChevronLeft, faTooth, faPrint, faTriangleExclamation, faFileMedical, faNoteSticky } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import { formatDate } from '../lib/formatDate'
@@ -10,6 +10,7 @@ import { Card, Badge, SearchableSelect } from './ui'
 import type { BadgeVariant } from './ui'
 import { describeTeeth } from '../lib/dental'
 import MiniToothDiagram from './MiniToothDiagram'
+import ToothNotesModal from './ToothNotesModal'
 import type { Cashbox, Medication, Note, Prescription, Visit } from '../types'
 
 interface VisitGroup {
@@ -89,6 +90,7 @@ export default function VisitHistoryPanel({
   const [prescribingFor, setPrescribingFor] = useState<string | null>(null)
   const [medsText, setMedsText] = useState<Record<string, string>>({})
   const [prescriptionsVersion, setPrescriptionsVersion] = useState(0)
+  const [notesFor, setNotesFor] = useState<{ toothNumber: number; workItemId?: number; sessionLabel?: string } | null>(null)
 
   function printPrescriptionFor(key: string, v: Visit) {
     const meds = medsText[key] ?? ''
@@ -301,6 +303,18 @@ export default function VisitHistoryPanel({
         </div>
       )}
     </Card>
+
+    {notesFor && (
+      <ToothNotesModal
+        patientId={patientId}
+        toothNumber={notesFor.toothNumber}
+        notes={notes}
+        onClose={() => setNotesFor(null)}
+        onChanged={() => onChanged?.()}
+        workItemId={notesFor.workItemId}
+        sessionLabel={notesFor.sessionLabel}
+      />
+    )}
     </div>
   )
 
@@ -347,11 +361,11 @@ export default function VisitHistoryPanel({
                 <div className="space-y-3 border-t border-ink/10 p-3">
                   {v.note && <p className="text-sm text-ink">{v.note}</p>}
 
-                  {(() => {
+                  {teeth.length > 0 && (() => {
                     const toothNotes = notes
                       .filter((n) => n.tooth_number !== null && teeth.includes(n.tooth_number))
                       .sort((a, b) => b.id - a.id)
-                    if (toothNotes.length === 0) return null
+                    const sessionLabel = `${v.service_name ?? 'جلسة'} — ${v.appointment_date ?? v.date}`
                     return (
                       <div className="space-y-1.5 rounded-lg bg-background p-2">
                         <p className="text-[11px] font-medium text-muted">ملاحظات الأسنان المشمولة بهالجلسة</p>
@@ -361,6 +375,18 @@ export default function VisitHistoryPanel({
                             <span className="text-muted"> — {n.created_at}</span>
                           </p>
                         ))}
+                        <div className="flex flex-wrap gap-2 pt-1">
+                          {teeth.map((t) => (
+                            <button
+                              key={t}
+                              onClick={() => setNotesFor({ toothNumber: t, workItemId: v.item_id ?? undefined, sessionLabel })}
+                              className="flex items-center gap-1 rounded-lg border border-ink/10 px-2 py-1 text-[11px] text-accent hover:border-accent"
+                            >
+                              <FontAwesomeIcon icon={faNoteSticky} />
+                              دفتر ملاحظات سن {t}
+                            </button>
+                          ))}
+                        </div>
                       </div>
                     )
                   })()}
