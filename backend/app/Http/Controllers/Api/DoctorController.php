@@ -18,7 +18,7 @@ class DoctorController extends Controller
         $this->authorize('viewAny', Doctor::class);
 
         return DoctorResource::collection(
-            Doctor::with(['availability', 'serviceCommissions.service'])->orderBy('full_name')->get()
+            Doctor::with(['availability', 'serviceCommissions.service', 'telegramLink'])->orderBy('full_name')->get()
         );
     }
 
@@ -38,7 +38,7 @@ class DoctorController extends Controller
     {
         $this->authorize('view', $doctor);
 
-        return new DoctorResource($doctor->load(['availability', 'serviceCommissions.service']));
+        return new DoctorResource($doctor->load(['availability', 'serviceCommissions.service', 'telegramLink']));
     }
 
     public function update(UpdateDoctorRequest $request, Doctor $doctor)

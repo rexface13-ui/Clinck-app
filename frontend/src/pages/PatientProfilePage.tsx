@@ -296,6 +296,9 @@ export default function PatientProfilePage() {
             {patient.age !== null && <span>· {patient.age} سنة</span>}
             {patient.is_child && <Badge variant="accent">طفل</Badge>}
             {patient.phone && <span>· {patient.phone}</span>}
+            {patient.telegram_linked && (
+              <span className="rounded-full bg-success-soft px-2 py-0.5 text-xs text-success">مربوط بتيليغرام</span>
+            )}
           </div>
           {patient.guardian_name && (
             <p className="mt-1 text-sm text-muted">ولي الأمر: {patient.guardian_name} ({patient.guardian_phone})</p>

@@ -43,6 +43,7 @@ class PatientController extends Controller
 
             return PatientResource::collection(
                 Patient::query()
+                    ->with('telegramLink')
                     ->where(function ($query) use ($search, $nameExpr, $phoneExpr, $codeExpr) {
                         $query->whereRaw("{$nameExpr} ilike ?", ["%{$search}%"])
                             ->orWhereRaw("{$phoneExpr} ilike ?", ["%{$search}%"])
@@ -55,7 +56,7 @@ class PatientController extends Controller
         }
 
         return PatientResource::collection(
-            Patient::query()->orderByDesc('created_at')->paginate(25)
+            Patient::query()->with('telegramLink')->orderByDesc('created_at')->paginate(25)
         );
     }
 
@@ -72,7 +73,7 @@ class PatientController extends Controller
     {
         $this->authorize('view', $patient);
 
-        return new PatientResource($patient);
+        return new PatientResource($patient->load('telegramLink'));
     }
 
     public function update(UpdatePatientRequest $request, Patient $patient)
@@ -157,6 +158,7 @@ class PatientController extends Controller
         $this->authorize('view', $patient);
 
         $patient->load([
+            'telegramLink',
             'toothStates',
             'toothFindings' => fn ($q) => $q->orderByDesc('recorded_at')->with(['service', 'doctor', 'workItemToothStep.invoiceLine']),
             'appointments' => fn ($q) => $q->orderByDesc('starts_at')->with('doctor:id,full_name'),

@@ -23,6 +23,7 @@ import {
   faPrint,
   faFlask,
   faClockRotateLeft,
+  faRobot,
 } from '@fortawesome/free-solid-svg-icons'
 import { useAuth } from '../contexts/AuthContext'
 import { useClinicProfile } from '../lib/useClinicProfile'
@@ -84,6 +85,7 @@ const navGroups: NavGroup[] = [
       { to: '/users', label: 'المستخدمون', icon: faUserGear, permission: 'users.view' },
       { to: '/backups', label: 'النسخ الاحتياطي', icon: faDatabase, permission: 'settings.manage' },
       { to: '/activity-log', label: 'سجل النشاط', icon: faClockRotateLeft, permission: null, role: 'owner' },
+      { to: '/telegram', label: 'تيليغرام', icon: faRobot, permission: 'settings.manage' },
       { to: '/settings', label: 'الإعدادات', icon: faGear, permission: null },
     ],
   },

@@ -23,6 +23,7 @@ export interface Doctor {
   default_commission_percent: string | null
   monthly_salary: string | null
   is_active: boolean
+  telegram_linked?: boolean
   availability?: DoctorAvailability[]
   service_commissions?: { id: number; service_id: number; service_name: string; commission_percent: string }[]
 }
@@ -88,6 +89,7 @@ export interface Patient {
   guardian_phone: string | null
   medical_alerts: string[]
   medical_notes: string | null
+  telegram_linked?: boolean
   created_at: string
 }
 

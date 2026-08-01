@@ -19,6 +19,7 @@ import ItemsPage from './pages/ItemsPage'
 import PurchaseInvoicesPage from './pages/PurchaseInvoicesPage'
 import ChecksPage from './pages/ChecksPage'
 import SettingsPage from './pages/SettingsPage'
+import TelegramPage from './pages/TelegramPage'
 import DashboardPage from './pages/DashboardPage'
 import DebtsPage from './pages/DebtsPage'
 import ReportsPage from './pages/ReportsPage'
@@ -187,6 +188,14 @@ function App() {
               }
             />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route
+              path="/telegram"
+              element={
+                <ProtectedRoute permission="settings.manage">
+                  <TelegramPage />
+                </ProtectedRoute>
+              }
+            />
           </Route>
         </Routes>
       </AuthProvider>

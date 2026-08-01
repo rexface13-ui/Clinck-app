@@ -23,6 +23,7 @@ class PatientResource extends JsonResource
             'guardian_phone' => $this->guardian_phone,
             'medical_alerts' => $this->medical_alerts ?? [],
             'medical_notes' => $this->medical_notes,
+            'telegram_linked' => $this->relationLoaded('telegramLink') ? $this->telegramLink !== null : false,
             'created_at' => display_date($this->created_at),
         ];
     }

@@ -9,6 +9,7 @@ use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Patient extends Model
 {
@@ -88,5 +89,10 @@ class Patient extends Model
     public function transactions(): HasMany
     {
         return $this->hasMany(PatientTransaction::class);
+    }
+
+    public function telegramLink(): HasOne
+    {
+        return $this->hasOne(TelegramLink::class)->whereNotNull('linked_at');
     }
 }

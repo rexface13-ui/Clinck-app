@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faPlus, faTrash, faPen } from '@fortawesome/free-solid-svg-icons'
+import { faPlus, faTrash, faPen, faPaperPlane } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import { Card, PageHeader, Badge, Button, Input, Select, CardSkeleton } from '../components/ui'
@@ -17,11 +18,14 @@ const WEEKDAYS = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأر�
 
 export default function DoctorsPage() {
   const { data, can } = useAuth()
+  const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const telegramLinkId = searchParams.get('telegram_link_id')
   const branches: Branch[] = data?.branches ?? []
   const [doctors, setDoctors] = useState<Doctor[] | null>(null)
-  const [showForm, setShowForm] = useState(false)
+  const [showForm, setShowForm] = useState(() => searchParams.get('new') === '1')
   const [form, setForm] = useState({
-    full_name: '',
+    full_name: searchParams.get('name') ?? '',
     contract_type: 'commission' as Doctor['contract_type'],
     default_commission_percent: '',
     monthly_salary: '',
@@ -52,6 +56,15 @@ export default function DoctorsPage() {
 
   useEffect(load, [])
 
+  useEffect(() => {
+    if (searchParams.get('new') === '1') {
+      searchParams.delete('new')
+      searchParams.delete('name')
+      setSearchParams(searchParams, { replace: true })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   async function handleCreate(e: FormEvent) {
     e.preventDefault()
     setError(null)
@@ -77,6 +90,13 @@ export default function DoctorsPage() {
           ),
         )
       }
+
+      if (telegramLinkId) {
+        await api.post(`/telegram-registrations/${telegramLinkId}/link-doctor`, { doctor_id: doctorId })
+        navigate('/telegram')
+        return
+      }
+
       setShowForm(false)
       setForm({ full_name: '', contract_type: 'commission', default_commission_percent: '', monthly_salary: '' })
       setNewDoctorSchedule({ branch_id: branches[0]?.id ?? 1, weekdays: [0, 1, 2, 3, 4], start_time: '09:00', end_time: '17:00' })
@@ -208,6 +228,12 @@ export default function DoctorsPage() {
 
       {showForm && (
         <Card className="mb-6 p-6">
+          {telegramLinkId && (
+            <p className="col-span-2 mb-4 flex items-center gap-2 rounded-lg bg-accent-soft px-3 py-2 text-xs text-accent">
+              <FontAwesomeIcon icon={faPaperPlane} />
+              رح ينربط هالطبيب تلقائياً بمحادثة التيليغرام بعد الحفظ.
+            </p>
+          )}
           <form onSubmit={handleCreate} className="grid grid-cols-2 gap-4">
             <Input
               label="الاسم الكامل"
@@ -325,6 +351,12 @@ export default function DoctorsPage() {
                     <Badge variant="accent">{CONTRACT_LABELS[d.contract_type]}</Badge>
                     {d.default_commission_percent && <span className="text-sm text-muted">عمولة {d.default_commission_percent}%</span>}
                     {d.monthly_salary && <span className="text-sm text-muted">راتب {d.monthly_salary} ₪</span>}
+                    {d.telegram_linked && (
+                      <span className="flex items-center gap-1 rounded-full bg-success-soft px-2 py-0.5 text-xs text-success">
+                        <FontAwesomeIcon icon={faPaperPlane} />
+                        مربوط بتيليغرام
+                      </span>
+                    )}
                   </div>
                 </div>
                 {can('doctors.manage') && (

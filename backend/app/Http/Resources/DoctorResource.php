@@ -18,6 +18,7 @@ class DoctorResource extends JsonResource
             'default_commission_percent' => $this->default_commission_percent,
             'monthly_salary' => $this->monthly_salary,
             'is_active' => $this->is_active,
+            'telegram_linked' => $this->relationLoaded('telegramLink') ? $this->telegramLink !== null : false,
             'availability' => DoctorAvailabilityResource::collection($this->whenLoaded('availability')),
             'service_commissions' => $this->whenLoaded('serviceCommissions', fn () => $this->serviceCommissions->map(fn ($c) => [
                 'id' => $c->id,

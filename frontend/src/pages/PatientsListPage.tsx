@@ -18,12 +18,14 @@ export default function PatientsListPage() {
   const [showForm, setShowForm] = useState(() => searchParams.get('new') === '1')
   const [submitting, setSubmitting] = useState(false)
   const [search, setSearch] = useState('')
+  const telegramLinkId = searchParams.get('telegram_link_id')
 
   useEffect(() => {
     if (searchParams.get('new') === '1') {
       setShowForm(true)
       searchParams.delete('new')
       searchParams.delete('name')
+      searchParams.delete('phone')
       setSearchParams(searchParams, { replace: true })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -37,7 +39,7 @@ export default function PatientsListPage() {
     gender: 'male' as 'male' | 'female',
     age: '',
     isChildOverride: null as boolean | null,
-    phone: '',
+    phone: searchParams.get('phone') ?? '',
     guardian_name: '',
     guardian_phone: '',
     medical_alerts: [] as string[],
@@ -103,6 +105,13 @@ export default function PatientsListPage() {
         }
       }
 
+      if (telegramLinkId) {
+        await api.post(`/telegram-registrations/${telegramLinkId}/link-patient`, { patient_id: patientId })
+        setShowForm(false)
+        navigate('/telegram')
+        return
+      }
+
       setShowForm(false)
       navigate(`/patients/${patientId}`)
     } catch (err: unknown) {
@@ -142,6 +151,11 @@ export default function PatientsListPage() {
 
       {showForm && (
         <Modal title="مريض جديد" onClose={() => setShowForm(false)} width="w-[640px]">
+        {telegramLinkId && (
+          <p className="mb-4 flex items-center gap-2 rounded-lg bg-accent-soft px-3 py-2 text-xs text-accent">
+            رح ينربط هالمريض تلقائياً بمحادثة التيليغرام بعد الحفظ.
+          </p>
+        )}
         <form onSubmit={handleCreate} className="grid grid-cols-2 gap-4">
           <Input
             label="الاسم الكامل"
@@ -294,7 +308,12 @@ export default function PatientsListPage() {
                       <Link to={`/patients/${p.id}`} className="hover:underline">{p.full_name}</Link>
                     </Td>
                     <Td>
-                      <Badge variant={p.is_child ? 'accent' : 'neutral'}>{p.is_child ? 'طفل' : 'بالغ'}</Badge>
+                      <div className="flex items-center gap-1.5">
+                        <Badge variant={p.is_child ? 'accent' : 'neutral'}>{p.is_child ? 'طفل' : 'بالغ'}</Badge>
+                        {p.telegram_linked && (
+                          <span className="rounded-full bg-success-soft px-2 py-0.5 text-xs text-success">تيليغرام</span>
+                        )}
+                      </div>
                     </Td>
                     <Td className="text-muted">{p.phone ?? '—'}</Td>
                     <Td className="text-muted">{p.created_at}</Td>
