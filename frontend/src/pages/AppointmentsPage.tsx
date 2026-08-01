@@ -408,12 +408,12 @@ export default function AppointmentsPage() {
 
       {view === 'day' && (
         <div className="grid grid-cols-3 gap-6">
-          <div ref={scheduleWrapRef} className="col-span-2 flex flex-row-reverse items-start gap-2">
-            <div className="relative w-10 shrink-0 text-left" style={{ height: labelTopOffset + gridHeight }}>
+          <div ref={scheduleWrapRef} className="col-span-2 flex items-start gap-2">
+            <div className="relative w-10 shrink-0" style={{ height: labelTopOffset + gridHeight }}>
               {hourMarks.map((m) => (
                 <span
                   key={m}
-                  className="absolute -translate-y-1/2 text-xs font-semibold text-ink/70"
+                  className="absolute right-0 -translate-y-1/2 text-xs font-semibold text-ink/70"
                   style={{ top: labelTopOffset + (m - rangeStart) * PX_PER_MIN }}
                 >
                   {minutesToHM(m)}
