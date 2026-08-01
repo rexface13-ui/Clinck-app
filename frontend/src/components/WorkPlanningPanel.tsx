@@ -281,14 +281,22 @@ export default function WorkPlanningPanel({
     }
   }
 
+  /**
+   * Only counts completed-but-not-yet-invoiced tooth-steps — a multi-session
+   * work item (e.g. orthodontics with many visits) keeps its already-billed
+   * steps marked completed forever, so summing every completed step here
+   * would re-total the whole item's history on each new session instead of
+   * just what's newly done today. Mirrors the backend's own billing rule
+   * (WorkItemService::billableCharges only charges pending steps).
+   */
   function itemTotal(workItem: WorkItem): number {
     let total = 0
     for (const step of workItem.steps) {
-      const completedTeeth = step.tooth_steps.filter((ts) => ts.completed)
-      if (completedTeeth.length === 0) continue
+      const billableTeeth = step.tooth_steps.filter((ts) => ts.completed && !ts.invoiced)
+      if (billableTeeth.length === 0) continue
       if (workItem.price_per_tooth) {
-        total += completedTeeth.length * Number(step.price)
-      } else if (completedTeeth.length > 0) {
+        total += billableTeeth.length * Number(step.price)
+      } else {
         total += Number(step.price)
       }
     }

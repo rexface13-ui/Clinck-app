@@ -30,6 +30,10 @@ class WorkItemStep extends Model
 
     public function toothSteps(): HasMany
     {
-        return $this->hasMany(WorkItemToothStep::class);
+        // Without an explicit order, Postgres doesn't guarantee row order is
+        // stable across reloads — teeth would visibly shuffle position every
+        // time a checkbox was toggled and the list refetched. Ordering by id
+        // keeps each tooth pinned to the position it was first added in.
+        return $this->hasMany(WorkItemToothStep::class)->orderBy('id');
     }
 }
