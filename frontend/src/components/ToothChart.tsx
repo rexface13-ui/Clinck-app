@@ -63,6 +63,7 @@ export default function ToothChart({
   isChild,
   toothStates,
   toothFindings,
+  services,
   onChanged,
   pickMode = false,
   onPickTooth,
@@ -260,20 +261,11 @@ export default function ToothChart({
     return Array.from(groups.values()).filter((g) => g.teeth.length > 1)
   }, [toothFindings])
 
-  /**
-   * Legend mapping each service's own color to its name, built only from
-   * services actually present on this patient's chart right now (not the
-   * full services catalog) so the legend stays short and relevant.
-   */
-  const serviceColorLegend = useMemo(() => {
-    const map = new Map<string, string>()
-    for (const f of toothFindings) {
-      if (f.service_id && f.service_color && f.service_name && !map.has(f.service_color)) {
-        map.set(f.service_color, f.service_name)
-      }
-    }
-    return Array.from(map.entries()).map(([color, name]) => ({ color, name }))
-  }, [toothFindings])
+  /** Legend mapping each active service's own color (from الخدمات) to its name — the full catalog, not just what happens to be on this patient's chart, so the same legend always means the same thing everywhere. */
+  const serviceColorLegend = useMemo(
+    () => services.filter((s) => s.is_active && s.color).map((s) => ({ color: s.color as string, name: s.name })),
+    [services],
+  )
 
   /**
    * One condition group per distinct color actually in use, plus a
@@ -408,13 +400,7 @@ export default function ToothChart({
           )}
         </div>
 
-        <div className="mt-4 flex gap-4 text-xs text-ink/60">
-          <span className="flex items-center gap-1">
-            <span className="inline-block size-3 rounded" style={{ background: STATUS_COLOR.planned }} /> مخطط
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="inline-block size-3 rounded" style={{ background: STATUS_COLOR.done }} /> منجز
-          </span>
+        <div className="mt-4 flex flex-wrap gap-4 text-xs text-ink/60">
           <span className="flex items-center gap-1">
             <span className="inline-block size-3 rounded" style={{ background: STATUS_COLOR.missing }} /> مفقود
           </span>
