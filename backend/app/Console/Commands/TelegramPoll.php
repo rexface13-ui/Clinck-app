@@ -27,7 +27,9 @@ class TelegramPoll extends Command
     protected $description = 'Long-poll the Telegram Bot API for updates and handle a fully button-driven chat flow';
 
     // Registration (unlinked chats)
-    protected const BTN_STAFF = '👨‍⚕️ أنا طبيب/موظف بالعيادة';
+    protected const BTN_STAFF_LOGIN = '👔 عندي حساب دخول بالنظام';
+
+    protected const BTN_DOCTOR = '🦷 أنا طبيب';
 
     protected const BTN_PATIENT = '🧑 أنا مريض';
 
@@ -146,15 +148,15 @@ class TelegramPoll extends Command
             return;
         }
 
-        if ($text === self::BTN_STAFF) {
+        if ($text === self::BTN_STAFF_LOGIN) {
             $this->unlinkedIntent[$chatId] = 'staff';
-            $telegram->sendMessage($chatId, 'ابعتلي الكود يلي أعطتك ياه إدارة العيادة.', []);
+            $telegram->sendMessage($chatId, 'ابعتلي الكود يلي أعطتك ياه إدارة العيادة (تلاقيه إنت بنفسك من صفحة الإعدادات — "ربط تيليغرام").', []);
 
             return;
         }
 
-        if ($text === self::BTN_PATIENT) {
-            $this->unlinkedIntent[$chatId] = 'patient';
+        if ($text === self::BTN_DOCTOR || $text === self::BTN_PATIENT) {
+            $this->unlinkedIntent[$chatId] = 'name';
             $telegram->sendMessage($chatId, 'اكتبلي اسمك الكامل:', []);
 
             return;
@@ -168,8 +170,8 @@ class TelegramPoll extends Command
             return;
         }
 
-        if ($intent === 'patient' && $text !== '' && $text !== '/start') {
-            $this->tryRegisterPatient($chatId, $text, $telegram);
+        if ($intent === 'name' && $text !== '' && $text !== '/start') {
+            $this->tryRegisterByName($chatId, $text, $telegram);
 
             return;
         }
@@ -177,7 +179,7 @@ class TelegramPoll extends Command
         $telegram->sendMessage(
             $chatId,
             'أهلاً بك! 👋 اختر واحد من الأزرار تحت 👇',
-            [[self::BTN_PATIENT], [self::BTN_STAFF]],
+            [[self::BTN_PATIENT], [self::BTN_DOCTOR], [self::BTN_STAFF_LOGIN]],
         );
     }
 
@@ -199,11 +201,12 @@ class TelegramPoll extends Command
     }
 
     /**
-     * Just the name — no phone required, so an owner classifying this
-     * request later still has to pick a branch/gender for a brand-new
-     * patient (see TelegramRegistrationController::linkPatient).
+     * Just the name — used for both "أنا طبيب" and "أنا مريض" alike, since
+     * neither has a code to type; the owner picks which one they actually
+     * are (and, for a patient, still fills in branch/gender for a
+     * brand-new record) from the pending-registrations list on /telegram.
      */
-    protected function tryRegisterPatient(int $chatId, string $text, TelegramService $telegram): void
+    protected function tryRegisterByName(int $chatId, string $text, TelegramService $telegram): void
     {
         $name = trim($text);
 
