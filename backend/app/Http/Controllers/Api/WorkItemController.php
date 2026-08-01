@@ -7,6 +7,7 @@ use App\Http\Resources\WorkItemResource;
 use App\Models\Patient;
 use App\Models\Service;
 use App\Models\WorkItem;
+use App\Models\WorkItemStep;
 use App\Models\WorkItemToothStep;
 use App\Services\WorkItemService;
 use Illuminate\Http\Request;
@@ -83,6 +84,41 @@ class WorkItemController extends Controller
         $updated = $service->updateToothStep($toothStep, $data['completed'] ?? null, $data['field_values'] ?? null);
 
         return response()->json(['id' => $updated->id, 'completed' => $updated->completed_at !== null, 'field_values' => $updated->field_values ?? (object) []]);
+    }
+
+    public function addTeeth(Request $request, WorkItem $workItem, WorkItemService $service)
+    {
+        $this->authorizeManage($request);
+
+        $data = $request->validate([
+            'tooth_numbers' => ['required', 'array', 'min:1'],
+            'tooth_numbers.*' => ['integer'],
+        ]);
+
+        $workItem = $service->addTeeth($workItem, $data['tooth_numbers']);
+
+        return new WorkItemResource($workItem);
+    }
+
+    public function removeTooth(Request $request, WorkItem $workItem, int $toothNumber, WorkItemService $service)
+    {
+        $this->authorizeManage($request);
+
+        $service->removeTooth($workItem, $toothNumber);
+
+        return new WorkItemResource($workItem->fresh(['doctor', 'service', 'teeth', 'steps.toothSteps', 'steps.serviceStep.fields']));
+    }
+
+    public function updateStepPrice(Request $request, WorkItem $workItem, WorkItemStep $step, WorkItemService $service)
+    {
+        $this->authorizeManage($request);
+        abort_unless($step->work_item_id === $workItem->id, 404);
+
+        $data = $request->validate(['price' => ['required', 'numeric', 'min:0']]);
+
+        $service->updateStepPrice($step, (float) $data['price']);
+
+        return new WorkItemResource($workItem->fresh(['doctor', 'service', 'teeth', 'steps.toothSteps', 'steps.serviceStep.fields']));
     }
 
     public function applyToAll(Request $request, WorkItem $workItem, WorkItemService $service)

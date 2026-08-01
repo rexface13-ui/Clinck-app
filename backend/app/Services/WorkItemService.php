@@ -33,15 +33,7 @@ class WorkItemService
     public function create(Patient $patient, ?int $doctorId, Service $service, array $teeth): WorkItem
     {
         abort_if(empty($teeth), 422, 'لازم تحدد سن واحد عالأقل.');
-
-        if (! $service->allows_missing_teeth) {
-            $missingTeeth = ToothState::where('patient_id', $patient->id)
-                ->where('status', 'missing')
-                ->whereIn('tooth_number', $teeth)
-                ->pluck('tooth_number');
-
-            abort_if($missingTeeth->isNotEmpty(), 422, 'هالأسنان مسجّلة مفقودة، وهاي الخدمة ما بتسمح تشتغل عليها: '.$missingTeeth->implode('، '));
-        }
+        $this->assertTeethAllowed($patient, $service, $teeth);
 
         return DB::transaction(function () use ($patient, $doctorId, $service, $teeth) {
             $workItem = WorkItem::create([
@@ -87,6 +79,127 @@ class WorkItemService
 
             return $workItem->fresh(['teeth', 'steps.toothSteps', 'steps.serviceStep.fields']);
         });
+    }
+
+    protected function assertTeethAllowed(Patient $patient, Service $service, array $teeth): void
+    {
+        if ($service->allows_missing_teeth) {
+            return;
+        }
+
+        $missingTeeth = ToothState::where('patient_id', $patient->id)
+            ->where('status', 'missing')
+            ->whereIn('tooth_number', $teeth)
+            ->pluck('tooth_number');
+
+        abort_if($missingTeeth->isNotEmpty(), 422, 'هالأسنان مسجّلة مفقودة، وهاي الخدمة ما بتسمح تشتغل عليها: '.$missingTeeth->implode('، '));
+    }
+
+    /** Adds more teeth to an already-started work item — same per-step tracking rows create() sets up for a brand-new item, just skipping any tooth already on it. */
+    public function addTeeth(WorkItem $workItem, array $teeth): WorkItem
+    {
+        abort_if(empty($teeth), 422, 'لازم تحدد سن واحد عالأقل.');
+
+        $workItem->loadMissing('patient', 'service', 'teeth', 'steps');
+        $existing = $workItem->toothNumbers();
+        $newTeeth = array_values(array_diff(array_map('intval', $teeth), $existing));
+
+        if (empty($newTeeth)) {
+            return $workItem->fresh(['teeth', 'steps.toothSteps', 'steps.serviceStep.fields']);
+        }
+
+        $this->assertTeethAllowed($workItem->patient, $workItem->service, $newTeeth);
+
+        DB::transaction(function () use ($workItem, $newTeeth) {
+            foreach ($newTeeth as $toothNumber) {
+                WorkItemTooth::create(['work_item_id' => $workItem->id, 'tooth_number' => $toothNumber]);
+
+                foreach ($workItem->steps as $step) {
+                    WorkItemToothStep::create([
+                        'work_item_id' => $workItem->id,
+                        'tooth_number' => $toothNumber,
+                        'work_item_step_id' => $step->id,
+                    ]);
+                }
+            }
+        });
+
+        return $workItem->fresh(['teeth', 'steps.toothSteps', 'steps.serviceStep.fields']);
+    }
+
+    /**
+     * Drops one tooth entirely from a work item — reverses billing on any of
+     * its tooth-steps that were already invoiced (same reversal
+     * reverseBilledToothStep() does for a single un-check), then deletes its
+     * tracking rows. A tooth-step under a flat-fee (!price_per_tooth) step
+     * that's been billed can't be individually reversed — reverseBilledToothStep()
+     * already enforces that — so removing a tooth with billed flat-fee work
+     * on it fails with a clear message instead of silently losing the charge.
+     */
+    public function removeTooth(WorkItem $workItem, int $toothNumber): void
+    {
+        $workItem->loadMissing('teeth', 'toothSteps');
+
+        abort_if($workItem->teeth->count() <= 1, 422, 'ما فيك تشيل آخر سن من الشغلة — إلغي الشغلة كاملة بدل هيك.');
+
+        DB::transaction(function () use ($workItem, $toothNumber) {
+            $toothSteps = $workItem->toothSteps->where('tooth_number', $toothNumber);
+
+            foreach ($toothSteps as $toothStep) {
+                if ($toothStep->invoice_line_id) {
+                    $this->reverseBilledToothStep($toothStep);
+                }
+            }
+
+            WorkItemToothStep::where('work_item_id', $workItem->id)->where('tooth_number', $toothNumber)->delete();
+            WorkItemTooth::where('work_item_id', $workItem->id)->where('tooth_number', $toothNumber)->delete();
+
+            $this->recomputeToothFinding($workItem->patient_id, $toothNumber, $workItem->service_id);
+        });
+    }
+
+    /** Corrects a step's price going forward — never rewrites invoice lines already billed at the old price, only what's billed after this change. */
+    public function updateStepPrice(WorkItemStep $step, float $price): WorkItemStep
+    {
+        $step->update(['price' => $price]);
+
+        return $step->fresh();
+    }
+
+    /**
+     * Recomputes a (patient, tooth, service) ToothFinding from whatever
+     * work-item progress actually still exists after a reversal/removal —
+     * deletes it if nothing's completed anymore, otherwise sets it to
+     * 'done'/'in_progress' same as recordFindingsAndCommission() would.
+     * Without this, undoing a tooth-step (or removing the tooth entirely)
+     * left the chart showing a stale "done"/"in_progress" tooth forever.
+     */
+    protected function recomputeToothFinding(int $patientId, int $toothNumber, ?int $serviceId): void
+    {
+        if (! $serviceId) {
+            return;
+        }
+
+        $steps = WorkItemToothStep::query()
+            ->where('tooth_number', $toothNumber)
+            ->whereHas('workItem', fn ($q) => $q->where('patient_id', $patientId)->where('service_id', $serviceId)->where('status', '!=', 'cancelled'))
+            ->get();
+
+        $finding = ToothFinding::where('patient_id', $patientId)->where('tooth_number', $toothNumber)->where('service_id', $serviceId)->first();
+
+        if (! $finding) {
+            return;
+        }
+
+        $completedCount = $steps->filter(fn ($ts) => $ts->completed_at)->count();
+
+        if ($completedCount === 0) {
+            $finding->delete();
+
+            return;
+        }
+
+        $finding->update(['status' => $completedCount === $steps->count() ? 'done' : 'in_progress']);
     }
 
     /** Toggles one tooth's progress on one step, and/or saves its field values. Nothing is billed here — billing happens at checkout(). */
@@ -151,6 +264,8 @@ class WorkItemService
             }
 
             $toothStep->update(['completed_at' => null, 'invoice_line_id' => null]);
+
+            $this->recomputeToothFinding($toothStep->workItem->patient_id, (int) $toothStep->tooth_number, $toothStep->workItem->service_id);
         });
     }
 

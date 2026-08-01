@@ -10,6 +10,7 @@ import {
   faObjectGroup,
   faTriangleExclamation,
   faNoteSticky,
+  faPen,
 } from '@fortawesome/free-solid-svg-icons'
 import { Odontogram } from 'react-odontogram'
 import 'react-odontogram/style.css'
@@ -109,6 +110,12 @@ export default function WorkPlanningPanel({
   const [newServiceId, setNewServiceId] = useState('')
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
+
+  /** Non-null while re-opening an existing work item for editing — the tooth-picker/service card above becomes that item's edit form instead of the "start new work" form. */
+  const [editingWorkItemId, setEditingWorkItemId] = useState<number | null>(null)
+  const [editingOriginalTeeth, setEditingOriginalTeeth] = useState<number[]>([])
+  const [editedPrices, setEditedPrices] = useState<Record<number, string>>({})
+  const pickerSectionRef = useRef<HTMLDivElement>(null)
 
   const [checkoutIds, setCheckoutIds] = useState<Set<number>>(new Set())
   const [discount, setDiscount] = useState('')
@@ -220,6 +227,94 @@ export default function WorkPlanningPanel({
       setActiveWorkItemId(res.data.data.id)
     } catch {
       setCreateError('صار خطأ أثناء بدء الشغل.')
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  /**
+   * Checks whether any of `teeth` already has work under the same service
+   * elsewhere for this patient — a different in-progress work item that
+   * already covers the tooth, or a chart finding already marked 'done' —
+   * before letting it get added here too (accidental duplicate work/billing).
+   * Returns human-readable warning lines, empty if nothing conflicts.
+   */
+  function findDuplicates(teeth: number[], serviceId: number, excludeWorkItemId: number | null): string[] {
+    const warnings: string[] = []
+    for (const tooth of teeth) {
+      const otherItem = workItems.find(
+        (w) => w.id !== excludeWorkItemId && w.service_id === serviceId && w.teeth.includes(tooth),
+      )
+      if (otherItem) {
+        warnings.push(`سن ${tooth} أصلاً ضمن شغلة تانية قيد التنفيذ لنفس الخدمة.`)
+        continue
+      }
+      const doneFinding = toothFindings.find((f) => f.tooth_number === tooth && f.service_id === serviceId && f.status === 'done')
+      if (doneFinding) {
+        warnings.push(`سن ${tooth} أصلاً منجز بنفس الخدمة من قبل.`)
+      }
+    }
+    return warnings
+  }
+
+  function startEditWorkItem(w: WorkItem) {
+    setEditingWorkItemId(w.id)
+    setEditingOriginalTeeth(w.teeth)
+    setSelection(w.teeth)
+    setNewServiceId(String(w.service_id ?? ''))
+    if (w.doctor_id) setDoctorId(String(w.doctor_id))
+    setEditedPrices(Object.fromEntries(w.steps.map((s) => [s.id, s.price])))
+    setActiveWorkItemId(w.id)
+    setCreateError(null)
+    requestAnimationFrame(() => pickerSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }))
+  }
+
+  function cancelEditWorkItem() {
+    setEditingWorkItemId(null)
+    setEditingOriginalTeeth([])
+    setEditedPrices({})
+    setSelection([])
+    setNewServiceId('')
+    setCreateError(null)
+  }
+
+  async function saveWorkItemEdits(w: WorkItem) {
+    if (!w.service_id) return
+    const addedTeeth = selectedTeeth.filter((n) => !editingOriginalTeeth.includes(n))
+    const removedTeeth = editingOriginalTeeth.filter((n) => !selectedTeeth.includes(n))
+
+    if (selectedTeeth.length === 0) {
+      setCreateError('لازم يضل سن واحد عالأقل بالشغلة.')
+      return
+    }
+
+    if (addedTeeth.length > 0) {
+      const warnings = findDuplicates(addedTeeth, w.service_id, w.id)
+      if (warnings.length > 0 && !window.confirm(`${warnings.join('\n')}\nمتأكد إنك بدك تضيفها هون كمان؟`)) {
+        return
+      }
+    }
+
+    setCreating(true)
+    setCreateError(null)
+    try {
+      if (addedTeeth.length > 0) {
+        await api.post(`/work-items/${w.id}/teeth`, { tooth_numbers: addedTeeth })
+      }
+      for (const tooth of removedTeeth) {
+        await api.delete(`/work-items/${w.id}/teeth/${tooth}`)
+      }
+      for (const step of w.steps) {
+        const edited = editedPrices[step.id]
+        if (edited !== undefined && Number(edited) !== Number(step.price)) {
+          await api.patch(`/work-items/${w.id}/steps/${step.id}`, { price: Number(edited) })
+        }
+      }
+      cancelEditWorkItem()
+      loadWorkItems()
+    } catch (err) {
+      const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      setCreateError(message ?? 'صار خطأ أثناء حفظ التعديلات.')
     } finally {
       setCreating(false)
     }
@@ -556,6 +651,15 @@ export default function WorkPlanningPanel({
                         {checkoutIds.has(w.id) ? 'ضمن إنهاء الجلسة الحالية' : 'إنهاء الجلسة الحالية'}
                       </button>
                       <button
+                        onClick={() => (editingWorkItemId === w.id ? cancelEditWorkItem() : startEditWorkItem(w))}
+                        className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium ${
+                          editingWorkItemId === w.id ? 'bg-accent text-white' : 'bg-background text-ink/70 hover:text-accent'
+                        }`}
+                      >
+                        <FontAwesomeIcon icon={faPen} />
+                        {editingWorkItemId === w.id ? 'إلغاء التعديل' : 'تعديل'}
+                      </button>
+                      <button
                         onClick={() => cancelWorkItem(w)}
                         className="flex items-center gap-1.5 rounded-lg bg-background px-2.5 py-1.5 text-xs font-medium text-danger hover:bg-danger-soft"
                       >
@@ -635,7 +739,19 @@ export default function WorkPlanningPanel({
                         <div key={step.id} className="rounded-lg bg-background p-3">
                           <div className="mb-2 flex items-center justify-between">
                             <h4 className="text-sm font-semibold text-ink">{step.title}</h4>
-                            <span className="text-xs text-muted">{step.price} ₪ {w.price_per_tooth ? '/ سن' : 'إجمالي'}</span>
+                            {editingWorkItemId === w.id ? (
+                              <span className="flex items-center gap-1 text-xs text-muted">
+                                <input
+                                  type="number"
+                                  value={editedPrices[step.id] ?? step.price}
+                                  onChange={(e) => setEditedPrices({ ...editedPrices, [step.id]: e.target.value })}
+                                  className="w-20 rounded-lg border border-border px-2 py-1 text-xs"
+                                />
+                                ₪ {w.price_per_tooth ? '/ سن' : 'إجمالي'}
+                              </span>
+                            ) : (
+                              <span className="text-xs text-muted">{step.price} ₪ {w.price_per_tooth ? '/ سن' : 'إجمالي'}</span>
+                            )}
                           </div>
                           <div className="space-y-2">
                             {step.tooth_steps.map((ts) => (
@@ -709,15 +825,18 @@ export default function WorkPlanningPanel({
         </Card>
       )}
 
+      <div ref={pickerSectionRef}>
       <Card className="p-4">
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-medium text-ink/70">إضافة شغل جديد — حدد الأسنان</h2>
+          <h2 className="text-sm font-medium text-ink/70">
+            {editingWorkItemId ? `تعديل شغلة — ${services.find((s) => String(s.id) === newServiceId)?.name ?? ''}` : 'إضافة شغل جديد — حدد الأسنان'}
+          </h2>
           <div className="flex items-center gap-2">
             <span className="flex items-center gap-1.5 text-xs text-muted">
               <FontAwesomeIcon icon={faObjectGroup} />
               اضغط سن، وبعدين Ctrl+ضغط سن تاني تحدد كل النطاق بينهم
             </span>
-            {selectedTeeth.length > 0 && (
+            {selectedTeeth.length > 0 && !editingWorkItemId && (
               <button
                 onClick={() => {
                   setSelection([])
@@ -757,24 +876,50 @@ export default function WorkPlanningPanel({
         <div className="mt-3 flex flex-wrap items-end gap-3">
           <div className="w-64">
             <label className="mb-1 block text-xs text-muted">الخدمة</label>
-            <SearchableSelect
-              options={serviceOptions}
-              value={newServiceId}
-              onChange={selectService}
-              placeholder="اختر خدمة..."
-            />
+            {editingWorkItemId ? (
+              <p className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-ink/70">
+                {services.find((s) => String(s.id) === newServiceId)?.name ?? '—'}
+              </p>
+            ) : (
+              <SearchableSelect
+                options={serviceOptions}
+                value={newServiceId}
+                onChange={selectService}
+                placeholder="اختر خدمة..."
+              />
+            )}
           </div>
           <div className="w-64">
             <label className="mb-1 block text-xs text-muted">الطبيب المشرف (إجباري)</label>
             <SearchableSelect options={doctorOptions} value={doctorId} onChange={setDoctorId} placeholder="اختر طبيب..." />
           </div>
-          <Button onClick={createWorkItem} loading={creating} disabled={creating}>
-            <FontAwesomeIcon icon={faPlus} />
-            بدء الشغل ({selectedTeeth.length} سن)
-          </Button>
+          {editingWorkItemId ? (
+            <div className="flex gap-2">
+              <Button
+                onClick={() => {
+                  const w = workItems.find((wi) => wi.id === editingWorkItemId)
+                  if (w) saveWorkItemEdits(w)
+                }}
+                loading={creating}
+                disabled={creating}
+              >
+                <FontAwesomeIcon icon={faCheck} />
+                حفظ التعديلات ({selectedTeeth.length} سن)
+              </Button>
+              <button onClick={cancelEditWorkItem} className="rounded-xl px-3 py-2 text-sm text-muted hover:bg-background">
+                إلغاء
+              </button>
+            </div>
+          ) : (
+            <Button onClick={createWorkItem} loading={creating} disabled={creating}>
+              <FontAwesomeIcon icon={faPlus} />
+              بدء الشغل ({selectedTeeth.length} سن)
+            </Button>
+          )}
         </div>
         {createError && <p className="mt-2 text-sm text-danger">{createError}</p>}
       </Card>
+      </div>
 
       {checkoutIds.size > 0 && (
         <div ref={checkoutSectionRef}>
