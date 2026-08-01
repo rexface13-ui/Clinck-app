@@ -26,8 +26,8 @@ if (-not (Test-Path $PHP)) {
     exit 1
 }
 
-# ── [1/3] الباك إند بنافذة منفصلة ────────────────────────────────────────
-Write-Host "[1/3] Starting backend server (port 8010)..."
+# ── [1/4] الباك إند بنافذة منفصلة ────────────────────────────────────────
+Write-Host "[1/4] Starting backend server (port 8010)..."
 Start-Process -FilePath "cmd.exe" -ArgumentList "/k", "title DentaFlow - Backend && cd /d `"$BACKEND`" && `"$PHP`" artisan serve --port=8010"
 
 Write-Host "[*] Waiting for backend..."
@@ -43,15 +43,20 @@ if (-not $ready) {
     Write-Host "[!] الباك إند لم يستجب بعد — تحقق من نافذة DentaFlow - Backend" -ForegroundColor Yellow
 }
 
-# ── [2/3] الواجهة (خادم PHP الثابت مع الـ router اللي بيمرّر /api للباك إند) ──
-Write-Host "[2/3] Starting frontend server (port 5183)..."
+# ── [2/4] الواجهة (خادم PHP الثابت مع الـ router اللي بيمرّر /api للباك إند) ──
+Write-Host "[2/4] Starting frontend server (port 5183)..."
 $FRONTEND_DIST = Join-Path $ROOT "frontend\dist"
 Start-Process -FilePath "cmd.exe" -ArgumentList "/k", "title DentaFlow - Frontend && `"$PHP`" -S 0.0.0.0:5183 -t `"$FRONTEND_DIST`" `"$ROUTER`""
 
+# ── [3/4] بوت تيليغرام بنافذة منفصلة — لو التوكن مش معبّى بعد، الأمر بيطبع
+#          تحذير ويرجع فوراً بدون ما يعلّق النافذة (مش خطأ يوقف التشغيل).
+Write-Host "[3/4] Starting Telegram bot listener..."
+Start-Process -FilePath "cmd.exe" -ArgumentList "/k", "title DentaFlow - Telegram Bot && cd /d `"$BACKEND`" && `"$PHP`" artisan telegram:poll"
+
 Start-Sleep -Seconds 2
 
-# ── [3/3] فتح المتصفح ────────────────────────────────────────────────────
-Write-Host "[3/3] Opening browser..."
+# ── [4/4] فتح المتصفح ────────────────────────────────────────────────────
+Write-Host "[4/4] Opening browser..."
 Start-Process "http://localhost:5183"
 
 Write-Host ""
@@ -63,8 +68,8 @@ Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
     Where-Object { $_.IPAddress -notlike "127.*" -and $_.IPAddress -notlike "169.254.*" } |
     ForEach-Object { Write-Host "    http://$($_.IPAddress):5183" }
 Write-Host ""
-Write-Host "  Close the 'DentaFlow - Backend' and 'DentaFlow - Frontend'" -ForegroundColor Green
-Write-Host "  windows to STOP the system." -ForegroundColor Green
+Write-Host "  Close the 'DentaFlow - Backend', 'DentaFlow - Frontend', and" -ForegroundColor Green
+Write-Host "  'DentaFlow - Telegram Bot' windows to STOP the system." -ForegroundColor Green
 Write-Host "================================================" -ForegroundColor Green
 Write-Host ""
 Pause-Exit
