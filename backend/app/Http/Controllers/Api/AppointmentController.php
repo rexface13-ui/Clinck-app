@@ -73,7 +73,7 @@ class AppointmentController extends Controller
 
         ActivityLog::record(
             'appointment.created',
-            sprintf('حجز موعد جديد لـ %s مع %s بتاريخ %s', $appointment->patient?->full_name, $appointment->doctor?->full_name ?? 'بدون طبيب', $appointment->starts_at->format('d/m/Y H:i')),
+            sprintf('حجز موعد جديد لـ %s مع %s بتاريخ %s', $appointment->patient?->full_name, $appointment->doctor?->full_name ?? 'بدون طبيب', display_datetime($appointment->starts_at)),
             $appointment,
         );
 
@@ -83,7 +83,7 @@ class AppointmentController extends Controller
             if ($link) {
                 $telegram->sendMessage(
                     (int) $link->telegram_chat_id,
-                    sprintf("📅 موعد جديد!\n%s — %s", $appointment->starts_at->format('d/m/Y H:i'), $appointment->patient?->full_name),
+                    sprintf("📅 موعد جديد!\n%s — %s", display_datetime($appointment->starts_at), $appointment->patient?->full_name),
                 );
             }
         }
@@ -155,7 +155,7 @@ class AppointmentController extends Controller
             'حذف موعد %s مع %s بتاريخ %s',
             $appointment->patient?->full_name ?? 'مريض محذوف',
             $appointment->doctor?->full_name ?? 'بدون طبيب',
-            $appointment->starts_at->format('d/m/Y H:i'),
+            display_datetime($appointment->starts_at),
         ));
 
         DB::transaction(function () use ($appointment) {

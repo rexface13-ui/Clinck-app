@@ -71,6 +71,18 @@ class TelegramPoll extends Command
      */
     protected array $unlinkedIntent = [];
 
+    /**
+     * starts_at/ends_at are stored UTC (timestamptz) — every place that
+     * turns one into text for a chat message must convert to the clinic's
+     * display timezone first, same as DateFormatter does for the web UI,
+     * or times come out shifted by the UTC offset (this bit us once
+     * already: a bot-composed message showed times ~3 hours off).
+     */
+    protected function localTime(Carbon $value, string $format): string
+    {
+        return $value->clone()->timezone(config('dentaflow.display_timezone'))->format($format);
+    }
+
     public function handle(TelegramService $telegram, CheckService $checkService): int
     {
         if ($telegram->token() === '') {
@@ -326,7 +338,7 @@ class TelegramPoll extends Command
 
         $lines = $appointments->map(fn (Appointment $a) => sprintf(
             '%s — %s (د. %s)',
-            $a->starts_at->format('d/m H:i'),
+            $this->localTime($a->starts_at, 'd/m H:i'),
             $a->patient?->full_name,
             $a->doctor?->full_name,
         ));
@@ -480,7 +492,7 @@ class TelegramPoll extends Command
             if ($upcoming->isEmpty()) {
                 $telegram->sendMessage($chatId, 'ما في مواعيد قادمة إلك حالياً.', $keyboard);
             } else {
-                $lines = $upcoming->map(fn (Appointment $a) => sprintf('%s — %s', $a->starts_at->format('d/m/Y H:i'), $a->doctor_name ?? 'بدون طبيب محدد'));
+                $lines = $upcoming->map(fn (Appointment $a) => sprintf('%s — %s', $this->localTime($a->starts_at, 'd/m/Y H:i'), $a->doctor_name ?? 'بدون طبيب محدد'));
                 $telegram->sendMessage($chatId, "مواعيدك القادمة:\n".$lines->implode("\n"), $keyboard);
             }
 
@@ -509,7 +521,7 @@ class TelegramPoll extends Command
                 return;
             }
 
-            $lines = $prescriptions->map(fn (Prescription $p) => sprintf("%s\n%s", $p->created_at->format('d/m/Y'), $p->medications));
+            $lines = $prescriptions->map(fn (Prescription $p) => sprintf("%s\n%s", $this->localTime($p->created_at, 'd/m/Y'), $p->medications));
             $telegram->sendMessage($chatId, "آخر وصفاتك:\n\n".$lines->implode("\n\n"), $keyboard);
 
             return;
@@ -588,7 +600,7 @@ class TelegramPoll extends Command
             return;
         }
 
-        $lines = $appointments->map(fn (Appointment $a) => sprintf('%s — %s', $a->starts_at->format('d/m H:i'), $a->patient?->full_name));
+        $lines = $appointments->map(fn (Appointment $a) => sprintf('%s — %s', $this->localTime($a->starts_at, 'd/m H:i'), $a->patient?->full_name));
         $telegram->sendMessage($chatId, "مواعيدك:\n".$lines->implode("\n"), $keyboard);
     }
 
@@ -691,7 +703,7 @@ class TelegramPoll extends Command
 
             $telegram->sendMessage(
                 $chatId,
-                sprintf("تم حجز موعدك بنجاح! ✅\nد. %s — %s", $doctor->full_name, $slot['starts_at']->clone()->timezone(config('dentaflow.display_timezone'))->format('d/m/Y H:i')),
+                sprintf("تم حجز موعدك بنجاح! ✅\nد. %s — %s", $doctor->full_name, $this->localTime($slot['starts_at'], 'd/m/Y H:i')),
                 $this->patientKeyboard(),
             );
 
@@ -700,7 +712,7 @@ class TelegramPoll extends Command
             if ($doctorLink) {
                 $telegram->sendMessage(
                     (int) $doctorLink->telegram_chat_id,
-                    sprintf("📅 موعد جديد (حجز ذاتي)!\n%s — %s", $appointment->starts_at->format('d/m/Y H:i'), $patient->full_name),
+                    sprintf("📅 موعد جديد (حجز ذاتي)!\n%s — %s", $this->localTime($appointment->starts_at, 'd/m/Y H:i'), $patient->full_name),
                 );
             }
         }

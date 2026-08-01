@@ -368,8 +368,14 @@ export default function AppointmentsPage() {
             <FontAwesomeIcon icon={faChevronRight} />
           </button>
           {view === 'day' ? (
-            <div className="w-40">
-              <DatePicker value={date} onChange={(iso) => iso && setDate(iso)} allowClear={false} />
+            <div className="flex items-center gap-2">
+              <span className="min-w-28 text-center text-sm font-medium text-ink">
+                {WEEKDAY_LABELS_FRI_FIRST[friIndex(date)]}
+                {date === todayIso() && <span className="text-accent"> (اليوم)</span>}
+              </span>
+              <div className="w-36">
+                <DatePicker value={date} onChange={(iso) => iso && setDate(iso)} allowClear={false} />
+              </div>
             </div>
           ) : (
             <span className="min-w-32 text-center text-sm font-medium text-ink">

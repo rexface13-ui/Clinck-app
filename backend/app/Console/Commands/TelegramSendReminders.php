@@ -95,7 +95,7 @@ class TelegramSendReminders extends Command
 
             $lines = $doctorAppointments->map(fn (Appointment $a) => sprintf(
                 '%s — %s',
-                $a->starts_at->format('d/m/Y H:i'),
+                display_datetime($a->starts_at),
                 $a->patient?->full_name,
             ));
 
