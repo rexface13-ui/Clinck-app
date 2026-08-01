@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faChevronLeft, faChevronRight, faClockRotateLeft, faTriangleExclamation } from '@fortawesome/free-solid-svg-icons'
@@ -236,6 +236,22 @@ export default function AppointmentsPage() {
 
   const gridHeight = (rangeEnd - rangeStart) * PX_PER_MIN
 
+  // The hour labels live outside the schedule card (to its left, at each
+  // gridline) — this measures the real gap between the card's top edge and
+  // where the grid itself actually starts (below the card's title row and
+  // the per-doctor column-header row), so the labels line up with the
+  // gridlines regardless of how tall those rows render.
+  const scheduleWrapRef = useRef<HTMLDivElement>(null)
+  const gridBodyRef = useRef<HTMLDivElement>(null)
+  const [labelTopOffset, setLabelTopOffset] = useState(0)
+
+  useLayoutEffect(() => {
+    if (!scheduleWrapRef.current || !gridBodyRef.current) return
+    const wrapTop = scheduleWrapRef.current.getBoundingClientRect().top
+    const gridTop = gridBodyRef.current.getBoundingClientRect().top
+    setLabelTopOffset(gridTop - wrapTop)
+  }, [view, date, columns.length, gridHeight])
+
   function openBookingWith(colId: number | null, startMin: number, endMin: number) {
     setBookingDoctorId(colId)
     setBookingStartMin(startMin)
@@ -392,27 +408,27 @@ export default function AppointmentsPage() {
 
       {view === 'day' && (
         <div className="grid grid-cols-3 gap-6">
-          <Card className="col-span-2 p-4">
-            <div className="mb-3 flex items-center justify-between px-2">
-              <h2 className="text-sm font-medium text-ink/70">مواعيد اليوم — عمود لكل طبيب</h2>
-              <p className="text-xs text-muted">اضغط واسحب على عمود الطبيب لتحدد وقت ومدة الموعد.</p>
+          <div ref={scheduleWrapRef} className="col-span-2 flex flex-row-reverse items-start gap-2">
+            <div className="relative w-10 shrink-0 text-left" style={{ height: labelTopOffset + gridHeight }}>
+              {hourMarks.map((m) => (
+                <span
+                  key={m}
+                  className="absolute -translate-y-1/2 text-xs font-semibold text-ink/70"
+                  style={{ top: labelTopOffset + (m - rangeStart) * PX_PER_MIN }}
+                >
+                  {minutesToHM(m)}
+                </span>
+              ))}
             </div>
 
-            <div className="flex">
-              <div className="relative w-14 shrink-0 text-left" style={{ height: gridHeight }}>
-                {hourMarks.map((m) => (
-                  <span
-                    key={m}
-                    className="absolute -translate-y-1/2 text-xs font-semibold text-ink/70"
-                    style={{ top: (m - rangeStart) * PX_PER_MIN }}
-                  >
-                    {minutesToHM(m)}
-                  </span>
-                ))}
+            <Card className="flex-1 p-4">
+              <div className="mb-3 flex items-center justify-between px-2">
+                <h2 className="text-sm font-medium text-ink/70">مواعيد اليوم — عمود لكل طبيب</h2>
+                <p className="text-xs text-muted">اضغط واسحب على عمود الطبيب لتحدد وقت ومدة الموعد.</p>
               </div>
 
               <div className="flex flex-1 gap-px overflow-hidden rounded-lg border border-border bg-border">
-                {columns.map((col) => {
+                {columns.map((col, colIndex) => {
                   const colAppointments = dayAppointments.filter((a) => (a.doctor_id ?? null) === col.id)
                   const laidOut = layoutAppointments(colAppointments)
                   return (
@@ -422,6 +438,7 @@ export default function AppointmentsPage() {
                         <span className="truncate">{col.label}</span>
                       </div>
                       <div
+                        ref={colIndex === 0 ? gridBodyRef : undefined}
                         onMouseDown={(e) => startDrag(col.id, e)}
                         className="relative cursor-crosshair bg-background/40"
                         style={{ height: gridHeight }}
@@ -467,8 +484,8 @@ export default function AppointmentsPage() {
                   )
                 })}
               </div>
-            </div>
-          </Card>
+            </Card>
+          </div>
 
           <Card className="p-6">
             <h2 className="mb-4 text-sm font-medium text-ink/70">حجز موعد</h2>
