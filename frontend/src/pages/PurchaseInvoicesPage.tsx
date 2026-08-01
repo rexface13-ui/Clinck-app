@@ -419,52 +419,51 @@ export default function PurchaseInvoicesPage() {
                                 </div>
                               </div>
 
-                              <div className="rounded-xl border border-border bg-surface p-3">
-                                <label className="mb-1 block text-xs font-medium text-muted">ملاحظات</label>
-                                <textarea
-                                  value={notesDraft}
-                                  onChange={(e) => setNotesDraft(e.target.value)}
-                                  rows={2}
-                                  placeholder="أي ملاحظة على هذي الفاتورة..."
-                                  className="w-full rounded-lg border border-border px-3 py-2 text-sm focus:border-accent focus:outline-none"
-                                />
-                                {canManage && (
-                                  <button
-                                    onClick={saveNotes}
-                                    disabled={savingNotes || notesDraft === (selected.notes ?? '')}
-                                    className="mt-2 rounded-lg bg-accent-soft px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent hover:text-white disabled:opacity-50"
-                                  >
-                                    {savingNotes ? 'جارِ الحفظ...' : 'حفظ الملاحظة'}
-                                  </button>
-                                )}
-                              </div>
-
                               {canManage && selected.status === 'draft' && (
-                                <div className="flex flex-wrap items-end gap-2 rounded-xl border border-border bg-surface p-3">
-                                  <SearchableSelect
-                                    options={items.map((i) => ({ value: String(i.id), label: i.name, sublabel: i.unit }))}
-                                    value={lineForm.item_id}
-                                    onChange={pickItem}
-                                    placeholder="ابحث عن صنف..."
-                                    className="w-56"
-                                  />
-                                  <input type="number" placeholder="الكمية" value={lineForm.quantity} onChange={(e) => setLineForm({ ...lineForm, quantity: e.target.value })} className="w-24 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
-                                  <input type="number" placeholder="سعر الوحدة" value={lineForm.unit_price} onChange={(e) => setLineForm({ ...lineForm, unit_price: e.target.value })} className="w-28 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
-                                  <select value={lineForm.currency} onChange={(e) => setLineForm({ ...lineForm, currency: e.target.value })} className="rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
-                                    <option value="ILS">ILS</option>
-                                    <option value="USD">USD</option>
-                                    <option value="JOD">JOD</option>
-                                  </select>
-                                  {selectedItem?.type === 'tracked' && (
-                                    <>
-                                      <input placeholder="رقم الدفعة" value={lineForm.lot_number} onChange={(e) => setLineForm({ ...lineForm, lot_number: e.target.value })} className="w-32 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
-                                      <div className="w-40">
-                                        <DatePicker value={lineForm.expiry_date} onChange={(v) => setLineForm({ ...lineForm, expiry_date: v })} placeholder="تاريخ الصلاحية" />
-                                      </div>
-                                    </>
-                                  )}
-                                  <Button onClick={addLine} loading={busy} className="px-4 py-1.5">
-                                    إضافة بند
+                                <div className="rounded-xl border border-accent/30 bg-accent-soft/40 p-4">
+                                  <p className="mb-3 text-sm font-medium text-ink">إضافة صنف للفاتورة</p>
+                                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+                                    <div className="col-span-2 sm:col-span-3 lg:col-span-2">
+                                      <label className="mb-1 block text-xs text-muted">الصنف</label>
+                                      <SearchableSelect
+                                        options={items.map((i) => ({ value: String(i.id), label: i.name, sublabel: i.unit }))}
+                                        value={lineForm.item_id}
+                                        onChange={pickItem}
+                                        placeholder="ابحث عن صنف..."
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="mb-1 block text-xs text-muted">الكمية</label>
+                                      <input type="number" placeholder="0" value={lineForm.quantity} onChange={(e) => setLineForm({ ...lineForm, quantity: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
+                                    </div>
+                                    <div>
+                                      <label className="mb-1 block text-xs text-muted">سعر الوحدة</label>
+                                      <input type="number" placeholder="0.00" value={lineForm.unit_price} onChange={(e) => setLineForm({ ...lineForm, unit_price: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
+                                    </div>
+                                    <div>
+                                      <label className="mb-1 block text-xs text-muted">العملة</label>
+                                      <select value={lineForm.currency} onChange={(e) => setLineForm({ ...lineForm, currency: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
+                                        <option value="ILS">ILS</option>
+                                        <option value="USD">USD</option>
+                                        <option value="JOD">JOD</option>
+                                      </select>
+                                    </div>
+                                    {selectedItem?.type === 'tracked' && (
+                                      <>
+                                        <div>
+                                          <label className="mb-1 block text-xs text-muted">رقم الدفعة</label>
+                                          <input placeholder="اختياري" value={lineForm.lot_number} onChange={(e) => setLineForm({ ...lineForm, lot_number: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
+                                        </div>
+                                        <div>
+                                          <label className="mb-1 block text-xs text-muted">تاريخ الصلاحية</label>
+                                          <DatePicker value={lineForm.expiry_date} onChange={(v) => setLineForm({ ...lineForm, expiry_date: v })} placeholder="اختياري" />
+                                        </div>
+                                      </>
+                                    )}
+                                  </div>
+                                  <Button onClick={addLine} loading={busy} className="mt-3 w-full justify-center sm:w-auto">
+                                    <FontAwesomeIcon icon={faPlus} />
+                                    إضافة البند
                                   </Button>
                                 </div>
                               )}
@@ -518,6 +517,26 @@ export default function PurchaseInvoicesPage() {
                                   </Table>
                                 </div>
                               )}
+
+                              <div className="rounded-xl border border-border bg-surface p-3">
+                                <label className="mb-1 block text-xs font-medium text-muted">ملاحظات</label>
+                                <textarea
+                                  value={notesDraft}
+                                  onChange={(e) => setNotesDraft(e.target.value)}
+                                  rows={2}
+                                  placeholder="أي ملاحظة على هذي الفاتورة..."
+                                  className="w-full rounded-lg border border-border px-3 py-2 text-sm focus:border-accent focus:outline-none"
+                                />
+                                {canManage && (
+                                  <button
+                                    onClick={saveNotes}
+                                    disabled={savingNotes || notesDraft === (selected.notes ?? '')}
+                                    className="mt-2 rounded-lg bg-accent-soft px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent hover:text-white disabled:opacity-50"
+                                  >
+                                    {savingNotes ? 'جارِ الحفظ...' : 'حفظ الملاحظة'}
+                                  </button>
+                                )}
+                              </div>
                             </div>
                           )}
                         </Td>
