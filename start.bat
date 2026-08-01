@@ -16,6 +16,9 @@ start "DentaFlow Backend" cmd /k call "%ROOT%run-backend.bat"
 echo Starting frontend server...
 start "DentaFlow Frontend" cmd /k call "%ROOT%run-frontend.bat"
 
+echo Starting Telegram bot listener...
+start "DentaFlow Telegram Bot" cmd /k call "%ROOT%run-telegram-bot.bat"
+
 echo Waiting for servers...
 timeout /t 5 /nobreak >nul
 
