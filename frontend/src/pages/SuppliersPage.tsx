@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faPlus, faTruck, faPen, faMagnifyingGlass, faTrash, faMoneyCheckDollar, faCheck, faXmark } from '@fortawesome/free-solid-svg-icons'
+import { faPlus, faTruck, faPen, faMagnifyingGlass, faTrash, faMoneyCheckDollar, faCheck, faXmark, faChevronDown, faChevronLeft } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import DatePicker from '../components/DatePicker'
@@ -57,12 +57,23 @@ export default function SuppliersPage() {
 
   useEffect(loadSuppliers, [])
 
-  function loadLedger(supplier: Supplier) {
+  function toggleSupplier(supplier: Supplier) {
+    if (selected?.id === supplier.id) {
+      setSelected(null)
+      setLedger(null)
+      return
+    }
     setSelected(supplier)
     setEditing(false)
     setActionTab(null)
     setEditingTxId(null)
+    setLedger(null)
     api.get(`/suppliers/${supplier.id}/ledger`).then((res) => setLedger(res.data))
+  }
+
+  function refreshLedger() {
+    if (!selected) return
+    api.get(`/suppliers/${selected.id}/ledger`).then((res) => setLedger(res.data))
   }
 
   async function submit() {
@@ -130,7 +141,7 @@ export default function SuppliersPage() {
       })
       setPayForm({ cashbox_id: '', amount: '', exchange_rate: '1', notes: '', occurred_at: todayIso() })
       setActionTab(null)
-      loadLedger(selected)
+      refreshLedger()
       loadSuppliers()
     } finally {
       setBusy(false)
@@ -148,7 +159,7 @@ export default function SuppliersPage() {
       })
       setDiscountForm({ amount: '', notes: '', occurred_at: todayIso() })
       setActionTab(null)
-      loadLedger(selected)
+      refreshLedger()
       loadSuppliers()
     } finally {
       setBusy(false)
@@ -170,7 +181,7 @@ export default function SuppliersPage() {
         occurred_at: editTxForm.occurred_at,
       })
       setEditingTxId(null)
-      loadLedger(selected)
+      refreshLedger()
       loadSuppliers()
     } finally {
       setBusy(false)
@@ -183,7 +194,7 @@ export default function SuppliersPage() {
     setBusy(true)
     try {
       await api.delete(`/suppliers/${selected.id}/transactions/${row.id}`)
-      loadLedger(selected)
+      refreshLedger()
       loadSuppliers()
     } finally {
       setBusy(false)
@@ -225,218 +236,214 @@ export default function SuppliersPage() {
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-5">
-        <div className="xl:col-span-2">
-          <Card>
-            <Table>
-              <Thead>
-                <Th>المورد</Th>
-                <Th>الهاتف</Th>
-                <Th>المستحق</Th>
-              </Thead>
-              <tbody>
-                {filteredSuppliers.length === 0 ? (
-                  <EmptyRow colSpan={3}>{search ? 'لا توجد نتائج مطابقة.' : 'لا يوجد موردون.'}</EmptyRow>
-                ) : (
-                  filteredSuppliers.map((s) => {
-                    const owed = Number(s.outstanding_ils)
-                    return (
-                      <Tr
-                        key={s.id}
-                        onClick={() => loadLedger(s)}
-                        className={`cursor-pointer ${selected?.id === s.id ? 'bg-accent-soft' : ''} ${!s.is_active ? 'opacity-60' : ''}`}
-                      >
-                        <Td className="flex items-center gap-2 font-medium text-ink">
-                          <FontAwesomeIcon icon={faTruck} className="text-ink/30" />
-                          {s.name}
-                        </Td>
-                        <Td className="text-muted">{s.phone ?? '—'}</Td>
-                        <Td className={owed > 0 ? 'font-semibold text-danger' : 'text-ink'}>{owed.toFixed(2)} ₪</Td>
-                      </Tr>
-                    )
-                  })
-                )}
-              </tbody>
-            </Table>
-          </Card>
-        </div>
-
-        <div className="xl:col-span-3">
-          {!selected ? (
-            <Card className="p-6 text-center text-sm text-muted">اختر مورداً من الجدول لعرض كشف الحساب.</Card>
-          ) : (
-            <div className="space-y-4">
-              <Card className="p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted">{selected.name}</p>
-                    <p className={`text-2xl font-semibold ${Number(ledger?.outstanding_ils ?? 0) > 0 ? 'text-danger' : 'text-ink'}`}>
-                      {ledger?.outstanding_ils ?? 0} ₪
-                    </p>
-                  </div>
-                  {canManage && !editing && (
-                    <div className="flex items-center gap-3">
-                      <button onClick={startEdit} className="flex items-center gap-1 text-xs text-accent hover:underline">
-                        <FontAwesomeIcon icon={faPen} />
-                        تعديل
-                      </button>
-                      <button onClick={deleteSupplier} className="flex items-center gap-1 text-xs text-danger hover:underline">
-                        <FontAwesomeIcon icon={faTrash} />
-                        حذف
-                      </button>
-                    </div>
-                  )}
-                </div>
-                {editing && (
-                  <div className="mt-3 space-y-2 border-t border-border/70 pt-3">
-                    <input
-                      placeholder="اسم المورد"
-                      value={editForm.name}
-                      onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-                      className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
-                    />
-                    <input
-                      placeholder="الهاتف (اختياري)"
-                      value={editForm.phone}
-                      onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
-                      className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
-                    />
-                    <div className="flex gap-2">
-                      <Button onClick={saveEdit} loading={busy} className="flex-1 justify-center px-3 py-1.5 text-xs">
-                        حفظ
-                      </Button>
-                      <button onClick={() => setEditing(false)} className="rounded-xl px-3 py-1.5 text-xs text-muted hover:bg-background">
-                        إلغاء
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </Card>
-
-              {canManage && (
-                <Card className="p-4">
-                  <div className="mb-3 flex gap-2 rounded-xl border border-border bg-background p-1">
-                    <button onClick={() => setActionTab(actionTab === 'pay' ? null : 'pay')} className={`flex-1 rounded-lg px-3 py-1.5 text-sm transition-colors ${actionTab === 'pay' ? 'bg-accent text-white' : 'text-ink/70 hover:bg-surface'}`}>
-                      دفع
-                    </button>
-                    <button onClick={() => setActionTab(actionTab === 'discount' ? null : 'discount')} className={`flex-1 rounded-lg px-3 py-1.5 text-sm transition-colors ${actionTab === 'discount' ? 'bg-accent text-white' : 'text-ink/70 hover:bg-surface'}`}>
-                      خصم
-                    </button>
-                    <button
-                      onClick={() => navigate(`/checks?new=1&direction=outgoing&supplier_id=${selected.id}`)}
-                      className="flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-ink/70 hover:bg-surface"
+      <Card>
+        <Table>
+          <Thead>
+            <Th></Th>
+            <Th>المورد</Th>
+            <Th>الهاتف</Th>
+            <Th>المستحق</Th>
+          </Thead>
+          <tbody>
+            {filteredSuppliers.length === 0 ? (
+              <EmptyRow colSpan={4}>{search ? 'لا توجد نتائج مطابقة.' : 'لا يوجد موردون.'}</EmptyRow>
+            ) : (
+              filteredSuppliers.map((s) => {
+                const owed = Number(s.outstanding_ils)
+                const isOpen = selected?.id === s.id
+                return (
+                  <Fragment key={s.id}>
+                    <Tr
+                      onClick={() => toggleSupplier(s)}
+                      className={`cursor-pointer ${isOpen ? 'bg-accent-soft' : ''} ${!s.is_active ? 'opacity-60' : ''}`}
                     >
-                      <FontAwesomeIcon icon={faMoneyCheckDollar} />
-                      دفع بشيك
-                    </button>
-                  </div>
+                      <Td className="w-8 text-ink/30">
+                        <FontAwesomeIcon icon={isOpen ? faChevronDown : faChevronLeft} />
+                      </Td>
+                      <Td className="flex items-center gap-2 font-medium text-ink">
+                        <FontAwesomeIcon icon={faTruck} className="text-ink/30" />
+                        {s.name}
+                      </Td>
+                      <Td className="text-muted">{s.phone ?? '—'}</Td>
+                      <Td className={owed > 0 ? 'font-semibold text-danger' : 'text-ink'}>{owed.toFixed(2)} ₪</Td>
+                    </Tr>
 
-                  {actionTab === 'pay' && (
-                    <div className="flex flex-wrap items-end gap-2">
-                      <SearchableSelect
-                        options={cashboxes.map((c) => ({ value: String(c.id), label: c.name, sublabel: c.currency }))}
-                        value={payForm.cashbox_id}
-                        onChange={(value) => setPayForm({ ...payForm, cashbox_id: value })}
-                        placeholder="الصندوق..."
-                        className="w-40"
-                      />
-                      <input type="number" placeholder="المبلغ" value={payForm.amount} onChange={(e) => setPayForm({ ...payForm, amount: e.target.value })} className="w-24 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
-                      {payCashbox && payCashbox.currency !== 'ILS' && (
-                        <input
-                          type="number"
-                          step="0.01"
-                          placeholder={`سعر الصرف (1 ${payCashbox.currency} = ? ₪)`}
-                          value={payForm.exchange_rate}
-                          onChange={(e) => setPayForm({ ...payForm, exchange_rate: e.target.value })}
-                          className="w-36 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
-                        />
-                      )}
-                      <DatePicker value={payForm.occurred_at} onChange={(v) => setPayForm({ ...payForm, occurred_at: v })} />
-                      <input placeholder="ملاحظات (اختياري)" value={payForm.notes} onChange={(e) => setPayForm({ ...payForm, notes: e.target.value })} className="w-48 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
-                      <Button onClick={pay} loading={busy} className="px-4 py-1.5">
-                        تأكيد الدفع
-                      </Button>
-                    </div>
-                  )}
+                    {isOpen && (
+                      <Tr>
+                        <Td colSpan={4} className="bg-background" onClick={(e) => e.stopPropagation()}>
+                          <div className="space-y-4 py-3">
+                            <div className="flex items-center justify-between">
+                              <p className={`text-xl font-semibold ${Number(ledger?.outstanding_ils ?? 0) > 0 ? 'text-danger' : 'text-ink'}`}>
+                                المستحق: {ledger?.outstanding_ils ?? 0} ₪
+                              </p>
+                              {canManage && !editing && (
+                                <div className="flex items-center gap-3">
+                                  <button onClick={startEdit} className="flex items-center gap-1 text-xs text-accent hover:underline">
+                                    <FontAwesomeIcon icon={faPen} />
+                                    تعديل بيانات المورد
+                                  </button>
+                                  <button onClick={deleteSupplier} className="flex items-center gap-1 text-xs text-danger hover:underline">
+                                    <FontAwesomeIcon icon={faTrash} />
+                                    حذف المورد
+                                  </button>
+                                </div>
+                              )}
+                            </div>
 
-                  {actionTab === 'discount' && (
-                    <div className="flex flex-wrap items-end gap-2">
-                      <p className="w-full text-xs text-muted">خصم يوافق عليه المورد على المستحق — بينزل من الرصيد بدون ما يمر على أي صندوق.</p>
-                      <input type="number" placeholder="مبلغ الخصم" value={discountForm.amount} onChange={(e) => setDiscountForm({ ...discountForm, amount: e.target.value })} className="w-28 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
-                      <DatePicker value={discountForm.occurred_at} onChange={(v) => setDiscountForm({ ...discountForm, occurred_at: v })} />
-                      <input placeholder="ملاحظات (اختياري)" value={discountForm.notes} onChange={(e) => setDiscountForm({ ...discountForm, notes: e.target.value })} className="w-48 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
-                      <Button onClick={submitDiscount} loading={busy} className="px-4 py-1.5">
-                        تأكيد الخصم
-                      </Button>
-                    </div>
-                  )}
-                </Card>
-              )}
-
-              <Card>
-                <Table>
-                  <Thead>
-                    <Th>النوع</Th>
-                    <Th>المبلغ</Th>
-                    <Th>الرصيد</Th>
-                    <Th>ملاحظات</Th>
-                    <Th>التاريخ</Th>
-                    {canManage && <Th></Th>}
-                  </Thead>
-                  <tbody>
-                    {(ledger?.transactions ?? []).length === 0 ? (
-                      <EmptyRow colSpan={canManage ? 6 : 5}>لا توجد حركات.</EmptyRow>
-                    ) : (
-                      ledger!.transactions.map((t) =>
-                        editingTxId === t.id ? (
-                          <Tr key={t.id}>
-                            <Td colSpan={canManage ? 6 : 5}>
-                              <div className="flex flex-wrap items-end gap-2 py-1">
-                                <span className="text-xs font-medium text-ink/70">{TYPE_LABELS[t.type]}</span>
-                                <input type="number" value={editTxForm.amount} onChange={(e) => setEditTxForm({ ...editTxForm, amount: e.target.value })} className="w-24 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
-                                <DatePicker value={editTxForm.occurred_at} onChange={(v) => setEditTxForm({ ...editTxForm, occurred_at: v })} />
-                                <input placeholder="ملاحظات" value={editTxForm.notes} onChange={(e) => setEditTxForm({ ...editTxForm, notes: e.target.value })} className="w-48 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
-                                <button onClick={saveEditTx} disabled={busy} className="rounded-lg bg-success-soft px-2 py-1.5 text-xs text-success hover:opacity-80">
-                                  <FontAwesomeIcon icon={faCheck} />
-                                </button>
-                                <button onClick={() => setEditingTxId(null)} className="rounded-lg bg-background px-2 py-1.5 text-xs text-ink/60 hover:bg-border/40">
-                                  <FontAwesomeIcon icon={faXmark} />
+                            {editing && (
+                              <div className="flex flex-wrap items-end gap-2 rounded-xl border border-border bg-surface p-3">
+                                <input
+                                  placeholder="اسم المورد"
+                                  value={editForm.name}
+                                  onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                                  className="w-56 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
+                                />
+                                <input
+                                  placeholder="الهاتف (اختياري)"
+                                  value={editForm.phone}
+                                  onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
+                                  className="w-48 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
+                                />
+                                <Button onClick={saveEdit} loading={busy} className="px-3 py-1.5 text-xs">
+                                  حفظ
+                                </Button>
+                                <button onClick={() => setEditing(false)} className="rounded-xl px-3 py-1.5 text-xs text-muted hover:bg-surface">
+                                  إلغاء
                                 </button>
                               </div>
-                            </Td>
-                          </Tr>
-                        ) : (
-                          <Tr key={t.id}>
-                            <Td>{TYPE_LABELS[t.type] ?? t.type}</Td>
-                            <Td className="text-muted">{t.amount_ils} ₪</Td>
-                            <Td className="text-muted">{t.balance_after_ils} ₪</Td>
-                            <Td className="text-muted">{t.notes ?? '—'}</Td>
-                            <Td className="text-muted">{t.occurred_at}</Td>
+                            )}
+
                             {canManage && (
-                              <Td>
-                                {t.editable && (
-                                  <div className="flex gap-2">
-                                    <button onClick={() => startEditTx(t)} className="text-ink/40 hover:text-accent">
-                                      <FontAwesomeIcon icon={faPen} />
-                                    </button>
-                                    <button onClick={() => deleteTx(t)} className="text-ink/40 hover:text-danger">
-                                      <FontAwesomeIcon icon={faTrash} />
-                                    </button>
+                              <div className="rounded-xl border border-border bg-surface p-3">
+                                <div className="mb-3 flex gap-2 rounded-xl border border-border bg-background p-1">
+                                  <button onClick={() => setActionTab(actionTab === 'pay' ? null : 'pay')} className={`flex-1 rounded-lg px-3 py-1.5 text-sm transition-colors ${actionTab === 'pay' ? 'bg-accent text-white' : 'text-ink/70 hover:bg-surface'}`}>
+                                    دفع
+                                  </button>
+                                  <button onClick={() => setActionTab(actionTab === 'discount' ? null : 'discount')} className={`flex-1 rounded-lg px-3 py-1.5 text-sm transition-colors ${actionTab === 'discount' ? 'bg-accent text-white' : 'text-ink/70 hover:bg-surface'}`}>
+                                    خصم
+                                  </button>
+                                  <button
+                                    onClick={() => navigate(`/checks?new=1&direction=outgoing&supplier_id=${s.id}`)}
+                                    className="flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-ink/70 hover:bg-surface"
+                                  >
+                                    <FontAwesomeIcon icon={faMoneyCheckDollar} />
+                                    دفع بشيك
+                                  </button>
+                                </div>
+
+                                {actionTab === 'pay' && (
+                                  <div className="flex flex-wrap items-end gap-2">
+                                    <SearchableSelect
+                                      options={cashboxes.map((c) => ({ value: String(c.id), label: c.name, sublabel: c.currency }))}
+                                      value={payForm.cashbox_id}
+                                      onChange={(value) => setPayForm({ ...payForm, cashbox_id: value })}
+                                      placeholder="الصندوق..."
+                                      className="w-40"
+                                    />
+                                    <input type="number" placeholder="المبلغ" value={payForm.amount} onChange={(e) => setPayForm({ ...payForm, amount: e.target.value })} className="w-24 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
+                                    {payCashbox && payCashbox.currency !== 'ILS' && (
+                                      <input
+                                        type="number"
+                                        step="0.01"
+                                        placeholder={`سعر الصرف (1 ${payCashbox.currency} = ? ₪)`}
+                                        value={payForm.exchange_rate}
+                                        onChange={(e) => setPayForm({ ...payForm, exchange_rate: e.target.value })}
+                                        className="w-36 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
+                                      />
+                                    )}
+                                    <DatePicker value={payForm.occurred_at} onChange={(v) => setPayForm({ ...payForm, occurred_at: v })} />
+                                    <input placeholder="ملاحظات (اختياري)" value={payForm.notes} onChange={(e) => setPayForm({ ...payForm, notes: e.target.value })} className="w-48 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
+                                    <Button onClick={pay} loading={busy} className="px-4 py-1.5">
+                                      تأكيد الدفع
+                                    </Button>
                                   </div>
                                 )}
-                              </Td>
+
+                                {actionTab === 'discount' && (
+                                  <div className="flex flex-wrap items-end gap-2">
+                                    <p className="w-full text-xs text-muted">خصم يوافق عليه المورد على المستحق — بينزل من الرصيد بدون ما يمر على أي صندوق.</p>
+                                    <input type="number" placeholder="مبلغ الخصم" value={discountForm.amount} onChange={(e) => setDiscountForm({ ...discountForm, amount: e.target.value })} className="w-28 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
+                                    <DatePicker value={discountForm.occurred_at} onChange={(v) => setDiscountForm({ ...discountForm, occurred_at: v })} />
+                                    <input placeholder="ملاحظات (اختياري)" value={discountForm.notes} onChange={(e) => setDiscountForm({ ...discountForm, notes: e.target.value })} className="w-48 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
+                                    <Button onClick={submitDiscount} loading={busy} className="px-4 py-1.5">
+                                      تأكيد الخصم
+                                    </Button>
+                                  </div>
+                                )}
+                              </div>
                             )}
-                          </Tr>
-                        ),
-                      )
+
+                            <div className="overflow-hidden rounded-xl border border-border bg-surface">
+                              <Table>
+                                <Thead>
+                                  <Th>النوع</Th>
+                                  <Th>المبلغ</Th>
+                                  <Th>الرصيد</Th>
+                                  <Th>ملاحظات</Th>
+                                  <Th>التاريخ</Th>
+                                  {canManage && <Th></Th>}
+                                </Thead>
+                                <tbody>
+                                  {(ledger?.transactions ?? []).length === 0 ? (
+                                    <EmptyRow colSpan={canManage ? 6 : 5}>لا توجد حركات.</EmptyRow>
+                                  ) : (
+                                    ledger!.transactions.map((t) =>
+                                      editingTxId === t.id ? (
+                                        <Tr key={t.id}>
+                                          <Td colSpan={canManage ? 6 : 5}>
+                                            <div className="flex flex-wrap items-end gap-2 py-1">
+                                              <span className="text-xs font-medium text-ink/70">{TYPE_LABELS[t.type]}</span>
+                                              <input type="number" value={editTxForm.amount} onChange={(e) => setEditTxForm({ ...editTxForm, amount: e.target.value })} className="w-24 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
+                                              <DatePicker value={editTxForm.occurred_at} onChange={(v) => setEditTxForm({ ...editTxForm, occurred_at: v })} />
+                                              <input placeholder="ملاحظات" value={editTxForm.notes} onChange={(e) => setEditTxForm({ ...editTxForm, notes: e.target.value })} className="w-48 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
+                                              <button onClick={saveEditTx} disabled={busy} className="rounded-lg bg-success-soft px-2 py-1.5 text-xs text-success hover:opacity-80">
+                                                <FontAwesomeIcon icon={faCheck} />
+                                              </button>
+                                              <button onClick={() => setEditingTxId(null)} className="rounded-lg bg-background px-2 py-1.5 text-xs text-ink/60 hover:bg-border/40">
+                                                <FontAwesomeIcon icon={faXmark} />
+                                              </button>
+                                            </div>
+                                          </Td>
+                                        </Tr>
+                                      ) : (
+                                        <Tr key={t.id}>
+                                          <Td>{TYPE_LABELS[t.type] ?? t.type}</Td>
+                                          <Td className="text-muted">{t.amount_ils} ₪</Td>
+                                          <Td className="text-muted">{t.balance_after_ils} ₪</Td>
+                                          <Td className="text-muted">{t.notes ?? '—'}</Td>
+                                          <Td className="text-muted">{t.occurred_at}</Td>
+                                          {canManage && (
+                                            <Td>
+                                              {t.editable && (
+                                                <div className="flex gap-2">
+                                                  <button onClick={() => startEditTx(t)} className="text-ink/40 hover:text-accent">
+                                                    <FontAwesomeIcon icon={faPen} />
+                                                  </button>
+                                                  <button onClick={() => deleteTx(t)} className="text-ink/40 hover:text-danger">
+                                                    <FontAwesomeIcon icon={faTrash} />
+                                                  </button>
+                                                </div>
+                                              )}
+                                            </Td>
+                                          )}
+                                        </Tr>
+                                      ),
+                                    )
+                                  )}
+                                </tbody>
+                              </Table>
+                            </div>
+                          </div>
+                        </Td>
+                      </Tr>
                     )}
-                  </tbody>
-                </Table>
-              </Card>
-            </div>
-          )}
-        </div>
-      </div>
+                  </Fragment>
+                )
+              })
+            )}
+          </tbody>
+        </Table>
+      </Card>
     </div>
   )
 }
