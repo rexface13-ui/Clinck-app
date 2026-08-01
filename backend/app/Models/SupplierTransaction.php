@@ -13,7 +13,7 @@ class SupplierTransaction extends Model
 
     protected $fillable = [
         'clinic_id', 'supplier_id', 'type', 'reference_type', 'reference_id',
-        'amount_ils', 'occurred_at',
+        'amount_ils', 'notes', 'occurred_at',
     ];
 
     protected function casts(): array

@@ -1,33 +1,47 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faPlus, faTruck, faPen, faMagnifyingGlass, faTrash } from '@fortawesome/free-solid-svg-icons'
+import { faPlus, faTruck, faPen, faMagnifyingGlass, faTrash, faMoneyCheckDollar, faCheck, faXmark } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
+import DatePicker from '../components/DatePicker'
 import { Card, PageHeader, Button, Table, Thead, Th, Td, Tr, EmptyRow, SearchableSelect } from '../components/ui'
-import type { Cashbox, Supplier, SupplierLedger } from '../types'
+import type { Cashbox, Supplier, SupplierLedger, SupplierLedgerRow } from '../types'
 
-const TYPE_LABELS: Record<SupplierLedger['transactions'][number]['type'], string> = {
+const TYPE_LABELS: Record<SupplierLedgerRow['type'], string> = {
   purchase: 'مشتريات',
   payment: 'دفعة',
+  discount: 'خصم',
   check_endorsed: 'شيك مُظهّر',
   check_bounced: 'شيك راجع',
   adjustment: 'تسوية',
 }
 
+function todayIso(): string {
+  return new Date().toISOString().slice(0, 10)
+}
+
 export default function SuppliersPage() {
   const { can } = useAuth()
+  const navigate = useNavigate()
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [cashboxes, setCashboxes] = useState<Cashbox[]>([])
   const [selected, setSelected] = useState<Supplier | null>(null)
   const [ledger, setLedger] = useState<SupplierLedger | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ name: '', phone: '' })
-  const [payForm, setPayForm] = useState({ cashbox_id: '', amount: '', exchange_rate: '1' })
-  const payCashbox = cashboxes.find((c) => c.id === Number(payForm.cashbox_id))
   const [busy, setBusy] = useState(false)
   const [editing, setEditing] = useState(false)
   const [editForm, setEditForm] = useState({ name: '', phone: '' })
   const [search, setSearch] = useState('')
+
+  const [actionTab, setActionTab] = useState<'pay' | 'discount' | null>(null)
+  const [payForm, setPayForm] = useState({ cashbox_id: '', amount: '', exchange_rate: '1', notes: '', occurred_at: todayIso() })
+  const payCashbox = cashboxes.find((c) => c.id === Number(payForm.cashbox_id))
+  const [discountForm, setDiscountForm] = useState({ amount: '', notes: '', occurred_at: todayIso() })
+
+  const [editingTxId, setEditingTxId] = useState<number | null>(null)
+  const [editTxForm, setEditTxForm] = useState({ amount: '', notes: '', occurred_at: '' })
 
   const canManage = can('suppliers.manage')
   const filteredSuppliers = suppliers.filter((s) => {
@@ -46,6 +60,8 @@ export default function SuppliersPage() {
   function loadLedger(supplier: Supplier) {
     setSelected(supplier)
     setEditing(false)
+    setActionTab(null)
+    setEditingTxId(null)
     api.get(`/suppliers/${supplier.id}/ledger`).then((res) => setLedger(res.data))
   }
 
@@ -109,8 +125,64 @@ export default function SuppliersPage() {
         amount: Number(payForm.amount),
         currency: payCashbox.currency,
         exchange_rate: exchangeRate,
+        notes: payForm.notes || null,
+        occurred_at: payForm.occurred_at,
       })
-      setPayForm({ cashbox_id: '', amount: '', exchange_rate: '1' })
+      setPayForm({ cashbox_id: '', amount: '', exchange_rate: '1', notes: '', occurred_at: todayIso() })
+      setActionTab(null)
+      loadLedger(selected)
+      loadSuppliers()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function submitDiscount() {
+    if (!selected || !discountForm.amount) return
+    setBusy(true)
+    try {
+      await api.post(`/suppliers/${selected.id}/discount`, {
+        amount: Number(discountForm.amount),
+        notes: discountForm.notes || null,
+        occurred_at: discountForm.occurred_at,
+      })
+      setDiscountForm({ amount: '', notes: '', occurred_at: todayIso() })
+      setActionTab(null)
+      loadLedger(selected)
+      loadSuppliers()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function startEditTx(row: SupplierLedgerRow) {
+    setEditingTxId(row.id)
+    setEditTxForm({ amount: String(Math.abs(Number(row.amount_ils))), notes: row.notes ?? '', occurred_at: row.occurred_at_iso })
+  }
+
+  async function saveEditTx() {
+    if (!selected || editingTxId === null || !editTxForm.amount) return
+    setBusy(true)
+    try {
+      await api.put(`/suppliers/${selected.id}/transactions/${editingTxId}`, {
+        amount: Number(editTxForm.amount),
+        notes: editTxForm.notes || null,
+        occurred_at: editTxForm.occurred_at,
+      })
+      setEditingTxId(null)
+      loadLedger(selected)
+      loadSuppliers()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function deleteTx(row: SupplierLedgerRow) {
+    if (!selected) return
+    if (!window.confirm('حذف هذه الحركة نهائياً؟')) return
+    setBusy(true)
+    try {
+      await api.delete(`/suppliers/${selected.id}/transactions/${row.id}`)
       loadLedger(selected)
       loadSuppliers()
     } finally {
@@ -120,70 +192,78 @@ export default function SuppliersPage() {
 
   return (
     <div>
-      <PageHeader title="الموردون" subtitle="كشوف حسابات وتسديد الموردين" />
-
-      <div className="grid grid-cols-3 gap-6">
-        <div className="col-span-1">
-          {canManage && (
-            <Button onClick={() => setShowForm((v) => !v)} className="mb-4">
+      <PageHeader
+        title="الموردون"
+        subtitle="كشوف حسابات وتسديد الموردين"
+        action={
+          canManage && (
+            <Button onClick={() => setShowForm((v) => !v)}>
               <FontAwesomeIcon icon={faPlus} />
               مورد جديد
             </Button>
-          )}
+          )
+        }
+      />
 
-          {showForm && (
-            <Card className="mb-4 space-y-2 p-4">
-              <input placeholder="اسم المورد" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
-              <input placeholder="الهاتف (اختياري)" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
-              <Button onClick={submit} loading={busy} className="w-full justify-center">
-                حفظ
-              </Button>
-            </Card>
-          )}
+      {showForm && (
+        <Card className="mb-4 flex flex-wrap items-end gap-2 p-4">
+          <input placeholder="اسم المورد" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-56 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
+          <input placeholder="الهاتف (اختياري)" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="w-48 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
+          <Button onClick={submit} loading={busy}>
+            حفظ
+          </Button>
+        </Card>
+      )}
 
-          <div className="relative mb-3">
-            <FontAwesomeIcon icon={faMagnifyingGlass} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted" />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="بحث بالاسم أو الهاتف..."
-              className="w-full rounded-xl border border-border bg-surface py-2.5 pe-3 ps-9 text-sm focus:border-accent focus:outline-none"
-            />
-          </div>
+      <div className="relative mb-4 w-full sm:w-80">
+        <FontAwesomeIcon icon={faMagnifyingGlass} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted" />
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="بحث بالاسم أو الهاتف..."
+          className="w-full rounded-xl border border-border bg-surface py-2.5 pe-3 ps-9 text-sm focus:border-accent focus:outline-none"
+        />
+      </div>
 
-          {filteredSuppliers.length === 0 ? (
-            <Card className="p-6 text-center text-sm text-muted">{search ? 'لا توجد نتائج مطابقة.' : 'لا يوجد موردون.'}</Card>
-          ) : (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-1">
-              {filteredSuppliers.map((s) => {
-                const owed = Number(s.outstanding_ils)
-                return (
-                  <button
-                    key={s.id}
-                    onClick={() => loadLedger(s)}
-                    className={`rounded-xl border p-4 text-right transition-colors hover:border-accent ${
-                      selected?.id === s.id ? 'border-accent bg-accent-soft' : 'border-border bg-surface'
-                    } ${!s.is_active ? 'opacity-60' : ''}`}
-                  >
-                    <div className="mb-2 flex items-center gap-2">
-                      <FontAwesomeIcon icon={faTruck} className="text-ink/40" />
-                      <p className="font-medium text-ink">{s.name}</p>
-                    </div>
-                    <p className="mb-2 text-xs text-muted">{s.phone ?? '—'}</p>
-                    <div className="flex items-center justify-between border-t border-border/70 pt-2">
-                      <span className="text-xs text-muted">المستحق</span>
-                      <span className={`text-sm font-semibold ${owed > 0 ? 'text-danger' : 'text-ink'}`}>{owed.toFixed(2)} ₪</span>
-                    </div>
-                  </button>
-                )
-              })}
-            </div>
-          )}
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-5">
+        <div className="xl:col-span-2">
+          <Card>
+            <Table>
+              <Thead>
+                <Th>المورد</Th>
+                <Th>الهاتف</Th>
+                <Th>المستحق</Th>
+              </Thead>
+              <tbody>
+                {filteredSuppliers.length === 0 ? (
+                  <EmptyRow colSpan={3}>{search ? 'لا توجد نتائج مطابقة.' : 'لا يوجد موردون.'}</EmptyRow>
+                ) : (
+                  filteredSuppliers.map((s) => {
+                    const owed = Number(s.outstanding_ils)
+                    return (
+                      <Tr
+                        key={s.id}
+                        onClick={() => loadLedger(s)}
+                        className={`cursor-pointer ${selected?.id === s.id ? 'bg-accent-soft' : ''} ${!s.is_active ? 'opacity-60' : ''}`}
+                      >
+                        <Td className="flex items-center gap-2 font-medium text-ink">
+                          <FontAwesomeIcon icon={faTruck} className="text-ink/30" />
+                          {s.name}
+                        </Td>
+                        <Td className="text-muted">{s.phone ?? '—'}</Td>
+                        <Td className={owed > 0 ? 'font-semibold text-danger' : 'text-ink'}>{owed.toFixed(2)} ₪</Td>
+                      </Tr>
+                    )
+                  })
+                )}
+              </tbody>
+            </Table>
+          </Card>
         </div>
 
-        <div className="col-span-2">
+        <div className="xl:col-span-3">
           {!selected ? (
-            <Card className="p-6 text-center text-sm text-muted">اختر مورداً لعرض كشف الحساب.</Card>
+            <Card className="p-6 text-center text-sm text-muted">اختر مورداً من الجدول لعرض كشف الحساب.</Card>
           ) : (
             <div className="space-y-4">
               <Card className="p-4">
@@ -234,28 +314,62 @@ export default function SuppliersPage() {
               </Card>
 
               {canManage && (
-                <Card className="flex flex-wrap items-end gap-2 p-4">
-                  <SearchableSelect
-                    options={cashboxes.map((c) => ({ value: String(c.id), label: c.name, sublabel: c.currency }))}
-                    value={payForm.cashbox_id}
-                    onChange={(value) => setPayForm({ ...payForm, cashbox_id: value })}
-                    placeholder="الصندوق..."
-                    className="w-48"
-                  />
-                  <input type="number" placeholder="المبلغ" value={payForm.amount} onChange={(e) => setPayForm({ ...payForm, amount: e.target.value })} className="w-28 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
-                  {payCashbox && payCashbox.currency !== 'ILS' && (
-                    <input
-                      type="number"
-                      step="0.01"
-                      placeholder={`سعر الصرف (1 ${payCashbox.currency} = ? ₪)`}
-                      value={payForm.exchange_rate}
-                      onChange={(e) => setPayForm({ ...payForm, exchange_rate: e.target.value })}
-                      className="w-36 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
-                    />
+                <Card className="p-4">
+                  <div className="mb-3 flex gap-2 rounded-xl border border-border bg-background p-1">
+                    <button onClick={() => setActionTab(actionTab === 'pay' ? null : 'pay')} className={`flex-1 rounded-lg px-3 py-1.5 text-sm transition-colors ${actionTab === 'pay' ? 'bg-accent text-white' : 'text-ink/70 hover:bg-surface'}`}>
+                      دفع
+                    </button>
+                    <button onClick={() => setActionTab(actionTab === 'discount' ? null : 'discount')} className={`flex-1 rounded-lg px-3 py-1.5 text-sm transition-colors ${actionTab === 'discount' ? 'bg-accent text-white' : 'text-ink/70 hover:bg-surface'}`}>
+                      خصم
+                    </button>
+                    <button
+                      onClick={() => navigate(`/checks?new=1&direction=outgoing&supplier_id=${selected.id}`)}
+                      className="flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-ink/70 hover:bg-surface"
+                    >
+                      <FontAwesomeIcon icon={faMoneyCheckDollar} />
+                      دفع بشيك
+                    </button>
+                  </div>
+
+                  {actionTab === 'pay' && (
+                    <div className="flex flex-wrap items-end gap-2">
+                      <SearchableSelect
+                        options={cashboxes.map((c) => ({ value: String(c.id), label: c.name, sublabel: c.currency }))}
+                        value={payForm.cashbox_id}
+                        onChange={(value) => setPayForm({ ...payForm, cashbox_id: value })}
+                        placeholder="الصندوق..."
+                        className="w-40"
+                      />
+                      <input type="number" placeholder="المبلغ" value={payForm.amount} onChange={(e) => setPayForm({ ...payForm, amount: e.target.value })} className="w-24 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
+                      {payCashbox && payCashbox.currency !== 'ILS' && (
+                        <input
+                          type="number"
+                          step="0.01"
+                          placeholder={`سعر الصرف (1 ${payCashbox.currency} = ? ₪)`}
+                          value={payForm.exchange_rate}
+                          onChange={(e) => setPayForm({ ...payForm, exchange_rate: e.target.value })}
+                          className="w-36 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
+                        />
+                      )}
+                      <DatePicker value={payForm.occurred_at} onChange={(v) => setPayForm({ ...payForm, occurred_at: v })} />
+                      <input placeholder="ملاحظات (اختياري)" value={payForm.notes} onChange={(e) => setPayForm({ ...payForm, notes: e.target.value })} className="w-48 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
+                      <Button onClick={pay} loading={busy} className="px-4 py-1.5">
+                        تأكيد الدفع
+                      </Button>
+                    </div>
                   )}
-                  <Button onClick={pay} loading={busy} className="px-4 py-1.5">
-                    دفع للمورد
-                  </Button>
+
+                  {actionTab === 'discount' && (
+                    <div className="flex flex-wrap items-end gap-2">
+                      <p className="w-full text-xs text-muted">خصم يوافق عليه المورد على المستحق — بينزل من الرصيد بدون ما يمر على أي صندوق.</p>
+                      <input type="number" placeholder="مبلغ الخصم" value={discountForm.amount} onChange={(e) => setDiscountForm({ ...discountForm, amount: e.target.value })} className="w-28 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
+                      <DatePicker value={discountForm.occurred_at} onChange={(v) => setDiscountForm({ ...discountForm, occurred_at: v })} />
+                      <input placeholder="ملاحظات (اختياري)" value={discountForm.notes} onChange={(e) => setDiscountForm({ ...discountForm, notes: e.target.value })} className="w-48 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
+                      <Button onClick={submitDiscount} loading={busy} className="px-4 py-1.5">
+                        تأكيد الخصم
+                      </Button>
+                    </div>
+                  )}
                 </Card>
               )}
 
@@ -265,20 +379,56 @@ export default function SuppliersPage() {
                     <Th>النوع</Th>
                     <Th>المبلغ</Th>
                     <Th>الرصيد</Th>
+                    <Th>ملاحظات</Th>
                     <Th>التاريخ</Th>
+                    {canManage && <Th></Th>}
                   </Thead>
                   <tbody>
                     {(ledger?.transactions ?? []).length === 0 ? (
-                      <EmptyRow colSpan={4}>لا توجد حركات.</EmptyRow>
+                      <EmptyRow colSpan={canManage ? 6 : 5}>لا توجد حركات.</EmptyRow>
                     ) : (
-                      ledger!.transactions.map((t) => (
-                        <Tr key={t.id}>
-                          <Td>{TYPE_LABELS[t.type] ?? t.type}</Td>
-                          <Td className="text-muted">{t.amount_ils} ₪</Td>
-                          <Td className="text-muted">{t.balance_after_ils} ₪</Td>
-                          <Td className="text-muted">{t.occurred_at}</Td>
-                        </Tr>
-                      ))
+                      ledger!.transactions.map((t) =>
+                        editingTxId === t.id ? (
+                          <Tr key={t.id}>
+                            <Td colSpan={canManage ? 6 : 5}>
+                              <div className="flex flex-wrap items-end gap-2 py-1">
+                                <span className="text-xs font-medium text-ink/70">{TYPE_LABELS[t.type]}</span>
+                                <input type="number" value={editTxForm.amount} onChange={(e) => setEditTxForm({ ...editTxForm, amount: e.target.value })} className="w-24 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
+                                <DatePicker value={editTxForm.occurred_at} onChange={(v) => setEditTxForm({ ...editTxForm, occurred_at: v })} />
+                                <input placeholder="ملاحظات" value={editTxForm.notes} onChange={(e) => setEditTxForm({ ...editTxForm, notes: e.target.value })} className="w-48 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
+                                <button onClick={saveEditTx} disabled={busy} className="rounded-lg bg-success-soft px-2 py-1.5 text-xs text-success hover:opacity-80">
+                                  <FontAwesomeIcon icon={faCheck} />
+                                </button>
+                                <button onClick={() => setEditingTxId(null)} className="rounded-lg bg-background px-2 py-1.5 text-xs text-ink/60 hover:bg-border/40">
+                                  <FontAwesomeIcon icon={faXmark} />
+                                </button>
+                              </div>
+                            </Td>
+                          </Tr>
+                        ) : (
+                          <Tr key={t.id}>
+                            <Td>{TYPE_LABELS[t.type] ?? t.type}</Td>
+                            <Td className="text-muted">{t.amount_ils} ₪</Td>
+                            <Td className="text-muted">{t.balance_after_ils} ₪</Td>
+                            <Td className="text-muted">{t.notes ?? '—'}</Td>
+                            <Td className="text-muted">{t.occurred_at}</Td>
+                            {canManage && (
+                              <Td>
+                                {t.editable && (
+                                  <div className="flex gap-2">
+                                    <button onClick={() => startEditTx(t)} className="text-ink/40 hover:text-accent">
+                                      <FontAwesomeIcon icon={faPen} />
+                                    </button>
+                                    <button onClick={() => deleteTx(t)} className="text-ink/40 hover:text-danger">
+                                      <FontAwesomeIcon icon={faTrash} />
+                                    </button>
+                                  </div>
+                                )}
+                              </Td>
+                            )}
+                          </Tr>
+                        ),
+                      )
                     )}
                   </tbody>
                 </Table>

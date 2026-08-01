@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faPlus, faMoneyCheckDollar, faCamera, faImage, faMagnifyingGlass, faPaperPlane } from '@fortawesome/free-solid-svg-icons'
+import { faPlus, faMoneyCheckDollar, faCamera, faImage, faMagnifyingGlass, faPaperPlane, faChevronDown, faChevronLeft } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import DatePicker from '../components/DatePicker'
@@ -26,12 +26,20 @@ const STATUS_VARIANTS: Record<CheckItem['status'], BadgeVariant> = {
   cleared: 'success',
 }
 
+const EVENT_LABELS: Record<'received' | 'endorsed' | 'bounced' | 'cleared', string> = {
+  received: 'استُلم',
+  endorsed: 'ظُهّر لمورد',
+  bounced: 'رجع',
+  cleared: 'تحصّل',
+}
+
 export default function ChecksPage() {
   const { can, data } = useAuth()
   const canManage = can('checks.manage')
   const defaultCurrency = (data?.settings.base_currency as string) ?? 'ILS'
   const [searchParams, setSearchParams] = useSearchParams()
-  const [direction, setDirection] = useState<Direction>('incoming')
+  const [direction, setDirection] = useState<Direction>(() => (searchParams.get('direction') === 'outgoing' ? 'outgoing' : 'incoming'))
+  const [expandedId, setExpandedId] = useState<number | null>(null)
   const [checks, setChecks] = useState<CheckItem[] | null>(null)
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [patients, setPatients] = useState<Patient[]>([])
@@ -67,7 +75,11 @@ export default function ChecksPage() {
   useEffect(() => {
     if (searchParams.get('new') === '1') {
       setShowForm(true)
+      const supplierId = searchParams.get('supplier_id')
+      if (supplierId) setForm((f) => ({ ...f, party_id: supplierId }))
       searchParams.delete('new')
+      searchParams.delete('direction')
+      searchParams.delete('supplier_id')
       setSearchParams(searchParams, { replace: true })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -290,8 +302,10 @@ export default function ChecksPage() {
                   return <EmptyRow colSpan={7}>{q ? 'لا توجد نتائج مطابقة.' : 'لا توجد شيكات.'}</EmptyRow>
                 }
                 return filtered.map((c) => (
-                  <Tr key={c.id}>
+                  <Fragment key={c.id}>
+                  <Tr onClick={() => setExpandedId(expandedId === c.id ? null : c.id)} className="cursor-pointer">
                     <Td className="flex items-center gap-2">
+                      <FontAwesomeIcon icon={expandedId === c.id ? faChevronDown : faChevronLeft} className="text-ink/30" />
                       <FontAwesomeIcon icon={faMoneyCheckDollar} className="text-ink/30" />
                       {partyName(c)}
                     </Td>
@@ -303,6 +317,7 @@ export default function ChecksPage() {
                             href={`/api/checks/${c.id}/image`}
                             target="_blank"
                             rel="noreferrer"
+                            onClick={(e) => e.stopPropagation()}
                             className="text-accent hover:text-accent-hover"
                             title="عرض صورة الشيك"
                           >
@@ -313,7 +328,7 @@ export default function ChecksPage() {
                             <>
                               <button
                                 type="button"
-                                onClick={() => openAttach(c.id)}
+                                onClick={(e) => { e.stopPropagation(); openAttach(c.id) }}
                                 disabled={busy}
                                 className="text-ink/30 hover:text-accent disabled:opacity-50"
                                 title="إرفاق صورة الشيك من هالجهاز"
@@ -322,7 +337,7 @@ export default function ChecksPage() {
                               </button>
                               <button
                                 type="button"
-                                onClick={() => setRequestTarget(c)}
+                                onClick={(e) => { e.stopPropagation(); setRequestTarget(c) }}
                                 disabled={busy}
                                 className="text-ink/30 hover:text-accent disabled:opacity-50"
                                 title="طلب الصورة من موظف عبر تيليغرام"
@@ -341,7 +356,7 @@ export default function ChecksPage() {
                       <Badge variant={STATUS_VARIANTS[c.status]}>{STATUS_LABELS[c.status]}</Badge>
                     </Td>
                     {canManage && (
-                      <Td>
+                      <Td onClick={(e) => e.stopPropagation()}>
                         <div className="flex gap-2">
                           {c.status === 'in_wallet' && c.direction === 'incoming' && (
                             <button onClick={() => setEndorseTarget(c)} className="rounded-lg bg-info-soft px-2 py-1 text-xs text-info hover:opacity-80">تظهير</button>
@@ -356,6 +371,30 @@ export default function ChecksPage() {
                       </Td>
                     )}
                   </Tr>
+                  {expandedId === c.id && (
+                    <Tr>
+                      <Td colSpan={canManage ? 7 : 6} className="bg-background">
+                        {!c.events || c.events.length === 0 ? (
+                          <p className="py-1 text-xs text-muted">لا يوجد سجل تتبع لهالشيك.</p>
+                        ) : (
+                          <ol className="space-y-1 py-1">
+                            {c.events.map((ev) => (
+                              <li key={ev.id} className="flex items-center gap-2 text-xs text-ink/70">
+                                <span className="size-1.5 shrink-0 rounded-full bg-accent" />
+                                <span className="font-medium text-ink">{EVENT_LABELS[ev.event_type]}</span>
+                                {ev.event_type === 'endorsed' && ev.endorsed_to_supplier_id && (
+                                  <span>— {suppliers.find((s) => s.id === ev.endorsed_to_supplier_id)?.name ?? `#${ev.endorsed_to_supplier_id}`}</span>
+                                )}
+                                <span className="text-muted">— {formatDate(ev.occurred_at)}</span>
+                                {ev.notes && <span className="text-muted">— {ev.notes}</span>}
+                              </li>
+                            ))}
+                          </ol>
+                        )}
+                      </Td>
+                    </Tr>
+                  )}
+                  </Fragment>
                 ))
               })()}
             </tbody>

@@ -354,12 +354,15 @@ export interface Supplier {
 
 export interface SupplierLedgerRow {
   id: number
-  type: 'purchase' | 'payment' | 'check_endorsed' | 'check_bounced' | 'adjustment'
+  type: 'purchase' | 'payment' | 'check_endorsed' | 'check_bounced' | 'adjustment' | 'discount'
   reference_type: string | null
   reference_id: number | null
   amount_ils: string
+  notes: string | null
+  editable: boolean
   balance_after_ils: number
   occurred_at: string
+  occurred_at_iso: string
 }
 
 export interface SupplierLedger {

@@ -147,6 +147,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('suppliers/{supplier}', [SupplierController::class, 'destroy']);
     Route::get('suppliers/{supplier}/ledger', [SupplierController::class, 'ledger']);
     Route::post('suppliers/{supplier}/pay', [SupplierController::class, 'pay']);
+    Route::post('suppliers/{supplier}/discount', [SupplierController::class, 'discount']);
+    Route::put('suppliers/{supplier}/transactions/{transaction}', [SupplierController::class, 'updateTransaction']);
+    Route::delete('suppliers/{supplier}/transactions/{transaction}', [SupplierController::class, 'destroyTransaction']);
 
     Route::get('item-categories', [ItemCategoryController::class, 'index']);
     Route::post('item-categories', [ItemCategoryController::class, 'store']);
