@@ -7,6 +7,7 @@ use App\Models\Cashbox;
 use App\Models\Expense;
 use App\Models\ExpenseCategory;
 use App\Services\CashboxService;
+use App\Support\Arabic;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -40,10 +41,10 @@ class ExpenseController extends Controller
         if ($request->filled('expense_category_id')) $query->where('expense_category_id', $request->integer('expense_category_id'));
         if ($request->filled('cashbox_id')) $query->where('cashbox_id', $request->integer('cashbox_id'));
         if ($request->filled('search')) {
-            $term = $request->string('search');
+            $term = Arabic::normalize($request->string('search')->toString());
             $query->where(function ($q) use ($term) {
-                $q->where('description', 'like', "%{$term}%")
-                    ->orWhereHas('category', fn ($c) => $c->where('name', 'like', "%{$term}%"));
+                $q->whereRaw(Arabic::normalizeSql('description').' ilike ?', ["%{$term}%"])
+                    ->orWhereHas('category', fn ($c) => $c->whereRaw(Arabic::normalizeSql('name').' ilike ?', ["%{$term}%"]));
             });
         }
 

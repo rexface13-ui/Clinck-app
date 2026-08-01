@@ -5,6 +5,7 @@ import { faPlus, faBoxesStacked, faPen, faMagnifyingGlass, faTrash, faClockRotat
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import { Card, PageHeader, Button, Modal, Table, Thead, Th, Td, Tr, EmptyRow, TableSkeleton } from '../components/ui'
+import { normalizeArabic } from '../lib/arabic'
 import type { Item, ItemCategory, ItemPriceHistoryRow } from '../types'
 
 const TYPE_LABELS: Record<Item['type'], string> = {
@@ -211,9 +212,9 @@ export default function ItemsPage() {
             </Thead>
             <tbody>
               {(() => {
-                const q = search.trim().toLowerCase()
+                const q = normalizeArabic(search.trim().toLowerCase())
                 const filtered = q
-                  ? items.filter((i) => i.name.toLowerCase().includes(q) || (i.category?.name ?? '').toLowerCase().includes(q))
+                  ? items.filter((i) => normalizeArabic(i.name.toLowerCase()).includes(q) || normalizeArabic((i.category?.name ?? '').toLowerCase()).includes(q))
                   : items
                 if (filtered.length === 0) {
                   return <EmptyRow colSpan={6}>{q ? 'لا توجد نتائج مطابقة.' : 'لا توجد أصناف.'}</EmptyRow>

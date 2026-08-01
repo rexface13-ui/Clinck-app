@@ -20,6 +20,7 @@ import {
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core'
 import { api } from '../lib/api'
 import { formatDate, formatTime } from '../lib/formatDate'
+import { normalizeArabic } from '../lib/arabic'
 import { useAuth } from '../contexts/AuthContext'
 import PatientSearchModal from '../components/PatientSearchModal'
 import PatientPaymentModal from '../components/PatientPaymentModal'
@@ -308,11 +309,11 @@ export default function DashboardPage() {
               </Thead>
               <tbody>
                 {(() => {
-                  const term = appointmentsSearch.trim().toLowerCase()
+                  const term = normalizeArabic(appointmentsSearch.trim().toLowerCase())
                   const active = data.today_appointments.filter((a) => a.status !== 'cancelled')
                   const filtered = term
                     ? active.filter(
-                        (a) => a.patient_name?.toLowerCase().includes(term) || a.doctor_name?.toLowerCase().includes(term),
+                        (a) => normalizeArabic(a.patient_name?.toLowerCase() ?? '').includes(term) || normalizeArabic(a.doctor_name?.toLowerCase() ?? '').includes(term),
                       )
                     : active
                   if (filtered.length === 0) {

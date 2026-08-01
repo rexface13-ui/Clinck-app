@@ -17,6 +17,7 @@ use App\Models\SupplierTransaction;
 use App\Services\CashboxService;
 use App\Services\CheckService;
 use App\Services\PurchaseInvoiceService;
+use App\Support\Arabic;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -42,10 +43,11 @@ class PurchaseInvoiceController extends Controller
             $query->whereDate('issued_at', '<=', $request->date('to'));
         }
         if ($request->filled('search')) {
-            $term = $request->input('search');
-            $query->where(function ($q) use ($term) {
-                $q->where('invoice_number', 'like', "%{$term}%")
-                    ->orWhereHas('supplier', fn ($s) => $s->where('name', 'like', "%{$term}%"));
+            $term = Arabic::normalize($request->input('search'));
+            $invoiceNumberExpr = Arabic::normalizeSql('invoice_number');
+            $query->where(function ($q) use ($term, $invoiceNumberExpr) {
+                $q->whereRaw("{$invoiceNumberExpr} ilike ?", ["%{$term}%"])
+                    ->orWhereHas('supplier', fn ($s) => $s->whereRaw(Arabic::normalizeSql('name').' ilike ?', ["%{$term}%"]));
             });
         }
 

@@ -6,6 +6,7 @@ import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import DatePicker from '../components/DatePicker'
 import { formatDate } from '../lib/formatDate'
+import { normalizeArabic } from '../lib/arabic'
 import { Card, PageHeader, Badge, Button, Modal, Table, Thead, Th, Td, Tr, EmptyRow, TableSkeleton, SearchableSelect } from '../components/ui'
 import type { BadgeVariant } from '../components/ui'
 import type { CheckItem, Patient, Supplier, Cashbox } from '../types'
@@ -289,13 +290,13 @@ export default function ChecksPage() {
             </Thead>
             <tbody>
               {(() => {
-                const q = search.trim().toLowerCase()
+                const q = normalizeArabic(search.trim().toLowerCase())
                 const filtered = q
                   ? checks.filter(
                       (c) =>
                         c.check_number.toLowerCase().includes(q) ||
-                        (c.bank_name ?? '').toLowerCase().includes(q) ||
-                        partyName(c).toLowerCase().includes(q),
+                        normalizeArabic((c.bank_name ?? '').toLowerCase()).includes(q) ||
+                        normalizeArabic(partyName(c).toLowerCase()).includes(q),
                     )
                   : checks
                 if (filtered.length === 0) {

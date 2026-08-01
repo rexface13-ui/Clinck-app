@@ -4,6 +4,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faUsers, faTruck, faMoneyCheckDollar, faArrowLeft, faCoins, faUser } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { PageHeader, Card, Table, Thead, Th, Td, Tr, EmptyRow } from '../components/ui'
+import { normalizeArabic } from '../lib/arabic'
 import PatientPaymentModal from '../components/PatientPaymentModal'
 import SuppliersPage from './SuppliersPage'
 import ChecksPage from './ChecksPage'
@@ -30,9 +31,9 @@ function PatientsDebtTab() {
   useEffect(load, [])
 
   const filtered = (rows ?? []).filter((r) => {
-    const q = query.trim()
+    const q = normalizeArabic(query.trim())
     if (!q) return true
-    return (r.full_name ?? '').includes(q) || (r.phone ?? '').includes(q) || (r.code ?? '').includes(q)
+    return normalizeArabic(r.full_name ?? '').includes(q) || (r.phone ?? '').includes(q) || (r.code ?? '').includes(q)
   })
 
   const total = filtered.reduce((s, r) => s + r.outstanding_ils, 0)

@@ -12,6 +12,7 @@ use App\Models\Setting;
 use App\Models\TelegramLink;
 use App\Models\WorkItem;
 use App\Services\TelegramService;
+use App\Support\Arabic;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -52,8 +53,8 @@ class AppointmentController extends Controller
         }
 
         if ($request->filled('search')) {
-            $search = $request->input('search');
-            $query->whereHas('patient', fn ($p) => $p->where('full_name', 'like', "%{$search}%"));
+            $search = Arabic::normalize($request->input('search'));
+            $query->whereHas('patient', fn ($p) => $p->whereRaw(Arabic::normalizeSql('full_name').' ilike ?', ["%{$search}%"]));
         }
 
         return AppointmentResource::collection($query->orderByDesc('starts_at')->get());

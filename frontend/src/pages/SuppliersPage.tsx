@@ -6,6 +6,7 @@ import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import DatePicker from '../components/DatePicker'
 import { Card, PageHeader, Button, Table, Thead, Th, Td, Tr, EmptyRow, SearchableSelect } from '../components/ui'
+import { normalizeArabic } from '../lib/arabic'
 import type { Cashbox, Supplier, SupplierLedger, SupplierLedgerRow } from '../types'
 
 const TYPE_LABELS: Record<SupplierLedgerRow['type'], string> = {
@@ -45,9 +46,9 @@ export default function SuppliersPage() {
 
   const canManage = can('suppliers.manage')
   const filteredSuppliers = suppliers.filter((s) => {
-    const q = search.trim().toLowerCase()
+    const q = normalizeArabic(search.trim().toLowerCase())
     if (!q) return true
-    return s.name.toLowerCase().includes(q) || (s.phone ?? '').toLowerCase().includes(q)
+    return normalizeArabic(s.name.toLowerCase()).includes(q) || (s.phone ?? '').toLowerCase().includes(q)
   })
 
   function loadSuppliers() {

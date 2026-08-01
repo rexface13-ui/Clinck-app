@@ -9,6 +9,7 @@ use App\Models\Income;
 use App\Models\IncomeCategory;
 use App\Models\Payment;
 use App\Services\CashboxService;
+use App\Support\Arabic;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -105,11 +106,11 @@ class IncomeController extends Controller
         });
 
         if ($request->filled('search')) {
-            $term = mb_strtolower((string) $request->input('search'));
+            $term = Arabic::normalize(mb_strtolower((string) $request->input('search')));
             $rows = $rows->filter(
-                fn ($r) => str_contains(mb_strtolower($r['category']), $term)
-                    || str_contains(mb_strtolower($r['description'] ?? ''), $term)
-                    || str_contains(mb_strtolower($r['cashbox']), $term),
+                fn ($r) => str_contains(Arabic::normalize(mb_strtolower($r['category'])), $term)
+                    || str_contains(Arabic::normalize(mb_strtolower($r['description'] ?? '')), $term)
+                    || str_contains(Arabic::normalize(mb_strtolower($r['cashbox'])), $term),
             );
         }
 
