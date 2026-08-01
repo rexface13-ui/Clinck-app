@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Models\Appointment;
 use App\Models\CheckModel;
 use App\Models\Doctor;
+use App\Models\DoctorTransaction;
 use App\Models\Note;
 use App\Models\Patient;
 use App\Models\Prescription;
@@ -43,6 +44,8 @@ class TelegramPoll extends Command
     protected const BTN_DEBTS = '📋 بحث ديون';
 
     protected const BTN_SUPPLIER = '🚚 كشف حساب مورد';
+
+    protected const BTN_MY_COMMISSION = '💰 عمولتي الشهر';
 
     // Patient
     protected const BTN_MY_APPOINTMENTS = '📅 مواعيدي';
@@ -245,6 +248,10 @@ class TelegramPoll extends Command
     {
         $rows = [[self::BTN_TODAY, self::BTN_WEEK]];
 
+        if ($user?->doctor) {
+            $rows[] = [self::BTN_MY_COMMISSION];
+        }
+
         if ($user?->hasAnyRole(['owner', 'accountant'])) {
             $rows[] = [self::BTN_PATIENT_ACCOUNT];
             $rows[] = [self::BTN_DEBTS, self::BTN_SUPPLIER];
@@ -272,6 +279,12 @@ class TelegramPoll extends Command
 
         if ($text === self::BTN_WEEK) {
             $this->handleAppointments($chatId, $link, $telegram, 6, $keyboard);
+
+            return;
+        }
+
+        if ($text === self::BTN_MY_COMMISSION && $user?->doctor) {
+            $this->handleCommissionStatement($chatId, $user->doctor, $telegram, $keyboard);
 
             return;
         }
@@ -568,7 +581,7 @@ class TelegramPoll extends Command
             return;
         }
 
-        $keyboard = [[self::BTN_TODAY, self::BTN_WEEK]];
+        $keyboard = [[self::BTN_TODAY, self::BTN_WEEK], [self::BTN_MY_COMMISSION]];
 
         if ($text === self::BTN_TODAY || $text === '/start') {
             $this->handleDoctorAppointments($chatId, $doctor, $telegram, 0, $keyboard);
@@ -582,7 +595,54 @@ class TelegramPoll extends Command
             return;
         }
 
+        if ($text === self::BTN_MY_COMMISSION) {
+            $this->handleCommissionStatement($chatId, $doctor, $telegram, $keyboard);
+
+            return;
+        }
+
         $telegram->sendMessage($chatId, 'اختر من الأزرار تحت 👇', $keyboard);
+    }
+
+    /**
+     * Current-month totals only (no line-by-line breakdown — too long for
+     * a chat message) — same figures as the web commission-statement page:
+     * commission earned + flat salary (if the contract includes one) minus
+     * whatever's already been paid out this month.
+     */
+    protected function handleCommissionStatement(int $chatId, Doctor $doctor, TelegramService $telegram, array $keyboard): void
+    {
+        $month = Carbon::now()->startOfMonth();
+
+        $commissionTotal = (float) DoctorTransaction::where('doctor_id', $doctor->id)
+            ->where('type', 'commission')
+            ->whereDate('period_month', $month->toDateString())
+            ->sum('amount_ils');
+
+        $salaryDue = in_array($doctor->contract_type, ['salary', 'salary_commission'], true)
+            ? (float) ($doctor->monthly_salary ?? 0)
+            : 0.0;
+
+        $paidTotal = (float) DoctorTransaction::where('doctor_id', $doctor->id)
+            ->where('type', 'settlement')
+            ->whereDate('period_month', $month->toDateString())
+            ->sum('amount_ils');
+
+        $totalDue = $commissionTotal + $salaryDue;
+        $remaining = $totalDue - $paidTotal;
+
+        $lines = ["كشف حساب شهر {$month->translatedFormat('F Y')}:"];
+        if ($commissionTotal > 0) {
+            $lines[] = sprintf('العمولات: %s ₪', number_format($commissionTotal, 2));
+        }
+        if ($salaryDue > 0) {
+            $lines[] = sprintf('الراتب الثابت: %s ₪', number_format($salaryDue, 2));
+        }
+        $lines[] = sprintf('الإجمالي المستحق: %s ₪', number_format($totalDue, 2));
+        $lines[] = sprintf('المدفوع لغاية هلق: %s ₪', number_format($paidTotal, 2));
+        $lines[] = sprintf('%s: %s ₪', $remaining >= 0 ? 'المتبقي إلك' : 'مدفوع لك زيادة', number_format(abs($remaining), 2));
+
+        $telegram->sendMessage($chatId, implode("\n", $lines), $keyboard);
     }
 
     protected function handleDoctorAppointments(int $chatId, Doctor $doctor, TelegramService $telegram, int $daysAhead, array $keyboard): void
