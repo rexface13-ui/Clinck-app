@@ -399,11 +399,15 @@ export default function AppointmentsPage() {
             </div>
 
             <div className="flex">
-              <div className="w-14 shrink-0 text-left" style={{ height: gridHeight }}>
+              <div className="relative w-14 shrink-0 text-left" style={{ height: gridHeight }}>
                 {hourMarks.map((m) => (
-                  <div key={m} className="relative text-[11px] text-muted" style={{ height: 60 * PX_PER_MIN }}>
-                    <span className="absolute -top-2">{minutesToHM(m)}</span>
-                  </div>
+                  <span
+                    key={m}
+                    className="absolute -translate-y-1/2 text-xs font-semibold text-ink/70"
+                    style={{ top: (m - rangeStart) * PX_PER_MIN }}
+                  >
+                    {minutesToHM(m)}
+                  </span>
                 ))}
               </div>
 
