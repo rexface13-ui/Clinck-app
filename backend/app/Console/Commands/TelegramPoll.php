@@ -16,6 +16,7 @@ use App\Models\User;
 use App\Services\CheckService;
 use App\Services\DoctorSlotService;
 use App\Services\TelegramService;
+use App\Support\Arabic;
 use App\Support\Tenancy\CurrentClinic;
 use Illuminate\Console\Command;
 use Illuminate\Http\UploadedFile;
@@ -46,6 +47,8 @@ class TelegramPoll extends Command
     protected const BTN_SUPPLIER = '🚚 كشف حساب مورد';
 
     protected const BTN_MY_COMMISSION = '💰 عمولتي الشهر';
+
+    protected const BTN_SEARCH_PATIENT = '🔍 بحث عن مريض';
 
     // Patient
     protected const BTN_MY_APPOINTMENTS = '📅 مواعيدي';
@@ -249,7 +252,7 @@ class TelegramPoll extends Command
         $rows = [[self::BTN_TODAY, self::BTN_WEEK]];
 
         if ($user?->doctor) {
-            $rows[] = [self::BTN_MY_COMMISSION];
+            $rows[] = [self::BTN_MY_COMMISSION, self::BTN_SEARCH_PATIENT];
         }
 
         if ($user?->hasAnyRole(['owner', 'accountant'])) {
@@ -289,13 +292,33 @@ class TelegramPoll extends Command
             return;
         }
 
-        // A patient-name button tapped from the last appointments list —
-        // only applies to a staff member who's also a doctor (their own
-        // schedule is unambiguous); owners/accountants see every doctor's
-        // patients on that list, too long a button set to be worth it there.
+        if ($text === self::BTN_SEARCH_PATIENT && $user?->doctor) {
+            $link->update(['pending_intent' => 'doctor_patient_search']);
+            $telegram->sendMessage($chatId, 'اكتبلي اسم المريض للبحث.', []);
+
+            return;
+        }
+
+        if ($user?->doctor && $link->pending_intent === 'doctor_patient_search' && $text !== '') {
+            $this->searchPatientsForDoctor($chatId, $text, $link, $telegram, $keyboard);
+
+            return;
+        }
+
+        // A patient-name button tapped from a results list (either the last
+        // appointments list or a name search) — only applies to a staff
+        // member who's also a doctor (their own schedule is unambiguous);
+        // owners/accountants see every doctor's patients, too long a button
+        // set to be worth it there.
         if ($user?->doctor && $link->pending_intent && str_starts_with($link->pending_intent, 'doctor_patient_pick:') && $text !== '') {
             $daysAhead = (int) substr($link->pending_intent, strlen('doctor_patient_pick:'));
             $this->sendPatientDetailToDoctor($chatId, $user->doctor, $text, $daysAhead, $telegram, $keyboard);
+
+            return;
+        }
+
+        if ($user?->doctor && $link->pending_intent === 'doctor_patient_search_pick' && $text !== '') {
+            $this->sendAnyPatientDetailToDoctor($chatId, $text, $telegram, $keyboard);
 
             return;
         }
@@ -605,7 +628,7 @@ class TelegramPoll extends Command
             return;
         }
 
-        $keyboard = [[self::BTN_TODAY, self::BTN_WEEK], [self::BTN_MY_COMMISSION]];
+        $keyboard = [[self::BTN_TODAY, self::BTN_WEEK], [self::BTN_MY_COMMISSION, self::BTN_SEARCH_PATIENT]];
 
         if ($text === self::BTN_TODAY || $text === '/start') {
             $this->handleDoctorAppointments($chatId, $doctor, $link, $telegram, 0, $keyboard);
@@ -625,12 +648,31 @@ class TelegramPoll extends Command
             return;
         }
 
-        // A patient-name button tapped from the last appointments list —
-        // pending_intent carries which date range that list covered so we
-        // can re-query the same set and find the match.
+        if ($text === self::BTN_SEARCH_PATIENT) {
+            $link->update(['pending_intent' => 'doctor_patient_search']);
+            $telegram->sendMessage($chatId, 'اكتبلي اسم المريض للبحث.', []);
+
+            return;
+        }
+
+        if ($link->pending_intent === 'doctor_patient_search' && $text !== '') {
+            $this->searchPatientsForDoctor($chatId, $text, $link, $telegram, $keyboard);
+
+            return;
+        }
+
+        // A patient-name button tapped from a results list (either the last
+        // appointments list or a name search) — pending_intent tells us
+        // which, and for the appointments case, which date range it covered.
         if ($link->pending_intent && str_starts_with($link->pending_intent, 'doctor_patient_pick:') && $text !== '') {
             $daysAhead = (int) substr($link->pending_intent, strlen('doctor_patient_pick:'));
             $this->sendPatientDetailToDoctor($chatId, $doctor, $text, $daysAhead, $telegram, $keyboard);
+
+            return;
+        }
+
+        if ($link->pending_intent === 'doctor_patient_search_pick' && $text !== '') {
+            $this->sendAnyPatientDetailToDoctor($chatId, $text, $telegram, $keyboard);
 
             return;
         }
@@ -677,6 +719,66 @@ class TelegramPoll extends Command
         $lines[] = sprintf('%s: %s ₪', $remaining >= 0 ? 'المتبقي إلك' : 'مدفوع لك زيادة', number_format(abs($remaining), 2));
 
         $telegram->sendMessage($chatId, implode("\n", $lines), $keyboard);
+    }
+
+    /**
+     * Clinic-wide patient name search for a doctor away from the clinic —
+     * not scoped to their own appointments, same normalized-Arabic search
+     * used everywhere else in the app (أحمد also finds أحمد/إحمد/etc).
+     */
+    protected function searchPatientsForDoctor(int $chatId, string $text, TelegramLink $link, TelegramService $telegram, array $keyboard): void
+    {
+        $term = Arabic::normalize(trim($text));
+        $nameExpr = Arabic::normalizeSql('full_name');
+
+        $patients = Patient::whereRaw("{$nameExpr} ilike ?", ["%{$term}%"])
+            ->orderBy('full_name')
+            ->limit(10)
+            ->get();
+
+        if ($patients->isEmpty()) {
+            $telegram->sendMessage($chatId, 'ما لقيت مريض بهالاسم.', $keyboard);
+
+            return;
+        }
+
+        $link->update(['pending_intent' => 'doctor_patient_search_pick']);
+        $rows = $patients->map(fn (Patient $p) => [$p->full_name])->values()->all();
+
+        $telegram->sendMessage($chatId, 'اضغط اسم المريض لتشوف تفاصيله 👇', array_merge($rows, $keyboard));
+    }
+
+    /**
+     * Same detail view as sendPatientDetailToDoctor, but for a name-search
+     * result — matches any patient by name (not just today's/this week's
+     * appointments), so it can't reuse that method's appointment-scoped query.
+     */
+    protected function sendAnyPatientDetailToDoctor(int $chatId, string $patientName, TelegramService $telegram, array $keyboard): void
+    {
+        $patient = Patient::where('full_name', $patientName)->first();
+
+        if (! $patient) {
+            $telegram->sendMessage($chatId, 'اختر اسم المريض من الأزرار تحت.');
+
+            return;
+        }
+
+        $this->sendPatientQuickDetail($chatId, $patient, $telegram, $keyboard);
+    }
+
+    /** Phone, medical alerts, and tooth-chart summary — everything worth checking before a patient sits in the chair, without leaving the chat. */
+    protected function sendPatientQuickDetail(int $chatId, Patient $patient, TelegramService $telegram, array $keyboard): void
+    {
+        $lines = [$patient->full_name];
+        $lines[] = $patient->phone ? "📞 {$patient->phone}" : '📞 بدون رقم مسجّل';
+
+        $alerts = $patient->medical_alerts ?? [];
+        if (! empty($alerts)) {
+            $lines[] = '⚠️ تنبيهات طبية: '.implode('، ', $alerts);
+        }
+
+        $telegram->sendMessage($chatId, implode("\n", $lines));
+        $this->sendTeethSummary($chatId, $patient, $telegram, $keyboard, forSelf: false);
     }
 
     protected function handleDoctorAppointments(int $chatId, Doctor $doctor, TelegramLink $link, TelegramService $telegram, int $daysAhead, array $keyboard): void
@@ -733,16 +835,7 @@ class TelegramPoll extends Command
             return;
         }
 
-        $lines = [$patient->full_name];
-        $lines[] = $patient->phone ? "📞 {$patient->phone}" : '📞 بدون رقم مسجّل';
-
-        $alerts = $patient->medical_alerts ?? [];
-        if (! empty($alerts)) {
-            $lines[] = '⚠️ تنبيهات طبية: '.implode('، ', $alerts);
-        }
-
-        $telegram->sendMessage($chatId, implode("\n", $lines));
-        $this->sendTeethSummary($chatId, $patient, $telegram, $keyboard);
+        $this->sendPatientQuickDetail($chatId, $patient, $telegram, $keyboard);
     }
 
     // ---------------------------------------------------------------
@@ -883,7 +976,8 @@ class TelegramPoll extends Command
     // وضع أسناني — compact text summary of a patient's chart
     // ---------------------------------------------------------------
 
-    protected function sendTeethSummary(int $chatId, Patient $patient, TelegramService $telegram, array $keyboard): void
+    /** $forSelf: true when the patient is checking their own chart ("أسنانك"), false when a doctor is checking a patient's chart from elsewhere ("أسنان <name>"). */
+    protected function sendTeethSummary(int $chatId, Patient $patient, TelegramService $telegram, array $keyboard, bool $forSelf = true): void
     {
         $findings = ToothFinding::where('patient_id', $patient->id)
             ->whereNotNull('service_id')
@@ -891,7 +985,7 @@ class TelegramPoll extends Command
             ->get();
 
         if ($findings->isEmpty()) {
-            $telegram->sendMessage($chatId, 'ما في سجل أسنان محفوظ إلك بعد.', $keyboard);
+            $telegram->sendMessage($chatId, $forSelf ? 'ما في سجل أسنان محفوظ إلك بعد.' : "ما في سجل أسنان محفوظ لـ{$patient->full_name} بعد.", $keyboard);
 
             return;
         }
@@ -914,6 +1008,7 @@ class TelegramPoll extends Command
             $lines[] = "🕓 مخطط/قيد التنفيذ:\n".$summarize($inProgress);
         }
 
-        $telegram->sendMessage($chatId, "وضع أسنانك:\n\n".implode("\n\n", $lines), $keyboard);
+        $header = $forSelf ? 'وضع أسنانك' : "وضع أسنان {$patient->full_name}";
+        $telegram->sendMessage($chatId, "{$header}:\n\n".implode("\n\n", $lines), $keyboard);
     }
 }
