@@ -10,10 +10,17 @@ use Illuminate\Support\Carbon;
 class DoctorSlotService
 {
     /**
-     * Free appointment slots for a doctor on a given date: doctor_availability
-     * for that weekday, chopped into $duration-minute slots, minus whatever
-     * is already booked. Shared by DoctorSlotController (web) and the
-     * Telegram booking flow so both use the exact same math.
+     * Free appointment slots for a doctor on a given date: the full day
+     * chopped into $duration-minute slots, minus whatever is already
+     * booked. Shared by DoctorSlotController (web) and the Telegram
+     * booking flow so both use the exact same math.
+     *
+     * Doctor working-hours windows (doctor_availability) are intentionally
+     * NOT applied here — the clinic wants doctors bookable at any time, no
+     * restriction. The availability rows/editor and the dashboard occupancy
+     * widget (DoctorOccupancyController) are left untouched and still work
+     * off that data independently; this is the only place that used to
+     * treat it as a hard limit on bookable times.
      */
     public function availableSlots(Doctor $doctor, int $branchId, string $date, ?int $duration = null): array
     {
@@ -21,12 +28,6 @@ class DoctorSlotService
         $defaultDuration = (int) (Setting::where('key', 'default_appointment_duration')->first()?->value ?? 30);
         $duration = $duration ?? $defaultDuration;
         $dateCarbon = Carbon::parse($date, $timezone)->startOfDay();
-        $weekday = $dateCarbon->dayOfWeek;
-
-        $availability = $doctor->availability()
-            ->where('branch_id', $branchId)
-            ->where('weekday', $weekday)
-            ->get();
 
         $dayStartUtc = $dateCarbon->clone()->timezone('UTC');
         $dayEndUtc = $dateCarbon->clone()->endOfDay()->timezone('UTC');
@@ -39,35 +40,30 @@ class DoctorSlotService
 
         $slots = [];
 
-        foreach ($availability as $window) {
-            [$startH, $startM] = explode(':', substr($window->start_time, 0, 5));
-            [$endH, $endM] = explode(':', substr($window->end_time, 0, 5));
+        $cursor = $dateCarbon->clone();
+        $dayEnd = $dateCarbon->clone()->endOfDay();
 
-            $cursor = $dateCarbon->clone()->setTime((int) $startH, (int) $startM);
-            $windowEnd = $dateCarbon->clone()->setTime((int) $endH, (int) $endM);
+        while ($cursor->clone()->addMinutes($duration)->lte($dayEnd)) {
+            $slotStart = $cursor->clone();
+            $slotEnd = $cursor->clone()->addMinutes($duration);
 
-            while ($cursor->clone()->addMinutes($duration)->lte($windowEnd)) {
-                $slotStart = $cursor->clone();
-                $slotEnd = $cursor->clone()->addMinutes($duration);
+            $slotStartUtc = $slotStart->clone()->timezone('UTC');
+            $slotEndUtc = $slotEnd->clone()->timezone('UTC');
 
-                $slotStartUtc = $slotStart->clone()->timezone('UTC');
-                $slotEndUtc = $slotEnd->clone()->timezone('UTC');
+            $overlaps = $booked->contains(
+                fn ($appointment) => $slotStartUtc->lt($appointment->ends_at) && $slotEndUtc->gt($appointment->starts_at)
+            );
 
-                $overlaps = $booked->contains(
-                    fn ($appointment) => $slotStartUtc->lt($appointment->ends_at) && $slotEndUtc->gt($appointment->starts_at)
-                );
-
-                if (! $overlaps) {
-                    $slots[] = [
-                        'starts_at' => $slotStartUtc,
-                        'ends_at' => $slotEndUtc,
-                        'starts_at_display' => $slotStart->format('H:i'),
-                        'ends_at_display' => $slotEnd->format('H:i'),
-                    ];
-                }
-
-                $cursor->addMinutes($duration);
+            if (! $overlaps) {
+                $slots[] = [
+                    'starts_at' => $slotStartUtc,
+                    'ends_at' => $slotEndUtc,
+                    'starts_at_display' => $slotStart->format('H:i'),
+                    'ends_at_display' => $slotEnd->format('H:i'),
+                ];
             }
+
+            $cursor->addMinutes($duration);
         }
 
         return $slots;
