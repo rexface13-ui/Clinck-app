@@ -15,6 +15,9 @@ interface Props {
   /** When opened from inside an active work session, new notes get tagged with it so the notebook can show which session they were written during. */
   workItemId?: number
   sessionLabel?: string
+  /** When opened from within a specific step (e.g. a tooth with several steps under one session), new notes get tagged with that exact step, and the list is filtered to only that step's notes — not every note ever left on this tooth. Omit to see everything for the tooth, each still labeled with its own step/session. */
+  workItemToothStepId?: number
+  stepTitle?: string
 }
 
 /**
@@ -23,17 +26,25 @@ interface Props {
  * replaces the old single free-text "note" field on the finding form,
  * which only ever held the last thing typed.
  */
-export default function ToothNotesModal({ patientId, toothNumber, notes, onClose, onChanged, workItemId, sessionLabel }: Props) {
+export default function ToothNotesModal({ patientId, toothNumber, notes, onClose, onChanged, workItemId, sessionLabel, workItemToothStepId, stepTitle }: Props) {
   const [draft, setDraft] = useState('')
   const [saving, setSaving] = useState(false)
 
-  const toothNotes = notes.filter((n) => n.tooth_number === toothNumber).sort((a, b) => b.id - a.id)
+  const toothNotes = notes
+    .filter((n) => n.tooth_number === toothNumber)
+    .filter((n) => (workItemToothStepId ? n.work_item_tooth_step_id === workItemToothStepId : true))
+    .sort((a, b) => b.id - a.id)
 
   async function addLine() {
     if (!draft.trim()) return
     setSaving(true)
     try {
-      await api.post(`/patients/${patientId}/notes`, { body: draft.trim(), tooth_number: toothNumber, work_item_id: workItemId ?? null })
+      await api.post(`/patients/${patientId}/notes`, {
+        body: draft.trim(),
+        tooth_number: toothNumber,
+        work_item_id: workItemId ?? null,
+        work_item_tooth_step_id: workItemToothStepId ?? null,
+      })
       setDraft('')
       onChanged()
     } finally {
@@ -53,9 +64,13 @@ export default function ToothNotesModal({ patientId, toothNumber, notes, onClose
   }
 
   return (
-    <Modal title={`دفتر ملاحظات — السن ${toothNumber}`} onClose={onClose} width="w-[28rem]">
+    <Modal title={`دفتر ملاحظات — السن ${toothNumber}${stepTitle ? ` — ${stepTitle}` : ''}`} onClose={onClose} width="w-[28rem]">
       {sessionLabel && (
-        <p className="mb-2 text-xs text-accent">أي ملاحظة تضيفها هلق بتترّبط تلقائياً بجلسة: {sessionLabel}</p>
+        <p className="mb-2 text-xs text-accent">
+          أي ملاحظة تضيفها هلق بتترّبط تلقائياً بجلسة: {sessionLabel}
+          {stepTitle && ` — خطوة: ${stepTitle}`}
+          {workItemToothStepId && <span className="block text-ink/40">(بتظهر هون بس ملاحظات هالخطوة تحديداً)</span>}
+        </p>
       )}
       <div className="mb-3 flex items-start gap-2">
         <textarea
@@ -90,7 +105,12 @@ export default function ToothNotesModal({ patientId, toothNumber, notes, onClose
               className={`rounded-lg border p-2 text-sm ${n.is_important ? 'border-warning/40 bg-warning-soft' : 'border-ink/10 bg-background'}`}
             >
               <p className="whitespace-pre-wrap text-ink">{n.body}</p>
-              {n.session_label && <p className="mt-1 text-[11px] text-accent">🗓 تم تسجيلها أثناء جلسة: {n.session_label}</p>}
+              {n.session_label && (
+                <p className="mt-1 text-[11px] text-accent">
+                  🗓 تم تسجيلها أثناء جلسة: {n.session_label}
+                  {n.step_title && ` — خطوة: ${n.step_title}`}
+                </p>
+              )}
               <div className="mt-1 flex items-center justify-between text-[11px] text-ink/40">
                 <span>{n.author ?? '—'} — {n.created_at}</span>
                 <span className="flex items-center gap-2">

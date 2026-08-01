@@ -183,6 +183,8 @@ export interface Note {
   created_at: string
   tooth_number: number | null
   work_item_id: number | null
+  work_item_tooth_step_id: number | null
+  step_title: string | null
   session_label: string | null
   is_important: boolean
 }

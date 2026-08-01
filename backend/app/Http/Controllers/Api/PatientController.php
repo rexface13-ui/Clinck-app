@@ -160,7 +160,7 @@ class PatientController extends Controller
             'toothStates',
             'toothFindings' => fn ($q) => $q->orderByDesc('recorded_at')->with(['service', 'doctor', 'workItemToothStep.invoiceLine']),
             'appointments' => fn ($q) => $q->orderByDesc('starts_at')->with('doctor:id,full_name'),
-            'notes' => fn ($q) => $q->orderByDesc('created_at')->with(['user:id,name', 'workItem.service:id,name']),
+            'notes' => fn ($q) => $q->orderByDesc('created_at')->with(['user:id,name', 'workItem.service:id,name', 'workItemToothStep.step:id,title']),
             'attachments' => fn ($q) => $q->orderByDesc('id')->with('uploader:id,name'),
         ]);
 

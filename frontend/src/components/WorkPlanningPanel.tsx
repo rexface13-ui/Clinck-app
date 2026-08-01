@@ -105,6 +105,7 @@ export default function WorkPlanningPanel({
   const [lastClickedTooth, setLastClickedTooth] = useState<number | null>(null)
   const [notesToothNumber, setNotesToothNumber] = useState<number | null>(null)
   const [notesWorkItemId, setNotesWorkItemId] = useState<number | null>(null)
+  const [notesToothStepId, setNotesToothStepId] = useState<number | null>(null)
   const [newServiceId, setNewServiceId] = useState('')
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
@@ -649,14 +650,15 @@ export default function WorkPlanningPanel({
                                   <span className="text-[11px] text-muted">— تم إنجازه بجلسة سابقة{ts.completed_at ? ` بتاريخ ${ts.completed_at}` : ''}</span>
                                 )}
                                 <button
-                                  onClick={() => { setNotesToothNumber(ts.tooth_number); setNotesWorkItemId(w.id) }}
-                                  title="دفتر ملاحظات السن"
+                                  onClick={() => { setNotesToothNumber(ts.tooth_number); setNotesWorkItemId(w.id); setNotesToothStepId(ts.id) }}
+                                  title={`دفتر ملاحظات السن — خطوة ${step.title}`}
                                   className="flex items-center gap-1 text-[11px] text-accent hover:underline"
                                 >
                                   <FontAwesomeIcon icon={faNoteSticky} />
-                                  {notes.filter((n) => n.tooth_number === ts.tooth_number).length > 0
-                                    ? `ملاحظات (${notes.filter((n) => n.tooth_number === ts.tooth_number).length})`
-                                    : 'ملاحظة'}
+                                  {(() => {
+                                    const count = notes.filter((n) => n.tooth_number === ts.tooth_number && n.work_item_tooth_step_id === ts.id).length
+                                    return count > 0 ? `ملاحظات (${count})` : 'ملاحظة'
+                                  })()}
                                 </button>
                                 {step.fields.map((f) => (
                                   <input
@@ -913,15 +915,21 @@ export default function WorkPlanningPanel({
           patientId={patientId}
           toothNumber={notesToothNumber}
           notes={notes}
-          onClose={() => { setNotesToothNumber(null); setNotesWorkItemId(null) }}
+          onClose={() => { setNotesToothNumber(null); setNotesWorkItemId(null); setNotesToothStepId(null) }}
           onChanged={() => onChanged?.()}
           workItemId={notesWorkItemId ?? undefined}
+          workItemToothStepId={notesToothStepId ?? undefined}
           sessionLabel={
             notesWorkItemId
               ? (() => {
                   const w = workItems.find((wi) => wi.id === notesWorkItemId)
                   return w ? `${w.service_name ?? 'جلسة'} — ${w.created_at}` : undefined
                 })()
+              : undefined
+          }
+          stepTitle={
+            notesToothStepId
+              ? workItems.flatMap((wi) => wi.steps).find((s) => s.tooth_steps.some((ts) => ts.id === notesToothStepId))?.title
               : undefined
           }
         />

@@ -17,6 +17,7 @@ class StoreNoteRequest extends FormRequest
             'body' => ['required', 'string'],
             'tooth_number' => ['nullable', 'integer', 'min:1', 'max:85'],
             'work_item_id' => ['nullable', 'integer', 'exists:work_items,id'],
+            'work_item_tooth_step_id' => ['nullable', 'integer', 'exists:work_item_tooth_steps,id'],
             'is_important' => ['sometimes', 'boolean'],
         ];
     }

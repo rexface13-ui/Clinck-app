@@ -11,7 +11,7 @@ class Note extends Model
 {
     use BelongsToClinic;
 
-    protected $fillable = ['clinic_id', 'notable_type', 'notable_id', 'tooth_number', 'work_item_id', 'user_id', 'body', 'is_important'];
+    protected $fillable = ['clinic_id', 'notable_type', 'notable_id', 'tooth_number', 'work_item_id', 'work_item_tooth_step_id', 'user_id', 'body', 'is_important'];
 
     protected $casts = ['is_important' => 'boolean'];
 
@@ -28,5 +28,10 @@ class Note extends Model
     public function workItem(): BelongsTo
     {
         return $this->belongsTo(WorkItem::class);
+    }
+
+    public function workItemToothStep(): BelongsTo
+    {
+        return $this->belongsTo(WorkItemToothStep::class);
     }
 }
