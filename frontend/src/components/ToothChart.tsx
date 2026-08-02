@@ -337,7 +337,10 @@ export default function ToothChart({
 
   const notesCountByTooth = useMemo(() => {
     const map = new Map<number, number>()
-    notes.forEach((n) => map.set(n.tooth_number, (map.get(n.tooth_number) ?? 0) + 1))
+    notes.forEach((n) => {
+      if (n.tooth_number === null) return
+      map.set(n.tooth_number, (map.get(n.tooth_number) ?? 0) + 1)
+    })
     return map
   }, [notes])
 
