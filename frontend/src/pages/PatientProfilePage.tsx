@@ -80,6 +80,7 @@ export default function PatientProfilePage() {
   const [pendingWorkTeeth, setPendingWorkTeeth] = useState<number[]>([])
   const [notesModalTooth, setNotesModalTooth] = useState<number | null>(null)
   const [workItems, setWorkItems] = useState<WorkItem[]>([])
+  const [focusWorkItemId, setFocusWorkItemId] = useState<number | null>(null)
 
   function goToWorkTab() {
     setActiveTab('work')
@@ -88,6 +89,11 @@ export default function PatientProfilePage() {
 
   function startWorkOnTeeth(toothNumbers: number[]) {
     setPendingWorkTeeth(toothNumbers)
+    goToWorkTab()
+  }
+
+  function openWorkItem(workItemId: number) {
+    setFocusWorkItemId(workItemId)
     goToWorkTab()
   }
 
@@ -411,6 +417,7 @@ export default function PatientProfilePage() {
                     notes={notes}
                     workItems={workItems}
                     onStartWork={startWorkOnTeeth}
+                    onOpenWorkItem={openWorkItem}
                   />
                 </div>
               </div>
@@ -432,6 +439,8 @@ export default function PatientProfilePage() {
                 toothFindings={tooth_findings}
                 initialSelectedTeeth={pendingWorkTeeth}
                 onInitialSelectionConsumed={() => setPendingWorkTeeth([])}
+                focusWorkItemId={focusWorkItemId}
+                onFocusConsumed={() => setFocusWorkItemId(null)}
                 notes={notes}
               />
             ),

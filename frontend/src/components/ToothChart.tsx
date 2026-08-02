@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faPen, faTrash, faNoteSticky, faPlay, faFileInvoice } from '@fortawesome/free-solid-svg-icons'
 import { Odontogram } from 'react-odontogram'
@@ -62,6 +62,8 @@ interface Props {
   workItems?: WorkItem[]
   /** Jumps to the Work tab with these teeth pre-selected, ready to start work — skips the manual re-select-then-switch-tabs round trip. */
   onStartWork?: (toothNumbers: number[]) => void
+  /** Jumps to the Work tab and opens an existing (still-open) work item straight into edit mode — used by the "شغل حالي" session row so its teeth/steps can be corrected without hunting for it in the list. */
+  onOpenWorkItem?: (workItemId: number) => void
 }
 
 export default function ToothChart({
@@ -77,9 +79,25 @@ export default function ToothChart({
   notes = [],
   workItems = [],
   onStartWork,
+  onOpenWorkItem,
 }: Props) {
   const { can } = useAuth()
   const containerRef = useRef<HTMLDivElement>(null)
+  // The callout overlay's side margins are computed in viewBox units from
+  // this — measured live (not assumed to always equal the nominal 460px)
+  // so the leader lines/arrows stay correctly aligned with the real teeth
+  // at any screen width, including once the layout shrinks responsively.
+  const [containerWidthPx, setContainerWidthPx] = useState(460)
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width
+      if (width) setContainerWidthPx(width)
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
   const toothNumbers = isChild ? [...UPPER_PRIMARY, ...LOWER_PRIMARY] : [...UPPER_PERMANENT, ...LOWER_PERMANENT]
   const toLibraryId = isChild ? toLibraryToothId : (n: number) => `teeth-${n}`
   const [selectedTeeth, setSelectedTeeth] = useState<number[]>([])
@@ -458,8 +476,8 @@ export default function ToothChart({
             </button>
           )}
         </div>
-        <div className="relative mx-auto" style={{ maxWidth: 460 + SIDE_PAD * 2 }}>
-          <div ref={containerRef} className="relative mx-auto" style={{ width: 460 }}>
+        <div className="relative mx-auto w-full" style={{ maxWidth: 460 + SIDE_PAD * 2 }}>
+          <div ref={containerRef} className="relative mx-auto w-full" style={{ maxWidth: 460 }}>
           <Odontogram
             key={chartKey}
             layout="circle"
@@ -495,6 +513,7 @@ export default function ToothChart({
               teeth={calloutTeeth}
               notesCountByTooth={notesCountByTooth}
               onSelectTooth={handleToothClick}
+              containerWidthPx={containerWidthPx}
             />
           )}
         </div>
@@ -636,12 +655,16 @@ export default function ToothChart({
                 ))}
 
                 {toothSessions.pending.length > 0 && (
-                  <div className="rounded-lg border border-dashed border-ink/15 px-2.5 py-1.5 text-xs">
-                    <span className="font-medium text-ink/70">شغل حالي (لسا ما انحاسب):</span>
+                  <button
+                    onClick={() => onOpenWorkItem?.(toothSessions.pending[0].workItemId)}
+                    disabled={!onOpenWorkItem}
+                    className="w-full rounded-lg border border-dashed border-ink/15 px-2.5 py-1.5 text-start text-xs hover:border-accent disabled:cursor-default disabled:hover:border-ink/15"
+                  >
+                    <span className="font-medium text-ink/70">شغل حالي (لسا ما انحاسب) — اضغط للتعديل:</span>
                     <span className="block text-ink/50">
                       {toothSessions.pending.map((r) => `${r.stepTitle}${r.completed ? ' (منجزة)' : ''}`).join('، ')}
                     </span>
-                  </div>
+                  </button>
                 )}
               </div>
             </div>
@@ -809,14 +832,17 @@ function ToothCalloutOverlay({
   teeth,
   notesCountByTooth,
   onSelectTooth,
+  containerWidthPx,
 }: {
   geometry: { viewBox: string }
   teeth: CalloutTooth[]
   notesCountByTooth: Map<number, number>
   onSelectTooth: (toothNumber: number) => void
+  /** The chart container's real, currently-rendered pixel width — used (not a hardcoded 460) so the side margin stays correctly proportioned at any screen size, including once the layout shrinks responsively. */
+  containerWidthPx: number
 }) {
   const [, , w, h] = geometry.viewBox.split(' ').map(Number)
-  const padUnits = SIDE_PAD * (w / 460)
+  const padUnits = SIDE_PAD * (w / containerWidthPx)
   const viewBox = `${-padUnits} 0 ${w + padUnits * 2} ${h}`
 
   const left = teeth.filter((t) => t.side === 'left').sort((a, b) => a.center.y - b.center.y)
