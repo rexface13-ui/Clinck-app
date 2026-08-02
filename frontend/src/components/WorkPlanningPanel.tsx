@@ -1026,52 +1026,54 @@ export default function WorkPlanningPanel({
           </div>
         )}
 
-        {/* Service/doctor pulled up here (was below the odontogram) — it's
-            the first thing to fill in, not something to scroll down for
-            after picking teeth. */}
-        <div className="mb-4 grid gap-4 rounded-xl border border-border bg-background p-4 sm:grid-cols-2">
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-ink/80">الخدمة</label>
-            {editingWorkItemId ? (
-              <p className="rounded-lg border border-border bg-surface px-3 py-2.5 text-sm text-ink/70">
-                {services.find((s) => String(s.id) === newServiceId)?.name ?? '—'}
-              </p>
-            ) : (
-              <SearchableSelect
-                options={serviceOptions}
-                value={newServiceId}
-                onChange={selectService}
-                placeholder="اختر خدمة..."
-              />
-            )}
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
+          <div ref={containerRef} className="relative mx-auto shrink-0" style={{ maxWidth: 500 }}>
+            <Odontogram
+              key={chartKey}
+              layout="circle"
+              notation="FDI"
+              maxTeeth={8}
+              defaultSelected={selectedTeeth.map(toLibraryId)}
+              singleSelect={false}
+              onChange={() => {}}
+              teethConditions={teethConditions}
+              showLabels={false}
+              // Library's own "selected" tint is driven by its own internal
+              // click state, which clicks no longer go through (see
+              // OdontogramClickOverlay below) — transparent so it can't show
+              // a stale highlight that contradicts our own selection ring.
+              colors={{ darkBlue: 'var(--color-accent)', baseBlue: '#c9b8a8', lightBlue: 'transparent' }}
+            />
+            {geometry && <OdontogramBridgeOverlay geometry={geometry} groups={bridgeGroups} />}
+            {geometry && <OdontogramSelectionOverlay geometry={geometry} selected={selectedTeeth} />}
+            {geometry && <OdontogramNumberOverlay geometry={geometry} toothNumbers={toothNumbers} />}
+            {geometry && <OdontogramClickOverlay geometry={geometry} toothNumbers={toothNumbers} onSelect={toggleTooth} />}
           </div>
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-ink/80">الطبيب المشرف (إجباري)</label>
-            <SearchableSelect options={doctorOptions} value={doctorId} onChange={setDoctorId} placeholder="اختر طبيب..." />
-          </div>
-        </div>
 
-        <div ref={containerRef} className="relative mx-auto" style={{ maxWidth: 500 }}>
-          <Odontogram
-            key={chartKey}
-            layout="circle"
-            notation="FDI"
-            maxTeeth={8}
-            defaultSelected={selectedTeeth.map(toLibraryId)}
-            singleSelect={false}
-            onChange={() => {}}
-            teethConditions={teethConditions}
-            showLabels={false}
-            // Library's own "selected" tint is driven by its own internal
-            // click state, which clicks no longer go through (see
-            // OdontogramClickOverlay below) — transparent so it can't show
-            // a stale highlight that contradicts our own selection ring.
-            colors={{ darkBlue: 'var(--color-accent)', baseBlue: '#c9b8a8', lightBlue: 'transparent' }}
-          />
-          {geometry && <OdontogramBridgeOverlay geometry={geometry} groups={bridgeGroups} />}
-          {geometry && <OdontogramSelectionOverlay geometry={geometry} selected={selectedTeeth} />}
-          {geometry && <OdontogramNumberOverlay geometry={geometry} toothNumbers={toothNumbers} />}
-          {geometry && <OdontogramClickOverlay geometry={geometry} toothNumbers={toothNumbers} onSelect={toggleTooth} />}
+          {/* Beside the chart (centered on it), not above or below —
+              vertically centered with it on wide screens, stacked under it
+              on narrow ones. */}
+          <div className="w-full space-y-4 rounded-xl border border-border bg-background p-4 lg:max-w-xs">
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-ink/80">الخدمة</label>
+              {editingWorkItemId ? (
+                <p className="rounded-lg border border-border bg-surface px-3 py-2.5 text-sm text-ink/70">
+                  {services.find((s) => String(s.id) === newServiceId)?.name ?? '—'}
+                </p>
+              ) : (
+                <SearchableSelect
+                  options={serviceOptions}
+                  value={newServiceId}
+                  onChange={selectService}
+                  placeholder="اختر خدمة..."
+                />
+              )}
+            </div>
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-ink/80">الطبيب المشرف (إجباري)</label>
+              <SearchableSelect options={doctorOptions} value={doctorId} onChange={setDoctorId} placeholder="اختر طبيب..." />
+            </div>
+          </div>
         </div>
 
         {editingWorkItemId && (
