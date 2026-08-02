@@ -41,7 +41,7 @@ import type { Doctor, Note, Service, ToothFinding, ToothState, WorkItem } from '
 const CHILD_PHANTOM_LIBRARY_IDS = [16, 17, 18, 26, 27, 28, 36, 37, 38, 46, 47, 48].map((n) => `teeth-${n}`)
 
 /** Extra room reserved on each side of the chart for the worked-tooth callout labels — just enough for a short label sitting right next to its tooth, not a distant side panel. */
-const SIDE_PAD = 70
+const SIDE_PAD = 100
 
 interface Props {
   patientId: number
@@ -942,7 +942,7 @@ function ToothCalloutOverlay({
   // old design that pushed every label out to a shared side margin far from
   // the tooth it described. Distance is in real pixels (via containerWidthPx)
   // so it looks the same short hop at any screen size.
-  const offsetUnits = 30 * (w / containerWidthPx)
+  const offsetUnits = 52 * (w / containerWidthPx)
   const cx = w / 2
   const cy = h / 2
   const rows = teeth.map((t) => {
