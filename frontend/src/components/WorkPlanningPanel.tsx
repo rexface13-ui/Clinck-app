@@ -429,8 +429,8 @@ export default function WorkPlanningPanel({
   )
   const discountAmount = Math.max(0, Number(discount) || 0)
   const finalTotal = Math.max(0, checkoutTotal - discountAmount)
-  /** Once the clinic owner types an amount, that's what's paid; until then it tracks the full total (adjusting live as the discount changes) so it reads correctly by default without them having to touch it. */
-  const paidAmountValue = paidAmountTouched ? Math.max(0, Math.min(finalTotal, Number(paidAmount) || 0)) : finalTotal
+  /** Defaults to 0 (nothing collected yet) — most sessions close without an on-the-spot payment, so the common case is "leave it as debt" rather than "pay in full"; the clinic owner types in whatever was actually handed over. */
+  const paidAmountValue = paidAmountTouched ? Math.max(0, Math.min(finalTotal, Number(paidAmount) || 0)) : 0
   const remainingAsDebt = Math.max(0, finalTotal - paidAmountValue)
 
   function toggleCheckoutId(id: number) {
@@ -1035,12 +1035,12 @@ export default function WorkPlanningPanel({
                 type="number"
                 min={0}
                 max={finalTotal}
-                value={paidAmountTouched ? paidAmount : finalTotal}
+                value={paidAmountTouched ? paidAmount : 0}
                 onChange={(e) => {
                   setPaidAmountTouched(true)
                   setPaidAmount(e.target.value)
                 }}
-                placeholder={String(finalTotal)}
+                placeholder="0"
                 className="w-32 rounded-lg border border-border px-2 py-1.5 text-sm font-semibold"
               />
               <span className="text-xs text-muted">₪</span>
