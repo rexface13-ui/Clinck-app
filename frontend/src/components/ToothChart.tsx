@@ -829,7 +829,12 @@ function ToothCalloutOverlay({
   ]
 
   return (
-    <svg viewBox={viewBox} className="absolute inset-0 size-full" style={{ overflow: 'visible' }}>
+    // pointer-events-none on the root is essential — this overlay's pixel
+    // box fully covers the tooth chart underneath (including the real
+    // click-target overlay), so without it every label/line here would
+    // swallow clicks meant for the teeth themselves. Only the label text
+    // opts back in (pointer-events-auto) to stay clickable for the notebook.
+    <svg viewBox={viewBox} className="pointer-events-none absolute inset-0 size-full" style={{ overflow: 'visible' }}>
       <defs>
         <marker id="tooth-callout-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
           <path d="M0,0 L8,4 L0,8 z" fill="var(--color-ink)" opacity={0.55} />
@@ -838,7 +843,7 @@ function ToothCalloutOverlay({
       {rows.map((t) => {
         const noteCount = notesCountByTooth.get(t.number) ?? 0
         return (
-          <g key={t.number} className="cursor-pointer" onClick={() => onOpenNotes(t.number)}>
+          <g key={t.number}>
             <line
               x1={t.center.x}
               y1={t.center.y}
@@ -856,7 +861,8 @@ function ToothCalloutOverlay({
               dominantBaseline="middle"
               fontSize="9"
               fill={t.done ? 'var(--color-ink)' : 'var(--color-tooth-planned)'}
-              className="select-none hover:underline"
+              className="pointer-events-auto cursor-pointer select-none hover:underline"
+              onClick={() => onOpenNotes(t.number)}
             >
               {t.number}: {t.label}
               {noteCount > 0 ? ` 📝${noteCount}` : ''}
