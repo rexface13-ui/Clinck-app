@@ -357,6 +357,25 @@ export default function ToothChart({
   const history = singleSelectedTooth ? toothFindings.filter((f) => f.tooth_number === singleSelectedTooth) : []
 
   /**
+   * Groups "السجل" by visit instead of one flat line per service — an
+   * invoiced finding groups with everything else checked out under the same
+   * invoice_id (several services done in one sitting show as one session),
+   * a still-open one groups by its work item (plan_id) instead since it has
+   * no invoice yet, and anything with neither (a manual note/flag with no
+   * linked work item) stands alone. Groups are ordered by their most recent
+   * finding, same order the flat list used to show.
+   */
+  const historyGroups = useMemo(() => {
+    const groups = new Map<string, ToothFinding[]>()
+    for (const f of history) {
+      const key = f.invoice_id ? `inv-${f.invoice_id}` : f.plan_id ? `wi-${f.plan_id}` : `standalone-${f.id}`
+      if (!groups.has(key)) groups.set(key, [])
+      groups.get(key)!.push(f)
+    }
+    return Array.from(groups.values())
+  }, [history])
+
+  /**
    * Every step ever assigned to the selected tooth, across every (non-cancelled)
    * work item — the "كم خطوة منجزة، شو ضل" summary and the session-by-session
    * breakdown both come from here. Each row that was actually billed links to
@@ -364,7 +383,7 @@ export default function ToothChart({
    */
   const toothStepRows = useMemo(() => {
     if (!singleSelectedTooth) return []
-    const rows: { key: string; workItemId: number; serviceName: string | null; stepTitle: string; completed: boolean; completedAt: string | null; invoiceId: number | null }[] = []
+    const rows: { key: string; workItemId: number; serviceName: string | null; doctorName: string | null; stepTitle: string; completed: boolean; completedAt: string | null; invoiceId: number | null }[] = []
     for (const wi of workItems) {
       if (wi.status === 'cancelled') continue
       for (const step of wi.steps) {
@@ -374,6 +393,7 @@ export default function ToothChart({
             key: `${wi.id}-${ts.id}`,
             workItemId: wi.id,
             serviceName: wi.service_name,
+            doctorName: wi.doctor_name,
             stepTitle: step.title,
             completed: ts.completed,
             completedAt: ts.completed_at,
@@ -670,22 +690,26 @@ export default function ToothChart({
               </p>
 
               <div className="space-y-2">
-                {Array.from(toothSessions.byInvoice.entries()).map(([invoiceId, rows]) => (
-                  <button
-                    key={invoiceId}
-                    onClick={() => setViewingInvoiceId(invoiceId)}
-                    className="flex w-full items-start justify-between gap-2 rounded-lg border border-ink/10 bg-white px-2.5 py-1.5 text-start text-xs hover:border-accent"
-                  >
-                    <span>
-                      <span className="font-medium text-ink">{rows[0].serviceName ?? 'خدمة'}</span>
-                      <span className="block text-ink/50">
-                        {rows.map((r) => r.stepTitle).join('، ')}
-                        {rows[0].completedAt && ` — ${rows[0].completedAt}`}
+                {Array.from(toothSessions.byInvoice.entries()).map(([invoiceId, rows]) => {
+                  const doneInSession = rows.filter((r) => r.completed).length
+                  return (
+                    <button
+                      key={invoiceId}
+                      onClick={() => setViewingInvoiceId(invoiceId)}
+                      className="flex w-full items-start justify-between gap-2 rounded-lg border border-ink/10 bg-white px-2.5 py-1.5 text-start text-xs hover:border-accent"
+                    >
+                      <span>
+                        <span className="font-medium text-ink">
+                          جلسة {rows[0].completedAt ?? ''} — {rows[0].doctorName ?? 'طبيب عام'} — {doneInSession} من {rows.length} خطوة
+                        </span>
+                        <span className="block text-ink/50">
+                          {rows[0].serviceName ?? 'خدمة'}: {rows.map((r) => r.stepTitle).join('، ')}
+                        </span>
                       </span>
-                    </span>
-                    <FontAwesomeIcon icon={faFileInvoice} className="mt-0.5 shrink-0 text-ink/30" />
-                  </button>
-                ))}
+                      <FontAwesomeIcon icon={faFileInvoice} className="mt-0.5 shrink-0 text-ink/30" />
+                    </button>
+                  )
+                })}
 
                 {toothSessions.pending.length > 0 && (
                   <button
@@ -693,9 +717,11 @@ export default function ToothChart({
                     disabled={!onOpenWorkItem}
                     className="w-full rounded-lg border border-dashed border-ink/15 px-2.5 py-1.5 text-start text-xs hover:border-accent disabled:cursor-default disabled:hover:border-ink/15"
                   >
-                    <span className="font-medium text-ink/70">شغل حالي (لسا ما انحاسب) — اضغط للتعديل:</span>
+                    <span className="font-medium text-ink/70">
+                      جلسة قيد التنفيذ — {toothSessions.pending[0].doctorName ?? 'طبيب عام'} — {toothSessions.pending.filter((r) => r.completed).length} من {toothSessions.pending.length} خطوة (اضغط للتعديل)
+                    </span>
                     <span className="block text-ink/50">
-                      {toothSessions.pending.map((r) => `${r.stepTitle}${r.completed ? ' (منجزة)' : ''}`).join('، ')}
+                      {toothSessions.pending[0].serviceName ?? 'خدمة'}: {toothSessions.pending.map((r) => `${r.stepTitle}${r.completed ? ' (منجزة)' : ''}`).join('، ')}
                     </span>
                   </button>
                 )}
@@ -706,42 +732,53 @@ export default function ToothChart({
           {singleSelectedTooth && (
             <div className="mb-4">
               <h4 className="mb-2 text-xs font-medium text-ink/60">السجل</h4>
-              {history.length === 0 ? (
+              {historyGroups.length === 0 ? (
                 <p className="text-xs text-ink/40">لا يوجد سجل لهذا السن.</p>
               ) : (
-                <ul className="space-y-2">
-                  {history.map((f) => (
-                    <li key={f.id} className="flex items-start justify-between gap-2 text-xs text-ink/70">
-                      <span>
-                        <span className="font-medium text-ink">{f.finding_type}</span>
-                        {/* status (مخطط/قيد التنفيذ/منجز) only makes sense for
-                            an actual service/session — a plain note (decay
-                            flag, missing-tooth flag...) isn't a treatment
-                            step that gets "completed", so showing "منجز"
-                            next to one reads as if it was treated. */}
-                        {f.service_id && (
-                          <>
-                            {' — '}
-                            {STATUS_LABEL[f.status]}
-                          </>
-                        )}
-                        {f.performed_externally && <span className="text-warning"> — طرف خارجي</span>}
-                        {' — '}
-                        {f.doctor_name ?? 'طبيب عام'} — {f.recorded_at}
-                        {f.note && <p className="mt-0.5 text-ink/50">{f.note}</p>}
-                      </span>
-                      {canManage && (
-                        <span className="flex shrink-0 gap-2">
-                          <button onClick={() => editFinding(f)} className="text-ink/40 hover:text-accent">
-                            <FontAwesomeIcon icon={faPen} />
-                          </button>
-                          <button onClick={() => deleteFinding(f.id)} className="text-ink/40 hover:text-danger">
-                            <FontAwesomeIcon icon={faTrash} />
-                          </button>
-                        </span>
-                      )}
-                    </li>
-                  ))}
+                <ul className="space-y-3">
+                  {historyGroups.map((group) => {
+                    const head = group[0]
+                    return (
+                      <li key={group.map((f) => f.id).join('-')} className="rounded-lg border border-ink/10 bg-white p-2">
+                        <p className="mb-1.5 text-[11px] font-medium text-ink/50">
+                          جلسة {head.recorded_at} — {head.doctor_name ?? 'طبيب عام'}
+                        </p>
+                        <ul className="space-y-1.5">
+                          {group.map((f) => (
+                            <li key={f.id} className="flex items-start justify-between gap-2 text-xs text-ink/70">
+                              <span>
+                                <span className="font-medium text-ink">{f.finding_type}</span>
+                                {f.step_title && <span className="text-ink/50"> — {f.step_title}</span>}
+                                {/* status (مخطط/قيد التنفيذ/منجز) only makes sense for
+                                    an actual service/session — a plain note (decay
+                                    flag, missing-tooth flag...) isn't a treatment
+                                    step that gets "completed", so showing "منجز"
+                                    next to one reads as if it was treated. */}
+                                {f.service_id && (
+                                  <>
+                                    {' — '}
+                                    {STATUS_LABEL[f.status]}
+                                  </>
+                                )}
+                                {f.performed_externally && <span className="text-warning"> — طرف خارجي</span>}
+                                {f.note && <p className="mt-0.5 text-ink/50">{f.note}</p>}
+                              </span>
+                              {canManage && (
+                                <span className="flex shrink-0 gap-2">
+                                  <button onClick={() => editFinding(f)} className="text-ink/40 hover:text-accent">
+                                    <FontAwesomeIcon icon={faPen} />
+                                  </button>
+                                  <button onClick={() => deleteFinding(f.id)} className="text-ink/40 hover:text-danger">
+                                    <FontAwesomeIcon icon={faTrash} />
+                                  </button>
+                                </span>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      </li>
+                    )
+                  })}
                 </ul>
               )}
             </div>

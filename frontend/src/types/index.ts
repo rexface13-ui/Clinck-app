@@ -124,6 +124,8 @@ export interface ToothFinding {
   session_status: 'pending' | 'done' | null
   session_price: string | null
   plan_id: number | null
+  invoice_id: number | null
+  step_title: string | null
   service_id: number | null
   service_name: string | null
   service_color: string | null
@@ -239,6 +241,7 @@ export interface WorkItem {
   appointment_id: number | null
   price_per_tooth: boolean
   status: 'in_progress' | 'done' | 'cancelled'
+  collected_amount_ils: number
   created_at: string
   teeth: number[]
   steps: WorkItemStepRow[]

@@ -111,6 +111,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('work-items/{workItem}/teeth', [WorkItemController::class, 'addTeeth']);
     Route::delete('work-items/{workItem}/teeth/{toothNumber}', [WorkItemController::class, 'removeTooth']);
     Route::patch('work-items/{workItem}/steps/{step}', [WorkItemController::class, 'updateStepPrice']);
+    Route::patch('work-items/{workItem}/collected-amount', [WorkItemController::class, 'updateCollectedAmount']);
     Route::post('work-items/{workItem}/apply-to-all', [WorkItemController::class, 'applyToAll']);
     Route::post('work-items/checkout', [WorkItemController::class, 'checkout']);
     Route::post('work-items/{workItem}/schedule', [WorkItemController::class, 'schedule']);

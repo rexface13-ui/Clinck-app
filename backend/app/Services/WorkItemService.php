@@ -158,12 +158,123 @@ class WorkItemService
         });
     }
 
-    /** Corrects a step's price going forward — never rewrites invoice lines already billed at the old price, only what's billed after this change. */
+    /**
+     * Corrects a step's price. If nothing's billed yet, this only affects
+     * future charges. If some tooth-steps under it were already invoiced,
+     * the delta is also applied to the existing invoice line(s) so the
+     * correction shows up in the same invoice/ledger instead of silently
+     * only affecting new work — price_per_tooth steps get one line per
+     * tooth adjusted individually, flat-fee steps share a single line.
+     */
     public function updateStepPrice(WorkItemStep $step, float $price): WorkItemStep
     {
+        $oldPrice = (float) $step->price;
+        $delta = round($price - $oldPrice, 2);
         $step->update(['price' => $price]);
 
+        if ($delta !== 0.0) {
+            $step->loadMissing('workItem', 'toothSteps.invoiceLine.invoice');
+            $billed = $step->toothSteps->filter(fn ($ts) => $ts->invoice_line_id);
+
+            if ($billed->isNotEmpty()) {
+                $lines = $step->workItem->price_per_tooth
+                    ? $billed->pluck('invoiceLine')->filter()->unique('id')
+                    : $billed->pluck('invoiceLine')->filter()->unique('id')->take(1);
+
+                foreach ($lines as $line) {
+                    $this->adjustInvoiceLineAmount($line, $delta, $step->workItem->patient_id);
+                }
+            }
+        }
+
         return $step->fresh();
+    }
+
+    /**
+     * Bumps an already-issued invoice line's amount by a signed delta and
+     * posts a matching 'adjustment' ledger entry — same pattern as
+     * reverseBilledToothStep() but corrects the amount in place instead of
+     * deleting the line, since the work itself is still valid.
+     */
+    protected function adjustInvoiceLineAmount(InvoiceLine $line, float $delta, int $patientId): void
+    {
+        $line->increment('amount_ils', $delta);
+        $line->increment('amount', $delta);
+        $invoice = $line->invoice;
+        $invoice->increment('total_amount_ils', $delta);
+
+        PatientTransaction::create([
+            'patient_id' => $patientId,
+            'type' => 'adjustment',
+            'reference_type' => 'invoice_line_reprice',
+            'reference_id' => $invoice->id,
+            'amount' => $delta,
+            'currency' => 'ILS',
+            'exchange_rate' => 1,
+            'amount_ils' => $delta,
+            'occurred_at' => now(),
+        ]);
+
+        $this->paymentService->refreshInvoiceStatus($invoice->fresh());
+    }
+
+    /**
+     * Corrects how much was actually collected for one session, moving the
+     * signed difference through the same cashbox/ledger paths a normal
+     * checkout payment would use — a positive delta collects more, a
+     * negative delta refunds the difference back out of the cashbox.
+     */
+    public function updateCollectedAmount(WorkItem $workItem, float $newAmount, ?int $cashboxId, ?string $method, float $exchangeRate = 1): WorkItem
+    {
+        $delta = round($newAmount - (float) $workItem->collected_amount_ils, 2);
+
+        if ($delta === 0.0) {
+            $workItem->update(['collected_amount_ils' => $newAmount]);
+
+            return $workItem->fresh();
+        }
+
+        $workItem->loadMissing('patient');
+        $invoice = $this->invoiceForWorkItem($workItem);
+        abort_unless($invoice, 422, 'ما في فاتورة مرتبطة بهاي الجلسة بعد — لازم يكون فيها شي محسوب الأول.');
+        abort_unless($cashboxId, 422, 'لازم تختار الصندوق.');
+        $cashbox = Cashbox::findOrFail($cashboxId);
+
+        DB::transaction(function () use ($workItem, $newAmount, $delta, $cashbox, $method, $exchangeRate, $invoice) {
+            if ($delta > 0) {
+                $this->paymentService->collect(
+                    patient: $workItem->patient,
+                    cashbox: $cashbox,
+                    amount: $delta,
+                    currency: $cashbox->currency,
+                    exchangeRate: $exchangeRate,
+                    method: $method ?? 'cash',
+                    invoice: $invoice,
+                );
+            } else {
+                $this->paymentService->refund(
+                    patient: $workItem->patient,
+                    cashbox: $cashbox,
+                    amount: abs($delta),
+                    currency: $cashbox->currency,
+                    exchangeRate: $exchangeRate,
+                    method: $method ?? 'cash',
+                    invoice: $invoice,
+                );
+            }
+
+            $workItem->update(['collected_amount_ils' => $newAmount]);
+        });
+
+        return $workItem->fresh();
+    }
+
+    /** The invoice this session's charges landed in — same invoice checkout() created/appended to. */
+    protected function invoiceForWorkItem(WorkItem $workItem): ?Invoice
+    {
+        $workItem->loadMissing('toothSteps.invoiceLine.invoice');
+
+        return $workItem->toothSteps->first(fn ($ts) => $ts->invoiceLine)?->invoiceLine?->invoice;
     }
 
     /**

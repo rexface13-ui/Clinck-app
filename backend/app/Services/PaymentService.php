@@ -80,6 +80,74 @@ class PaymentService
     }
 
     /**
+     * Hands money back out of a cashbox against a patient/invoice — the
+     * mirror of collect(): a negative Payment, a cashbox 'adjustment'
+     * movement that shrinks its balance, and a 'refund' ledger entry.
+     * Used when a session's recorded collected amount is corrected downward.
+     */
+    public function refund(
+        Patient $patient,
+        Cashbox $cashbox,
+        float $amount,
+        string $currency,
+        float $exchangeRate,
+        string $method,
+        ?Invoice $invoice = null,
+    ): Payment {
+        abort_if($cashbox->currency !== $currency, 422, 'عملة الاسترجاع لازم تطابق عملة الصندوق.');
+        abort_if($invoice && $invoice->patient_id !== $patient->id, 422, 'الفاتورة لا تخص هذا المريض.');
+
+        return DB::transaction(function () use ($patient, $cashbox, $amount, $currency, $exchangeRate, $method, $invoice) {
+            $amountIls = round($amount * $exchangeRate, 2);
+
+            $payment = Payment::create([
+                'clinic_id' => $patient->clinic_id,
+                'patient_id' => $patient->id,
+                'invoice_id' => $invoice?->id,
+                'cashbox_id' => $cashbox->id,
+                'amount' => -$amount,
+                'currency' => $currency,
+                'exchange_rate' => $exchangeRate,
+                'amount_ils' => -$amountIls,
+                'method' => $method,
+                'paid_at' => now(),
+            ]);
+
+            $newBalance = $cashbox->balance - $amount;
+            CashboxTransaction::create([
+                'clinic_id' => $patient->clinic_id,
+                'cashbox_id' => $cashbox->id,
+                'type' => 'adjustment',
+                'reference_type' => 'payment',
+                'reference_id' => $payment->id,
+                'amount' => -$amount,
+                'balance_after' => $newBalance,
+                'occurred_at' => now(),
+            ]);
+            $cashbox->update(['balance' => $newBalance]);
+
+            PatientTransaction::create([
+                'clinic_id' => $patient->clinic_id,
+                'patient_id' => $patient->id,
+                'type' => 'refund',
+                'reference_type' => 'payment',
+                'reference_id' => $payment->id,
+                'amount' => -$amount,
+                'currency' => $currency,
+                'exchange_rate' => $exchangeRate,
+                'amount_ils' => -$amountIls,
+                'occurred_at' => now(),
+            ]);
+
+            if ($invoice) {
+                $this->refreshInvoiceStatus($invoice);
+            }
+
+            return $payment->fresh(['cashbox', 'invoice']);
+        });
+    }
+
+    /**
      * Corrects an already-issued invoice's total after the fact — e.g. a
      * discount agreed with the patient after checkout. Posts the signed
      * difference as an 'adjustment' ledger entry (never rewrites the

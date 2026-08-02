@@ -121,6 +121,28 @@ class WorkItemController extends Controller
         return new WorkItemResource($workItem->fresh(['doctor', 'service', 'teeth', 'steps.toothSteps.invoiceLine', 'steps.serviceStep.fields']));
     }
 
+    public function updateCollectedAmount(Request $request, WorkItem $workItem, WorkItemService $service)
+    {
+        $this->authorizeManage($request);
+
+        $data = $request->validate([
+            'amount' => ['required', 'numeric', 'min:0'],
+            'cashbox_id' => ['nullable', 'integer', 'exists:cashboxes,id'],
+            'method' => ['nullable', 'string', 'in:cash,card,transfer,check'],
+            'exchange_rate' => ['nullable', 'numeric', 'min:0.000001'],
+        ]);
+
+        $updated = $service->updateCollectedAmount(
+            $workItem,
+            (float) $data['amount'],
+            $data['cashbox_id'] ?? null,
+            $data['method'] ?? null,
+            (float) ($data['exchange_rate'] ?? 1),
+        );
+
+        return new WorkItemResource($updated->load(['doctor', 'service', 'teeth', 'steps.toothSteps.invoiceLine', 'steps.serviceStep.fields']));
+    }
+
     public function applyToAll(Request $request, WorkItem $workItem, WorkItemService $service)
     {
         $this->authorizeManage($request);

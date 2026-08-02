@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import type { ReactNode, RefObject } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import {
   faCheck,
@@ -20,6 +21,7 @@ import ToothNotesModal from './ToothNotesModal'
 import ReceiveCheckModal from './ReceiveCheckModal'
 import { Card, Button, Select, SearchableSelect, Badge } from './ui'
 import type { BadgeVariant } from './ui'
+import Modal from './ui/Modal'
 import {
   OdontogramBridgeOverlay,
   OdontogramClickOverlay,
@@ -48,6 +50,37 @@ function money(n: number): string {
 
 const STATUS_LABELS: Record<WorkItem['status'], string> = { in_progress: 'قيد التنفيذ', done: 'مكتمل', cancelled: 'ملغي' }
 const STATUS_VARIANTS: Record<WorkItem['status'], BadgeVariant> = { in_progress: 'warning', done: 'success', cancelled: 'neutral' }
+
+/**
+ * While editing one specific session, its picker/details card pops up as a
+ * focused modal instead of sitting inline under the always-visible "كل
+ * الشغل الحالي" list — otherwise the list of every open session stays on
+ * screen alongside the one being edited, which reads as "everything mixed
+ * together" instead of "just this session's details". Starting a brand-new
+ * work item keeps the old inline placement (nothing to disambiguate from yet).
+ */
+function PickerWrapper({
+  editing,
+  onClose,
+  title,
+  sectionRef,
+  children,
+}: {
+  editing: boolean
+  onClose: () => void
+  title: string
+  sectionRef: RefObject<HTMLDivElement | null>
+  children: ReactNode
+}) {
+  if (editing) {
+    return (
+      <Modal title={title} onClose={onClose} width="w-full max-w-3xl">
+        {children}
+      </Modal>
+    )
+  }
+  return <div ref={sectionRef}>{children}</div>
+}
 
 export default function WorkPlanningPanel({
   patientId,
@@ -120,6 +153,12 @@ export default function WorkPlanningPanel({
   const [editingWorkItemId, setEditingWorkItemId] = useState<number | null>(null)
   const [editingOriginalTeeth, setEditingOriginalTeeth] = useState<number[]>([])
   const [editedPrices, setEditedPrices] = useState<Record<number, string>>({})
+  /** "المبلغ المحصّل" for the session being edited — starts at the item's stored value, only sent to the backend (with a cashbox+method) if it actually changed on save. */
+  const [editingOriginalCollected, setEditingOriginalCollected] = useState(0)
+  const [editedCollectedAmount, setEditedCollectedAmount] = useState('')
+  const [editedCollectedCashboxId, setEditedCollectedCashboxId] = useState('')
+  const [editedCollectedMethod, setEditedCollectedMethod] = useState<'cash' | 'card' | 'transfer'>('cash')
+  const [patientOutstandingIls, setPatientOutstandingIls] = useState<number | null>(null)
   const pickerSectionRef = useRef<HTMLDivElement>(null)
 
   const [checkoutIds, setCheckoutIds] = useState<Set<number>>(new Set())
@@ -306,8 +345,13 @@ export default function WorkPlanningPanel({
     setNewServiceId(String(w.service_id ?? ''))
     if (w.doctor_id) setDoctorId(String(w.doctor_id))
     setEditedPrices(Object.fromEntries(w.steps.map((s) => [s.id, s.price])))
+    setEditingOriginalCollected(w.collected_amount_ils ?? 0)
+    setEditedCollectedAmount(String(w.collected_amount_ils ?? 0))
+    setEditedCollectedCashboxId('')
+    setEditedCollectedMethod('cash')
     setActiveWorkItemId(w.id)
     setCreateError(null)
+    api.get(`/patients/${patientId}/ledger`).then((res) => setPatientOutstandingIls(res.data.outstanding_ils)).catch(() => {})
     requestAnimationFrame(() => pickerSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }))
   }
 
@@ -315,6 +359,10 @@ export default function WorkPlanningPanel({
     setEditingWorkItemId(null)
     setEditingOriginalTeeth([])
     setEditedPrices({})
+    setEditingOriginalCollected(0)
+    setEditedCollectedAmount('')
+    setEditedCollectedCashboxId('')
+    setPatientOutstandingIls(null)
     setSelection([])
     setNewServiceId('')
     setCreateError(null)
@@ -337,6 +385,13 @@ export default function WorkPlanningPanel({
       }
     }
 
+    const newCollected = Math.max(0, Number(editedCollectedAmount) || 0)
+    const collectedChanged = newCollected !== editingOriginalCollected
+    if (collectedChanged && !editedCollectedCashboxId) {
+      setCreateError('اختر الصندوق عشان تعدّل المبلغ المحصّل.')
+      return
+    }
+
     setCreating(true)
     setCreateError(null)
     try {
@@ -351,6 +406,13 @@ export default function WorkPlanningPanel({
         if (edited !== undefined && Number(edited) !== Number(step.price)) {
           await api.patch(`/work-items/${w.id}/steps/${step.id}`, { price: Number(edited) })
         }
+      }
+      if (collectedChanged) {
+        await api.patch(`/work-items/${w.id}/collected-amount`, {
+          amount: newCollected,
+          cashbox_id: editedCollectedCashboxId ? Number(editedCollectedCashboxId) : null,
+          method: editedCollectedMethod,
+        })
       }
       cancelEditWorkItem()
       loadWorkItems(w.id)
@@ -390,6 +452,102 @@ export default function WorkPlanningPanel({
   async function applyToAll(workItem: WorkItem, sourceTooth: number) {
     await api.post(`/work-items/${workItem.id}/apply-to-all`, { tooth_number: sourceTooth })
     loadWorkItems(workItem.id)
+  }
+
+  /**
+   * The step-by-step checklist (checkbox per tooth-step, price, notes,
+   * apply-to-all) for one work item — shared by the plain "browse this
+   * session's steps" expand-on-click AND the edit modal, so there's exactly
+   * one place that renders it instead of two copies drifting apart. Price
+   * only becomes an editable input while `w` is the item actively being
+   * edited (editingWorkItemId === w.id); otherwise it's shown read-only.
+   */
+  function renderStepsEditor(w: WorkItem) {
+    return (
+      <div className="space-y-4">
+        {w.steps.map((step) => (
+          <div key={step.id} className="rounded-lg bg-background p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <h4 className="text-sm font-semibold text-ink">{step.title}</h4>
+              {editingWorkItemId === w.id ? (
+                <span className="flex items-center gap-1 text-xs text-muted">
+                  <input
+                    type="number"
+                    value={editedPrices[step.id] ?? step.price}
+                    onChange={(e) => setEditedPrices({ ...editedPrices, [step.id]: e.target.value })}
+                    className="w-20 rounded-lg border border-border px-2 py-1 text-xs"
+                  />
+                  ₪ {w.price_per_tooth ? '/ سن' : 'إجمالي'}
+                </span>
+              ) : (
+                <span className="text-xs text-muted">{step.price} ₪ {w.price_per_tooth ? '/ سن' : 'إجمالي'}</span>
+              )}
+            </div>
+            <div className="space-y-2">
+              {step.tooth_steps.map((ts) => (
+                <div
+                  key={ts.id}
+                  className={`flex flex-wrap items-center gap-2 rounded-lg border p-2 ${
+                    ts.invoiced ? 'border-ink/5 bg-background/60 opacity-70' : 'border-ink/10 bg-white'
+                  }`}
+                >
+                  <label className="flex items-center gap-1.5 text-xs font-medium text-ink">
+                    <input
+                      type="checkbox"
+                      checked={ts.completed}
+                      onChange={(e) => toggleToothStep(w, ts.id, e.target.checked)}
+                      className="size-4 accent-success"
+                    />
+                    سن {ts.tooth_number}
+                  </label>
+                  {ts.invoiced && (
+                    <span className="text-[11px] text-muted">— تم إنجازه بجلسة سابقة{ts.completed_at ? ` بتاريخ ${ts.completed_at}` : ''}</span>
+                  )}
+                  <button
+                    onClick={() => { setNotesToothNumber(ts.tooth_number); setNotesWorkItemId(w.id); setNotesToothStepId(ts.id) }}
+                    title={`دفتر ملاحظات السن — خطوة ${step.title}`}
+                    className="flex items-center gap-1 text-[11px] text-accent hover:underline"
+                  >
+                    <FontAwesomeIcon icon={faNoteSticky} />
+                    {(() => {
+                      const count = notes.filter((n) => n.tooth_number === ts.tooth_number && n.work_item_tooth_step_id === ts.id).length
+                      return count > 0 ? `ملاحظات (${count})` : 'ملاحظة'
+                    })()}
+                  </button>
+                  {step.fields.map((f) => (
+                    <input
+                      key={f.id}
+                      defaultValue={ts.field_values[f.label] ?? ''}
+                      onBlur={(e) => saveField(w, ts.id, f.label, e.target.value, ts.field_values)}
+                      placeholder={f.label}
+                      className="w-28 rounded-lg border border-border px-2 py-1 text-xs"
+                    />
+                  ))}
+                  {w.steps.flatMap((s) => s.tooth_steps).filter((other) => other.tooth_number === ts.tooth_number && !other.completed).length > 1 && (
+                    <button
+                      onClick={() => completeAllStepsForTooth(w, ts.tooth_number)}
+                      title="بيخلّص كل خطوات هالسن دفعة وحدة — مفيد لما تكون خلّصت الشغل عليه فعلياً وما بدك تفتش عليه بكل قسم خطوة"
+                      className="flex items-center gap-1 text-[11px] text-success hover:underline"
+                    >
+                      <FontAwesomeIcon icon={faCheckDouble} />
+                      إنهاء كل خطوات السن
+                    </button>
+                  )}
+                  <button
+                    onClick={() => applyToAll(w, ts.tooth_number)}
+                    title="طبّق نفس القيم على كل الأسنان"
+                    className="ms-auto flex items-center gap-1 text-[11px] text-muted hover:text-accent"
+                  >
+                    <FontAwesomeIcon icon={faCopy} />
+                    طبّق على الكل
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    )
   }
 
   /**
@@ -653,6 +811,7 @@ export default function WorkPlanningPanel({
 
   const serviceOptions = services.map((s) => ({ value: String(s.id), label: s.name }))
   const doctorOptions = doctors.map((d) => ({ value: String(d.id), label: d.full_name }))
+  const editingItem = workItems.find((wi) => wi.id === editingWorkItemId) ?? null
 
   return (
     <div className="space-y-6">
@@ -775,90 +934,8 @@ export default function WorkPlanningPanel({
                     </div>
                   )}
 
-                  {activeWorkItemId === w.id && (
-                    <div className="space-y-4 border-t border-ink/10 p-3">
-                      {w.steps.map((step) => (
-                        <div key={step.id} className="rounded-lg bg-background p-3">
-                          <div className="mb-2 flex items-center justify-between">
-                            <h4 className="text-sm font-semibold text-ink">{step.title}</h4>
-                            {editingWorkItemId === w.id ? (
-                              <span className="flex items-center gap-1 text-xs text-muted">
-                                <input
-                                  type="number"
-                                  value={editedPrices[step.id] ?? step.price}
-                                  onChange={(e) => setEditedPrices({ ...editedPrices, [step.id]: e.target.value })}
-                                  className="w-20 rounded-lg border border-border px-2 py-1 text-xs"
-                                />
-                                ₪ {w.price_per_tooth ? '/ سن' : 'إجمالي'}
-                              </span>
-                            ) : (
-                              <span className="text-xs text-muted">{step.price} ₪ {w.price_per_tooth ? '/ سن' : 'إجمالي'}</span>
-                            )}
-                          </div>
-                          <div className="space-y-2">
-                            {step.tooth_steps.map((ts) => (
-                              <div
-                                key={ts.id}
-                                className={`flex flex-wrap items-center gap-2 rounded-lg border p-2 ${
-                                  ts.invoiced ? 'border-ink/5 bg-background/60 opacity-70' : 'border-ink/10 bg-white'
-                                }`}
-                              >
-                                <label className="flex items-center gap-1.5 text-xs font-medium text-ink">
-                                  <input
-                                    type="checkbox"
-                                    checked={ts.completed}
-                                    onChange={(e) => toggleToothStep(w, ts.id, e.target.checked)}
-                                    className="size-4 accent-success"
-                                  />
-                                  سن {ts.tooth_number}
-                                </label>
-                                {ts.invoiced && (
-                                  <span className="text-[11px] text-muted">— تم إنجازه بجلسة سابقة{ts.completed_at ? ` بتاريخ ${ts.completed_at}` : ''}</span>
-                                )}
-                                <button
-                                  onClick={() => { setNotesToothNumber(ts.tooth_number); setNotesWorkItemId(w.id); setNotesToothStepId(ts.id) }}
-                                  title={`دفتر ملاحظات السن — خطوة ${step.title}`}
-                                  className="flex items-center gap-1 text-[11px] text-accent hover:underline"
-                                >
-                                  <FontAwesomeIcon icon={faNoteSticky} />
-                                  {(() => {
-                                    const count = notes.filter((n) => n.tooth_number === ts.tooth_number && n.work_item_tooth_step_id === ts.id).length
-                                    return count > 0 ? `ملاحظات (${count})` : 'ملاحظة'
-                                  })()}
-                                </button>
-                                {step.fields.map((f) => (
-                                  <input
-                                    key={f.id}
-                                    defaultValue={ts.field_values[f.label] ?? ''}
-                                    onBlur={(e) => saveField(w, ts.id, f.label, e.target.value, ts.field_values)}
-                                    placeholder={f.label}
-                                    className="w-28 rounded-lg border border-border px-2 py-1 text-xs"
-                                  />
-                                ))}
-                                {w.steps.flatMap((s) => s.tooth_steps).filter((other) => other.tooth_number === ts.tooth_number && !other.completed).length > 1 && (
-                                  <button
-                                    onClick={() => completeAllStepsForTooth(w, ts.tooth_number)}
-                                    title="بيخلّص كل خطوات هالسن دفعة وحدة — مفيد لما تكون خلّصت الشغل عليه فعلياً وما بدك تفتش عليه بكل قسم خطوة"
-                                    className="flex items-center gap-1 text-[11px] text-success hover:underline"
-                                  >
-                                    <FontAwesomeIcon icon={faCheckDouble} />
-                                    إنهاء كل خطوات السن
-                                  </button>
-                                )}
-                                <button
-                                  onClick={() => applyToAll(w, ts.tooth_number)}
-                                  title="طبّق نفس القيم على كل الأسنان"
-                                  className="ms-auto flex items-center gap-1 text-[11px] text-muted hover:text-accent"
-                                >
-                                  <FontAwesomeIcon icon={faCopy} />
-                                  طبّق على الكل
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                  {activeWorkItemId === w.id && editingWorkItemId !== w.id && (
+                    <div className="border-t border-ink/10 p-3">{renderStepsEditor(w)}</div>
                   )}
                 </div>
               )
@@ -867,11 +944,11 @@ export default function WorkPlanningPanel({
         </Card>
       )}
 
-      <div ref={pickerSectionRef}>
-      <Card className="p-4">
+      <PickerWrapper editing={editingWorkItemId !== null} onClose={cancelEditWorkItem} title={`تعديل جلسة — ${services.find((s) => String(s.id) === newServiceId)?.name ?? ''}`} sectionRef={pickerSectionRef}>
+      <Card className={editingWorkItemId !== null ? 'border-0 p-0 shadow-none' : 'p-4'}>
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-sm font-medium text-ink/70">
-            {editingWorkItemId ? `تعديل شغلة — ${services.find((s) => String(s.id) === newServiceId)?.name ?? ''}` : 'إضافة شغل جديد — حدد الأسنان'}
+            {editingWorkItemId ? 'تفاصيل هاي الجلسة بس — عدّل الأسنان/الخطوات وحفظ' : 'إضافة شغل جديد — حدد الأسنان'}
           </h2>
           <div className="flex items-center gap-2">
             <span className="flex items-center gap-1.5 text-xs text-muted">
@@ -891,6 +968,13 @@ export default function WorkPlanningPanel({
             )}
           </div>
         </div>
+
+        {editingWorkItemId && editingItem && (
+          <div className="mb-4 border-b border-ink/10 pb-4">
+            <p className="mb-2 text-xs font-medium text-ink/70">شو اشتغلت بهاي الجلسة:</p>
+            {renderStepsEditor(editingItem)}
+          </div>
+        )}
 
         <div ref={containerRef} className="relative mx-auto" style={{ maxWidth: 500 }}>
           <Odontogram
@@ -935,6 +1019,46 @@ export default function WorkPlanningPanel({
             <label className="mb-1 block text-xs text-muted">الطبيب المشرف (إجباري)</label>
             <SearchableSelect options={doctorOptions} value={doctorId} onChange={setDoctorId} placeholder="اختر طبيب..." />
           </div>
+        </div>
+
+        {editingWorkItemId && (
+          <div className="mt-3 rounded-xl border border-border bg-background p-3">
+            <label className="mb-1 block text-xs text-muted">المبلغ المحصّل لهاي الجلسة</label>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="number"
+                min={0}
+                value={editedCollectedAmount}
+                onChange={(e) => setEditedCollectedAmount(e.target.value)}
+                className="w-32 rounded-lg border border-border px-2 py-1.5 text-sm font-semibold"
+              />
+              <span className="text-xs text-muted">₪</span>
+              {patientOutstandingIls !== null && (
+                <span className="text-xs text-muted">
+                  الرصيد العام المتبقي على المريض: <span className="font-medium text-ink/70">{money(patientOutstandingIls)} ₪</span>
+                </span>
+              )}
+            </div>
+            {Math.max(0, Number(editedCollectedAmount) || 0) !== editingOriginalCollected && (
+              <div className="mt-2 flex gap-2">
+                <SearchableSelect
+                  options={cashboxes.map((c) => ({ value: String(c.id), label: c.name, sublabel: c.currency }))}
+                  value={editedCollectedCashboxId}
+                  onChange={setEditedCollectedCashboxId}
+                  placeholder="الصندوق..."
+                  className="flex-1"
+                />
+                <Select value={editedCollectedMethod} onChange={(e) => setEditedCollectedMethod(e.target.value as typeof editedCollectedMethod)}>
+                  <option value="cash">نقدي</option>
+                  <option value="card">بطاقة</option>
+                  <option value="transfer">تحويل</option>
+                </Select>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="mt-3 flex flex-wrap items-end gap-3">
           {editingWorkItemId ? (
             <div className="flex gap-2">
               <Button
@@ -961,7 +1085,7 @@ export default function WorkPlanningPanel({
         </div>
         {createError && <p className="mt-2 text-sm text-danger">{createError}</p>}
       </Card>
-      </div>
+      </PickerWrapper>
 
       {checkoutIds.size > 0 && (
         <div ref={checkoutSectionRef}>

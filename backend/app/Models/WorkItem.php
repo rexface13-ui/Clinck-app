@@ -11,11 +11,11 @@ class WorkItem extends Model
 {
     use BelongsToClinic;
 
-    protected $fillable = ['clinic_id', 'patient_id', 'doctor_id', 'service_id', 'appointment_id', 'price_per_tooth', 'status'];
+    protected $fillable = ['clinic_id', 'patient_id', 'doctor_id', 'service_id', 'appointment_id', 'price_per_tooth', 'status', 'collected_amount_ils'];
 
     protected function casts(): array
     {
-        return ['price_per_tooth' => 'boolean'];
+        return ['price_per_tooth' => 'boolean', 'collected_amount_ils' => 'float'];
     }
 
     public function patient(): BelongsTo

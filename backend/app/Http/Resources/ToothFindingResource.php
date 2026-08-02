@@ -21,6 +21,13 @@ class ToothFindingResource extends JsonResource
             'session_status' => $this->whenLoaded('workItemToothStep', fn () => $this->workItemToothStep?->completed_at ? 'done' : 'pending'),
             'session_price' => $this->whenLoaded('workItemToothStep', fn () => $this->workItemToothStep?->invoiceLine?->amount_ils),
             'plan_id' => $this->whenLoaded('workItemToothStep', fn () => $this->workItemToothStep?->work_item_id),
+            // Groups findings from the same visit together in the tooth
+            // history — an invoiced finding groups by invoice_id (several
+            // services checked out together = one visit); one still
+            // in-progress groups by its work item instead, since it has no
+            // invoice yet.
+            'invoice_id' => $this->whenLoaded('workItemToothStep', fn () => $this->workItemToothStep?->invoiceLine?->invoice_id),
+            'step_title' => $this->whenLoaded('workItemToothStep', fn () => $this->workItemToothStep?->step?->title),
             'service_id' => $this->service_id,
             'service_name' => $this->whenLoaded('service', fn () => $this->service?->name),
             'service_color' => $this->whenLoaded('service', fn () => $this->service?->color),
