@@ -218,7 +218,15 @@ export default function WorkPlanningPanel({
       const ils = res.data.find((c: Cashbox) => c.currency === 'ILS')
       if (ils) setCashboxId(String(ils.id))
     })
-    loadWorkItems()
+    // If this panel mounted already aiming at a specific session (opened via
+    // "تعديل" from the session log / tooth chart), this call and the
+    // focus-effect below both fire a fetch at nearly the same moment — this
+    // one for the in_progress list, the other for that one specific item.
+    // Whichever response lands LAST used to win outright (setWorkItems just
+    // overwrote), so about half the time the focus-effect's merge got wiped
+    // out right after landing and the edit form never had anything to show.
+    // Passing the same id here keeps it in the result regardless of order.
+    loadWorkItems(focusWorkItemId ?? undefined)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [patientId])
 
