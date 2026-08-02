@@ -40,8 +40,8 @@ import type { Doctor, Note, Service, ToothFinding, ToothState, WorkItem } from '
  */
 const CHILD_PHANTOM_LIBRARY_IDS = [16, 17, 18, 26, 27, 28, 36, 37, 38, 46, 47, 48].map((n) => `teeth-${n}`)
 
-/** Extra room reserved on each side of the chart for the worked-tooth callout labels. */
-const SIDE_PAD = 155
+/** Extra room reserved on each side of the chart for the worked-tooth callout labels — just enough for a short label sitting right next to its tooth, not a distant side panel. */
+const SIDE_PAD = 70
 
 interface Props {
   patientId: number
@@ -144,8 +144,13 @@ export default function ToothChart({
   }, [toothFindings])
 
   function toothColor(tooth: number): string {
-    if (stateByTooth.get(tooth) === 'missing') return STATUS_COLOR.missing
     const finding = activeFindingByTooth.get(tooth)
+    // A missing tooth still shows the service's own color when the reason
+    // it's missing is a service we did (an extraction) — that's more useful
+    // than a flat "missing" gray, and keeps it visually distinct from a
+    // tooth that's just congenitally absent / no record at all. Only that
+    // plain no-service case falls back to the gray "missing" swatch.
+    if (stateByTooth.get(tooth) === 'missing' && !finding?.service_id) return STATUS_COLOR.missing
     if (!finding) return DEFAULT_TOOTH_FILL
     // A bridge/appliance tooth stays plain — the connecting line (see
     // OdontogramBridgeOverlay) is what marks it as part of the bridge,
@@ -554,7 +559,11 @@ export default function ToothChart({
           {geometry && (
             <OdontogramClickOverlay
               geometry={geometry}
-              toothNumbers={toothNumbers.filter((n) => stateByTooth.get(n) !== 'missing' || pickMode || multiSelect)}
+              // A missing tooth stays clickable — you still need to see its
+              // details (what it was extracted for, notes) and to be able to
+              // plan new work on it (an implant, say), not have it be a dead
+              // spot on the chart.
+              toothNumbers={toothNumbers}
               onSelect={handleToothClick}
             />
           )}
@@ -928,25 +937,25 @@ function ToothCalloutOverlay({
   const padUnits = SIDE_PAD * (w / containerWidthPx)
   const viewBox = `${-padUnits} 0 ${w + padUnits * 2} ${h}`
 
-  const left = teeth.filter((t) => t.side === 'left').sort((a, b) => a.center.y - b.center.y)
-  const right = teeth.filter((t) => t.side === 'right').sort((a, b) => a.center.y - b.center.y)
-
-  // Rows spread evenly over the chart's height, but never closer together
-  // than a fixed minimum — with only 2-3 labels on a side, evenly dividing
-  // the *whole* height already gives generous spacing; this only kicks in
-  // to guarantee readability once a side gets crowded with many teeth.
-  const MIN_ROW_GAP = 34
-  function layout(list: CalloutTooth[]) {
-    const step = Math.max(h / list.length, MIN_ROW_GAP)
-    const totalHeight = step * list.length
-    const startY = Math.max(0, (h - totalHeight) / 2) + step / 2
-    return list.map((t, i) => ({ ...t, labelY: startY + i * step }))
-  }
-
-  const rows = [
-    ...layout(left).map((t) => ({ ...t, labelX: -padUnits * 0.9, anchor: 'end' as const })),
-    ...layout(right).map((t) => ({ ...t, labelX: w + padUnits * 0.9, anchor: 'start' as const })),
-  ]
+  // Each label sits a short distance straight out from its own tooth, in the
+  // direction away from the arch's center — "حوالين السن" — instead of the
+  // old design that pushed every label out to a shared side margin far from
+  // the tooth it described. Distance is in real pixels (via containerWidthPx)
+  // so it looks the same short hop at any screen size.
+  const offsetUnits = 30 * (w / containerWidthPx)
+  const cx = w / 2
+  const cy = h / 2
+  const rows = teeth.map((t) => {
+    const dx = t.center.x - cx
+    const dy = t.center.y - cy
+    const len = Math.hypot(dx, dy) || 1
+    const ux = dx / len
+    const uy = dy / len
+    const labelX = t.center.x + ux * offsetUnits
+    const labelY = t.center.y + uy * offsetUnits
+    const anchor: 'start' | 'middle' | 'end' = ux > 0.2 ? 'start' : ux < -0.2 ? 'end' : 'middle'
+    return { ...t, labelX, labelY, anchor }
+  })
 
   return (
     // pointer-events-none on the root is essential — this overlay's pixel

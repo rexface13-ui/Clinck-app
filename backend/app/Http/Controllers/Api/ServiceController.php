@@ -49,7 +49,22 @@ class ServiceController extends Controller
     {
         $this->authorize('update', $service);
 
-        $service->update($request->validated());
+        $data = $request->validated();
+
+        // A work item snapshots price_per_tooth from its service at creation
+        // time (so a later price-model change doesn't retroactively rewrite
+        // an already-agreed session) — but early on, while the clinic is
+        // still tuning how each service should bill, that snapshot is more
+        // often a mistake to fix everywhere than a deliberate difference to
+        // preserve. So a change here is pushed onto every existing work item
+        // for this service too, not just future ones.
+        $pricingChanged = array_key_exists('price_per_tooth', $data) && (bool) $data['price_per_tooth'] !== (bool) $service->price_per_tooth;
+
+        $service->update($data);
+
+        if ($pricingChanged) {
+            WorkItem::where('service_id', $service->id)->update(['price_per_tooth' => $data['price_per_tooth']]);
+        }
 
         return new ServiceResource($service->fresh(['branchPrices', 'steps.fields']));
     }

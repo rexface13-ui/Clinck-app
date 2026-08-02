@@ -256,6 +256,26 @@ export default function WorkPlanningPanel({
     return stateByTooth.get(number) === 'missing' && !selectedService?.allows_missing_teeth
   }
 
+  /**
+   * A tooth marked missing (usually from a prior extraction) isn't a dead
+   * end anymore — picking it for a service that doesn't work on missing
+   * teeth (an implant, say) just asks to confirm first, then un-marks it
+   * (deletes the missing flag on its extraction finding) so it goes back to
+   * "present" and normal work can proceed on it, e.g. planning an implant
+   * where a tooth used to be.
+   */
+  async function confirmAndRestoreTooth(number: number): Promise<boolean> {
+    if (!window.confirm(`السن ${number} مسجّل مخلوع (مفقود). متأكد إنك بدك تبدأ عليه شغل جديد؟ (رح يرجع "موجود" تلقائياً)`)) {
+      return false
+    }
+    const extractionFinding = toothFindings.find((f) => f.tooth_number === number && f.marks_missing)
+    if (extractionFinding) {
+      await api.patch(`/patients/${patientId}/chart/findings/${extractionFinding.id}`, { marks_missing: false })
+      onChanged?.()
+    }
+    return true
+  }
+
   function toggleTooth(number: number, event?: { ctrlKey?: boolean; metaKey?: boolean }) {
     if ((event?.ctrlKey || event?.metaKey) && lastClickedTooth !== null) {
       const startIdx = toothNumbers.indexOf(lastClickedTooth)
@@ -267,6 +287,12 @@ export default function WorkPlanningPanel({
       return
     }
     setLastClickedTooth(number)
+    if (!selectedTeeth.includes(number) && toothBlocked(number) && stateByTooth.get(number) === 'missing') {
+      confirmAndRestoreTooth(number).then((ok) => {
+        if (ok) setSelection((prev) => (prev.includes(number) ? prev : [...prev, number]))
+      })
+      return
+    }
     setSelection((prev) => {
       if (prev.includes(number)) return prev.filter((n) => n !== number)
       if (toothBlocked(number)) return prev
@@ -288,7 +314,18 @@ export default function WorkPlanningPanel({
       setCreateError('لازم تختار الطبيب، الخدمة، وسن واحد عالأقل.')
       return
     }
-    const teeth = selectedService?.allows_missing_teeth ? selectedTeeth : selectedTeeth.filter((n) => stateByTooth.get(n) !== 'missing')
+    let teeth = selectedTeeth
+    // Teeth selected before a service was picked (e.g. from the chart's
+    // "بدء العمل") skip toggleTooth's own missing-tooth confirmation — catch
+    // it here instead of silently dropping them once the service turns out
+    // not to allow missing teeth.
+    if (!selectedService?.allows_missing_teeth) {
+      const missingSelected = selectedTeeth.filter((n) => stateByTooth.get(n) === 'missing')
+      for (const n of missingSelected) {
+        const ok = await confirmAndRestoreTooth(n)
+        if (!ok) teeth = teeth.filter((t) => t !== n)
+      }
+    }
     if (teeth.length === 0) {
       setCreateError('كل الأسنان المحددة مفقودة، وهاي الخدمة ما بتسمح تشتغل عليها.')
       return
