@@ -24,6 +24,7 @@ import {
   STATUS_COLOR,
   UPPER_PERMANENT,
   UPPER_PRIMARY,
+  describeTeeth,
   fadeHex,
   toLibraryToothId,
 } from '../lib/dental'
@@ -520,25 +521,50 @@ export default function ToothChart({
    * The general-overview ask: show what was done to a worked tooth right
    * on the chart, without clicking it. Every tooth with an active
    * (service-linked) finding — done or still planned — gets a short label
-   * out in the side margin, connected back to the tooth by a line, sorted
-   * top-to-bottom on whichever side it naturally sits. Clicking a label
-   * opens that tooth's notebook directly.
+   * near it, connected back by a line. Teeth that were done together under
+   * the same work item (plan_id) — a bridge, or several teeth cleaned in
+   * one sitting — collapse into ONE label naming the whole group ("26-27-28:
+   * تنظيف أسنان") instead of repeating the same service name next to every
+   * tooth in it.
    */
   const calloutTeeth = useMemo(() => {
     if (!geometry) return []
     const [, , w] = geometry.viewBox.split(' ').map(Number)
-    return toothNumbers
-      .map((n) => {
-        const finding = activeFindingByTooth.get(n)
-        if (!finding) return null
-        const c = geometry.centers.get(n)
-        if (!c) return null
-        const label = (finding.service_name ?? finding.finding_type ?? '').slice(0, 16)
-        if (!label) return null
-        return { number: n, center: c, label, done: finding.status === 'done', side: c.x < w / 2 ? 'left' : 'right' } as const
+    const groups = new Map<string, { teeth: number[]; done: boolean; serviceLabel: string }>()
+    for (const n of toothNumbers) {
+      const finding = activeFindingByTooth.get(n)
+      if (!finding) continue
+      const serviceLabel = (finding.service_name ?? finding.finding_type ?? '').slice(0, 16)
+      if (!serviceLabel) continue
+      const key = finding.plan_id != null ? `plan-${finding.plan_id}` : `single-${finding.id}`
+      const g = groups.get(key)
+      if (g) {
+        g.teeth.push(n)
+        g.done = g.done && finding.status === 'done'
+      } else {
+        groups.set(key, { teeth: [n], done: finding.status === 'done', serviceLabel })
+      }
+    }
+    return Array.from(groups.values())
+      .map((g) => {
+        const centers = g.teeth.map((n) => geometry.centers.get(n)).filter((c): c is { x: number; y: number } => !!c)
+        if (centers.length === 0) return null
+        const cx = centers.reduce((s, c) => s + c.x, 0) / centers.length
+        const cy = centers.reduce((s, c) => s + c.y, 0) / centers.length
+        const label = g.teeth.length > 1 ? `${describeTeeth(g.teeth, isChild)}: ${g.serviceLabel}` : g.serviceLabel
+        return {
+          // The lowest tooth number stands in as the group's "representative" —
+          // it's what a drag-position override and a label click key off of.
+          number: Math.min(...g.teeth),
+          teeth: g.teeth,
+          center: { x: cx, y: cy },
+          label,
+          done: g.done,
+          side: cx < w / 2 ? 'left' : 'right',
+        } as const
       })
       .filter((x): x is NonNullable<typeof x> => x !== null)
-  }, [geometry, toothNumbers, activeFindingByTooth])
+  }, [geometry, toothNumbers, activeFindingByTooth, isChild])
 
   return (
     <div className="flex flex-col gap-6 lg:flex-row">
@@ -967,7 +993,10 @@ const STATUS_LABEL: Record<'planned' | 'in_progress' | 'done', string> = {
 }
 
 interface CalloutTooth {
+  /** The representative tooth — lowest number in the group, used as the drag/click/override key. */
   number: number
+  /** Every tooth this one label covers — more than one for a multi-tooth session (bridge, several teeth done together). */
+  teeth: number[]
   center: { x: number; y: number }
   label: string
   done: boolean
@@ -1087,7 +1116,7 @@ function ToothCalloutOverlay({
         </marker>
       </defs>
       {rows.map((t) => {
-        const noteCount = notesCountByTooth.get(t.number) ?? 0
+        const noteCount = t.teeth.reduce((sum, n) => sum + (notesCountByTooth.get(n) ?? 0), 0)
         return (
           <g key={t.number}>
             <line
