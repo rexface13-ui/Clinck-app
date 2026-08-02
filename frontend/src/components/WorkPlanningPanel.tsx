@@ -1026,6 +1026,31 @@ export default function WorkPlanningPanel({
           </div>
         )}
 
+        {/* Service/doctor pulled up here (was below the odontogram) — it's
+            the first thing to fill in, not something to scroll down for
+            after picking teeth. */}
+        <div className="mb-4 grid gap-4 rounded-xl border border-border bg-background p-4 sm:grid-cols-2">
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-ink/80">الخدمة</label>
+            {editingWorkItemId ? (
+              <p className="rounded-lg border border-border bg-surface px-3 py-2.5 text-sm text-ink/70">
+                {services.find((s) => String(s.id) === newServiceId)?.name ?? '—'}
+              </p>
+            ) : (
+              <SearchableSelect
+                options={serviceOptions}
+                value={newServiceId}
+                onChange={selectService}
+                placeholder="اختر خدمة..."
+              />
+            )}
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-ink/80">الطبيب المشرف (إجباري)</label>
+            <SearchableSelect options={doctorOptions} value={doctorId} onChange={setDoctorId} placeholder="اختر طبيب..." />
+          </div>
+        </div>
+
         <div ref={containerRef} className="relative mx-auto" style={{ maxWidth: 500 }}>
           <Odontogram
             key={chartKey}
@@ -1047,28 +1072,6 @@ export default function WorkPlanningPanel({
           {geometry && <OdontogramSelectionOverlay geometry={geometry} selected={selectedTeeth} />}
           {geometry && <OdontogramNumberOverlay geometry={geometry} toothNumbers={toothNumbers} />}
           {geometry && <OdontogramClickOverlay geometry={geometry} toothNumbers={toothNumbers} onSelect={toggleTooth} />}
-        </div>
-
-        <div className="mt-4 grid gap-4 rounded-xl border border-border bg-background p-4 sm:grid-cols-2">
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-ink/80">الخدمة</label>
-            {editingWorkItemId ? (
-              <p className="rounded-lg border border-border bg-surface px-3 py-2.5 text-sm text-ink/70">
-                {services.find((s) => String(s.id) === newServiceId)?.name ?? '—'}
-              </p>
-            ) : (
-              <SearchableSelect
-                options={serviceOptions}
-                value={newServiceId}
-                onChange={selectService}
-                placeholder="اختر خدمة..."
-              />
-            )}
-          </div>
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-ink/80">الطبيب المشرف (إجباري)</label>
-            <SearchableSelect options={doctorOptions} value={doctorId} onChange={setDoctorId} placeholder="اختر طبيب..." />
-          </div>
         </div>
 
         {editingWorkItemId && (
