@@ -9,7 +9,7 @@ import { useClinicProfile } from '../lib/useClinicProfile'
 import { Card, Badge, SearchableSelect } from './ui'
 import type { BadgeVariant } from './ui'
 import { describeTeeth } from '../lib/dental'
-import MiniToothDiagram from './MiniToothDiagram'
+import MiniOdontogramPreview from './MiniOdontogramPreview'
 import ToothNotesModal from './ToothNotesModal'
 import InvoiceDetailModal from './InvoiceDetailModal'
 import type { Cashbox, Medication, Note, Prescription, Visit } from '../types'
@@ -299,7 +299,7 @@ export default function VisitHistoryPanel({
 
                 {diagramFor === group.key && (
                   <div className="absolute right-3 top-full z-20 mt-1 rounded-xl border border-ink/10 bg-white p-3 shadow-lg">
-                    <MiniToothDiagram teeth={teeth} isChild={isChild} />
+                    <MiniOdontogramPreview teeth={teeth} isChild={isChild} />
                   </div>
                 )}
 
@@ -398,7 +398,7 @@ export default function VisitHistoryPanel({
 
         {diagramFor === diagramKey && (
           <div className="absolute right-3 top-full z-20 mt-1 rounded-xl border border-ink/10 bg-white p-3 shadow-lg">
-            <MiniToothDiagram teeth={teeth} isChild={isChild} />
+            <MiniOdontogramPreview teeth={teeth} isChild={isChild} />
           </div>
         )}
 

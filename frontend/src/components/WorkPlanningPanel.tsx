@@ -234,6 +234,11 @@ export default function WorkPlanningPanel({
     if (initialSelectedTeeth.length === 0) return
     setSelection(initialSelectedTeeth)
     onInitialSelectionConsumed?.()
+    // "بدء العمل" from the chart switches to this tab, but the picker (where
+    // the service/doctor actually get filled in) sits BELOW the "كل الشغل
+    // الحالي" list in this tab's own layout — landing at the top of the tab
+    // still leaves it out of view. Scroll straight to the picker itself.
+    requestAnimationFrame(() => pickerSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialSelectedTeeth])
 
@@ -1044,11 +1049,11 @@ export default function WorkPlanningPanel({
           {geometry && <OdontogramClickOverlay geometry={geometry} toothNumbers={toothNumbers} onSelect={toggleTooth} />}
         </div>
 
-        <div className="mt-3 flex flex-wrap items-end gap-3">
-          <div className="w-64">
-            <label className="mb-1 block text-xs text-muted">الخدمة</label>
+        <div className="mt-4 grid gap-4 rounded-xl border border-border bg-background p-4 sm:grid-cols-2">
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-ink/80">الخدمة</label>
             {editingWorkItemId ? (
-              <p className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-ink/70">
+              <p className="rounded-lg border border-border bg-surface px-3 py-2.5 text-sm text-ink/70">
                 {services.find((s) => String(s.id) === newServiceId)?.name ?? '—'}
               </p>
             ) : (
@@ -1060,8 +1065,8 @@ export default function WorkPlanningPanel({
               />
             )}
           </div>
-          <div className="w-64">
-            <label className="mb-1 block text-xs text-muted">الطبيب المشرف (إجباري)</label>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-ink/80">الطبيب المشرف (إجباري)</label>
             <SearchableSelect options={doctorOptions} value={doctorId} onChange={setDoctorId} placeholder="اختر طبيب..." />
           </div>
         </div>

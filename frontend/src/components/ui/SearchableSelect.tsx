@@ -48,9 +48,12 @@ export default function SearchableSelect({
   }, [])
 
   const filtered = options.filter((o) => {
-    const q = normalizeArabic(query.trim())
+    // normalizeArabic collapses ا/أ/إ/آ, ة/ه, etc.; toLowerCase makes an
+    // English query match regardless of how it was capitalized — neither
+    // should force the user to type an exact variant to find something.
+    const q = normalizeArabic(query.trim()).toLowerCase()
     if (!q) return true
-    return normalizeArabic(o.label).includes(q) || normalizeArabic(o.sublabel ?? '').includes(q)
+    return normalizeArabic(o.label).toLowerCase().includes(q) || normalizeArabic(o.sublabel ?? '').toLowerCase().includes(q)
   })
 
   function pick(v: string) {
@@ -67,7 +70,7 @@ export default function SearchableSelect({
           setOpen((v) => !v)
           setTimeout(() => inputRef.current?.focus(), 0)
         }}
-        className="flex w-full items-center justify-between rounded-lg border border-border px-2 py-1.5 text-start text-sm text-ink hover:border-accent/40 focus:border-accent focus:outline-none"
+        className="flex w-full items-center justify-between rounded-lg border border-border px-3 py-2.5 text-start text-sm text-ink hover:border-accent/40 focus:border-accent focus:outline-none"
       >
         <span className={selected ? '' : 'text-muted'}>{selected ? selected.label : placeholder}</span>
         <FontAwesomeIcon icon={faChevronDown} className="text-xs text-muted" />

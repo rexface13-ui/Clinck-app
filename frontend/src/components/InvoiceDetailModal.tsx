@@ -6,7 +6,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { Modal, Table, Thead, Th, Td, Tr, Badge } from './ui'
 import type { BadgeVariant } from './ui'
 import type { Invoice } from '../types'
-import MiniToothDiagram from './MiniToothDiagram'
+import MiniOdontogramPreview from './MiniOdontogramPreview'
 
 const STATUS_LABELS: Record<string, string> = {
   unpaid: 'غير مدفوعة',
@@ -94,7 +94,7 @@ export default function InvoiceDetailModal({
 
           {sessionTeeth && sessionTeeth.length > 0 && (
             <div className="flex justify-center rounded-lg bg-background p-2">
-              <MiniToothDiagram teeth={sessionTeeth} isChild={isChild} />
+              <MiniOdontogramPreview teeth={sessionTeeth} isChild={isChild} />
             </div>
           )}
 
