@@ -41,7 +41,7 @@ import type { Doctor, Note, Service, ToothFinding, ToothState, WorkItem } from '
 const CHILD_PHANTOM_LIBRARY_IDS = [16, 17, 18, 26, 27, 28, 36, 37, 38, 46, 47, 48].map((n) => `teeth-${n}`)
 
 /** Extra room reserved on each side of the chart for the worked-tooth callout labels. */
-const SIDE_PAD = 130
+const SIDE_PAD = 155
 
 interface Props {
   patientId: number
@@ -494,7 +494,7 @@ export default function ToothChart({
               geometry={geometry}
               teeth={calloutTeeth}
               notesCountByTooth={notesCountByTooth}
-              onOpenNotes={setNotesToothNumber}
+              onSelectTooth={handleToothClick}
             />
           )}
         </div>
@@ -794,7 +794,10 @@ interface CalloutTooth {
  * Side-panel-style callouts (like a radiology/anatomy diagram): a short
  * leader line + arrowhead from every worked tooth out to a label in the
  * chart's side margin, naming what was done — visible at a glance, no
- * click needed. Clicking a label opens that tooth's notebook directly.
+ * click needed. Clicking a label selects that tooth, opening the same
+ * detail panel (step progress, session history, notebook) a tooth click
+ * would — that's the point of the callout: get the details without having
+ * to find and click the tiny tooth shape itself.
  *
  * Shares the same viewBox *units* as the tooth chart's own overlays, just
  * extended with extra room on both sides (SIDE_PAD, converted to viewBox
@@ -805,12 +808,12 @@ function ToothCalloutOverlay({
   geometry,
   teeth,
   notesCountByTooth,
-  onOpenNotes,
+  onSelectTooth,
 }: {
   geometry: { viewBox: string }
   teeth: CalloutTooth[]
   notesCountByTooth: Map<number, number>
-  onOpenNotes: (toothNumber: number) => void
+  onSelectTooth: (toothNumber: number) => void
 }) {
   const [, , w, h] = geometry.viewBox.split(' ').map(Number)
   const padUnits = SIDE_PAD * (w / 460)
@@ -819,13 +822,21 @@ function ToothCalloutOverlay({
   const left = teeth.filter((t) => t.side === 'left').sort((a, b) => a.center.y - b.center.y)
   const right = teeth.filter((t) => t.side === 'right').sort((a, b) => a.center.y - b.center.y)
 
+  // Rows spread evenly over the chart's height, but never closer together
+  // than a fixed minimum — with only 2-3 labels on a side, evenly dividing
+  // the *whole* height already gives generous spacing; this only kicks in
+  // to guarantee readability once a side gets crowded with many teeth.
+  const MIN_ROW_GAP = 34
   function layout(list: CalloutTooth[]) {
-    return list.map((t, i) => ({ ...t, labelY: ((i + 0.5) / list.length) * h }))
+    const step = Math.max(h / list.length, MIN_ROW_GAP)
+    const totalHeight = step * list.length
+    const startY = Math.max(0, (h - totalHeight) / 2) + step / 2
+    return list.map((t, i) => ({ ...t, labelY: startY + i * step }))
   }
 
   const rows = [
-    ...layout(left).map((t) => ({ ...t, labelX: -padUnits * 0.92, anchor: 'end' as const })),
-    ...layout(right).map((t) => ({ ...t, labelX: w + padUnits * 0.92, anchor: 'start' as const })),
+    ...layout(left).map((t) => ({ ...t, labelX: -padUnits * 0.9, anchor: 'end' as const })),
+    ...layout(right).map((t) => ({ ...t, labelX: w + padUnits * 0.9, anchor: 'start' as const })),
   ]
 
   return (
@@ -833,11 +844,11 @@ function ToothCalloutOverlay({
     // box fully covers the tooth chart underneath (including the real
     // click-target overlay), so without it every label/line here would
     // swallow clicks meant for the teeth themselves. Only the label text
-    // opts back in (pointer-events-auto) to stay clickable for the notebook.
+    // opts back in (pointer-events-auto) to stay clickable.
     <svg viewBox={viewBox} className="pointer-events-none absolute inset-0 size-full" style={{ overflow: 'visible' }}>
       <defs>
-        <marker id="tooth-callout-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-          <path d="M0,0 L8,4 L0,8 z" fill="var(--color-ink)" opacity={0.55} />
+        <marker id="tooth-callout-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L8,4 L0,8 z" fill="var(--color-ink)" opacity={0.75} />
         </marker>
       </defs>
       {rows.map((t) => {
@@ -847,11 +858,11 @@ function ToothCalloutOverlay({
             <line
               x1={t.center.x}
               y1={t.center.y}
-              x2={t.labelX + (t.anchor === 'end' ? 6 : -6)}
+              x2={t.labelX + (t.anchor === 'end' ? 8 : -8)}
               y2={t.labelY}
               stroke="var(--color-ink)"
-              strokeOpacity={0.4}
-              strokeWidth={1}
+              strokeOpacity={0.6}
+              strokeWidth={1.25}
               markerEnd="url(#tooth-callout-arrow)"
             />
             <text
@@ -859,10 +870,11 @@ function ToothCalloutOverlay({
               y={t.labelY}
               textAnchor={t.anchor}
               dominantBaseline="middle"
-              fontSize="9"
+              fontSize="11"
+              fontWeight={600}
               fill={t.done ? 'var(--color-ink)' : 'var(--color-tooth-planned)'}
               className="pointer-events-auto cursor-pointer select-none hover:underline"
-              onClick={() => onOpenNotes(t.number)}
+              onClick={() => onSelectTooth(t.number)}
             >
               {t.number}: {t.label}
               {noteCount > 0 ? ` 📝${noteCount}` : ''}
