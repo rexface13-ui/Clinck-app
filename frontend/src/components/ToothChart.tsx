@@ -24,7 +24,6 @@ import {
   STATUS_COLOR,
   UPPER_PERMANENT,
   UPPER_PRIMARY,
-  describeTeeth,
   fadeHex,
   toLibraryToothId,
 } from '../lib/dental'
@@ -551,7 +550,11 @@ export default function ToothChart({
         if (centers.length === 0) return null
         const cx = centers.reduce((s, c) => s + c.x, 0) / centers.length
         const cy = centers.reduce((s, c) => s + c.y, 0) / centers.length
-        const label = g.teeth.length > 1 ? `${describeTeeth(g.teeth, isChild)}: ${g.serviceLabel}` : g.serviceLabel
+        // "من - إلى" (a compact range), not every tooth number spelled out —
+        // e.g. "26-28: تنظيف أسنان" instead of "أسنان 26، 27، 28: ...".
+        const sorted = [...g.teeth].sort((a, b) => a - b)
+        const range = sorted.length > 1 ? `${sorted[0]}-${sorted[sorted.length - 1]}` : String(sorted[0])
+        const label = sorted.length > 1 ? `${range}: ${g.serviceLabel}` : g.serviceLabel
         return {
           // The lowest tooth number stands in as the group's "representative" —
           // it's what a drag-position override and a label click key off of.
@@ -564,7 +567,7 @@ export default function ToothChart({
         } as const
       })
       .filter((x): x is NonNullable<typeof x> => x !== null)
-  }, [geometry, toothNumbers, activeFindingByTooth, isChild])
+  }, [geometry, toothNumbers, activeFindingByTooth])
 
   return (
     <div className="flex flex-col gap-6 lg:flex-row">
