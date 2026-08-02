@@ -147,10 +147,27 @@ export default function WorkPlanningPanel({
   const [scheduleSuccessId, setScheduleSuccessId] = useState<number | null>(null)
   const [pendingScheduleIds, setPendingScheduleIds] = useState<number[]>([])
 
-  function loadWorkItems() {
-    return api.get('/work-items', { params: { patient_id: patientId, status: 'in_progress' } }).then((res) => {
-      setWorkItems(res.data.data)
-      return res.data.data as WorkItem[]
+  /**
+   * `keepItemId` re-adds one specific work item after the reload even though
+   * it isn't `in_progress` (a billed/done session opened for editing via
+   * focusWorkItemId — see below) — without this, refreshing after any edit
+   * to that item drops it from the list entirely, since the base query only
+   * ever fetches in_progress items. That's what made the whole edit panel
+   * seem to "vanish" after removing a tooth from an already-billed session.
+   */
+  function loadWorkItems(keepItemId?: number) {
+    return api.get('/work-items', { params: { patient_id: patientId, status: 'in_progress' } }).then(async (res) => {
+      let items: WorkItem[] = res.data.data
+      if (keepItemId && !items.some((x) => x.id === keepItemId)) {
+        try {
+          const fresh = await api.get(`/work-items/${keepItemId}`)
+          items = [fresh.data.data, ...items]
+        } catch {
+          // item was deleted/emptied out by the edit itself — fine to just drop it
+        }
+      }
+      setWorkItems(items)
+      return items
     })
   }
 
@@ -336,7 +353,7 @@ export default function WorkPlanningPanel({
         }
       }
       cancelEditWorkItem()
-      loadWorkItems()
+      loadWorkItems(w.id)
     } catch (err) {
       const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
       setCreateError(message ?? 'صار خطأ أثناء حفظ التعديلات.')
@@ -357,7 +374,7 @@ export default function WorkPlanningPanel({
     }
     try {
       await api.patch(`/work-items/${workItem.id}/tooth-steps/${toothStepId}`, { completed })
-      loadWorkItems()
+      loadWorkItems(workItem.id)
     } catch (err) {
       const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
       window.alert(message ?? 'صار خطأ أثناء الإلغاء.')
@@ -372,7 +389,7 @@ export default function WorkPlanningPanel({
 
   async function applyToAll(workItem: WorkItem, sourceTooth: number) {
     await api.post(`/work-items/${workItem.id}/apply-to-all`, { tooth_number: sourceTooth })
-    loadWorkItems()
+    loadWorkItems(workItem.id)
   }
 
   /**
@@ -387,7 +404,7 @@ export default function WorkPlanningPanel({
     const pending = workItem.steps.flatMap((s) => s.tooth_steps.filter((ts) => ts.tooth_number === toothNumber && !ts.completed))
     if (pending.length === 0) return
     await Promise.all(pending.map((ts) => api.patch(`/work-items/${workItem.id}/tooth-steps/${ts.id}`, { completed: true })))
-    loadWorkItems()
+    loadWorkItems(workItem.id)
   }
 
   async function cancelWorkItem(workItem: WorkItem) {
