@@ -13,7 +13,7 @@ const TYPE_LABELS: Record<string, string> = {
   charge: 'فاتورة',
   payment: 'دفعة',
   refund: 'استرجاع',
-  adjustment: 'تسوية',
+  adjustment: 'خصم',
 }
 
 const TYPE_VARIANTS: Record<string, BadgeVariant> = {

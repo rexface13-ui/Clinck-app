@@ -463,7 +463,7 @@ class WorkItemService
 
                 $workItem->update([
                     'doctor_id' => $doctorId,
-                    'appointment_id' => $appointment->id,
+                    'appointment_id' => $appointment?->id,
                     'status' => $this->isWorkItemDone($workItem->fresh('toothSteps')) ? 'done' : 'in_progress',
                 ]);
             }
@@ -526,7 +526,7 @@ class WorkItemService
             return [
                 'invoice_id' => $invoice?->id,
                 'total_ils' => $invoice ? (float) $invoice->fresh()->total_amount_ils : 0,
-                'appointment_id' => $appointment->id,
+                'appointment_id' => $appointment?->id,
                 'work_items' => $workItems->fresh(['teeth', 'steps.toothSteps', 'steps.serviceStep.fields'])->all(),
             ];
         });
@@ -679,7 +679,7 @@ class WorkItemService
     }
 
     /** Reuses today's already-booked appointment for this patient (marking it done) rather than creating a duplicate, unless the caller explicitly picked a different one. */
-    protected function resolveAppointment(Patient $patient, int $doctorId, ?int $appointmentId): Appointment
+    protected function resolveAppointment(Patient $patient, int $doctorId, ?int $appointmentId): ?Appointment
     {
         if ($appointmentId) {
             $appointment = Appointment::findOrFail($appointmentId);
@@ -700,15 +700,11 @@ class WorkItemService
             return $today;
         }
 
-        return Appointment::create([
-            'branch_id' => $patient->branch_id,
-            'patient_id' => $patient->id,
-            'doctor_id' => $doctorId,
-            'starts_at' => now(),
-            'ends_at' => now()->addMinutes(30),
-            'status' => 'done',
-            'created_via' => 'web',
-        ]);
+        // No booked appointment for this checkout — a pure walk-in shouldn't
+        // get a phantom "done" appointment fabricated just so the work item
+        // has something to point at. Leaving it null keeps the appointments
+        // calendar/log showing only real bookings.
+        return null;
     }
 
     /** Books an appointment for a work item's remaining (not-yet-completed) steps — the "جلسة مجدولة" the patient still owes a visit for. */

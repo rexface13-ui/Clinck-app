@@ -89,7 +89,13 @@ export default function PatientProfilePage() {
 
   function startWorkOnTeeth(toothNumbers: number[]) {
     setPendingWorkTeeth(toothNumbers)
-    goToWorkTab()
+    // Not goToWorkTab() — its own scroll-to-top-of-tab and WorkPlanningPanel's
+    // own scroll-to-the-picker (further down, past the current-work list)
+    // used to race each other, and the tab-top one often won since it kept
+    // animating after the shorter picker scroll had already finished. Just
+    // switch tabs here; WorkPlanningPanel's own effect owns getting the user
+    // to the right spot once the teeth prop lands.
+    setActiveTab('work')
   }
 
   function openWorkItem(workItemId: number) {
