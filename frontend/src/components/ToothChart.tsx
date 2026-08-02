@@ -1,11 +1,12 @@
 import { useMemo, useRef, useState } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faPen, faTrash, faNoteSticky, faPlay } from '@fortawesome/free-solid-svg-icons'
+import { faPen, faTrash, faNoteSticky, faPlay, faFileInvoice } from '@fortawesome/free-solid-svg-icons'
 import { Odontogram } from 'react-odontogram'
 import 'react-odontogram/style.css'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import ToothNotesModal from './ToothNotesModal'
+import InvoiceDetailModal from './InvoiceDetailModal'
 import {
   OdontogramBridgeOverlay,
   OdontogramClickOverlay,
@@ -25,7 +26,7 @@ import {
   fadeHex,
   toLibraryToothId,
 } from '../lib/dental'
-import type { Doctor, Note, Service, ToothFinding, ToothState } from '../types'
+import type { Doctor, Note, Service, ToothFinding, ToothState, WorkItem } from '../types'
 
 /**
  * Primary dentition only has 5 teeth per quadrant, but the library's
@@ -57,6 +58,8 @@ interface Props {
   busyToothNumbers?: Map<number, string[]>
   /** Per-tooth notebook entries — same patient notes list the "الملاحظات" tab uses, just scoped here to whichever tooth is selected. */
   notes?: Note[]
+  /** Every work item for this patient (any status) — drives the selected tooth's step-by-step session history and the "كم خطوة باقي" summary. */
+  workItems?: WorkItem[]
   /** Jumps to the Work tab with these teeth pre-selected, ready to start work — skips the manual re-select-then-switch-tabs round trip. */
   onStartWork?: (toothNumbers: number[]) => void
 }
@@ -72,6 +75,7 @@ export default function ToothChart({
   onPickTooth,
   busyToothNumbers,
   notes = [],
+  workItems = [],
   onStartWork,
 }: Props) {
   const { can } = useAuth()
@@ -94,6 +98,7 @@ export default function ToothChart({
   const [performedExternally, setPerformedExternally] = useState(false)
   const [markDecay, setMarkDecay] = useState(false)
   const [notesToothNumber, setNotesToothNumber] = useState<number | null>(null)
+  const [viewingInvoiceId, setViewingInvoiceId] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [editingFindingId, setEditingFindingId] = useState<number | null>(null)
@@ -333,6 +338,53 @@ export default function ToothChart({
   const singleSelectedTooth = selectedTeeth.length === 1 ? selectedTeeth[0] : null
   const history = singleSelectedTooth ? toothFindings.filter((f) => f.tooth_number === singleSelectedTooth) : []
 
+  /**
+   * Every step ever assigned to the selected tooth, across every (non-cancelled)
+   * work item — the "كم خطوة منجزة، شو ضل" summary and the session-by-session
+   * breakdown both come from here. Each row that was actually billed links to
+   * its invoice, so a session can be opened straight into the edit form.
+   */
+  const toothStepRows = useMemo(() => {
+    if (!singleSelectedTooth) return []
+    const rows: { key: string; workItemId: number; serviceName: string | null; stepTitle: string; completed: boolean; completedAt: string | null; invoiceId: number | null }[] = []
+    for (const wi of workItems) {
+      if (wi.status === 'cancelled') continue
+      for (const step of wi.steps) {
+        for (const ts of step.tooth_steps) {
+          if (ts.tooth_number !== singleSelectedTooth) continue
+          rows.push({
+            key: `${wi.id}-${ts.id}`,
+            workItemId: wi.id,
+            serviceName: wi.service_name,
+            stepTitle: step.title,
+            completed: ts.completed,
+            completedAt: ts.completed_at,
+            invoiceId: ts.invoice_id,
+          })
+        }
+      }
+    }
+    return rows
+  }, [workItems, singleSelectedTooth])
+
+  const toothStepsCompleted = toothStepRows.filter((r) => r.completed).length
+  const toothStepsTotal = toothStepRows.length
+
+  /** Sessions = distinct invoices the tooth's steps were actually billed under, each with the steps billed in it — "أي جلسة اشتغلت فيها إيش". Not-yet-billed steps are grouped separately as the still-open work item. */
+  const toothSessions = useMemo(() => {
+    const byInvoice = new Map<number, typeof toothStepRows>()
+    const pending: typeof toothStepRows = []
+    for (const row of toothStepRows) {
+      if (row.invoiceId) {
+        if (!byInvoice.has(row.invoiceId)) byInvoice.set(row.invoiceId, [])
+        byInvoice.get(row.invoiceId)!.push(row)
+      } else {
+        pending.push(row)
+      }
+    }
+    return { byInvoice, pending }
+  }, [toothStepRows])
+
   const geometry = useOdontogramGeometry(containerRef, toothNumbers, toLibraryId, [chartKey, isChild])
 
   const notesCountByTooth = useMemo(() => {
@@ -556,6 +608,45 @@ export default function ToothChart({
             </p>
           )}
 
+          {singleSelectedTooth && toothStepsTotal > 0 && (
+            <div className="mb-4 rounded-lg bg-background p-3">
+              <p className="mb-2 text-xs font-medium text-ink/70">
+                الخطوات: {toothStepsCompleted} من {toothStepsTotal} منجزة
+                {toothStepsCompleted < toothStepsTotal && (
+                  <span className="text-warning"> — باقي {toothStepsTotal - toothStepsCompleted}</span>
+                )}
+              </p>
+
+              <div className="space-y-2">
+                {Array.from(toothSessions.byInvoice.entries()).map(([invoiceId, rows]) => (
+                  <button
+                    key={invoiceId}
+                    onClick={() => setViewingInvoiceId(invoiceId)}
+                    className="flex w-full items-start justify-between gap-2 rounded-lg border border-ink/10 bg-white px-2.5 py-1.5 text-start text-xs hover:border-accent"
+                  >
+                    <span>
+                      <span className="font-medium text-ink">{rows[0].serviceName ?? 'خدمة'}</span>
+                      <span className="block text-ink/50">
+                        {rows.map((r) => r.stepTitle).join('، ')}
+                        {rows[0].completedAt && ` — ${rows[0].completedAt}`}
+                      </span>
+                    </span>
+                    <FontAwesomeIcon icon={faFileInvoice} className="mt-0.5 shrink-0 text-ink/30" />
+                  </button>
+                ))}
+
+                {toothSessions.pending.length > 0 && (
+                  <div className="rounded-lg border border-dashed border-ink/15 px-2.5 py-1.5 text-xs">
+                    <span className="font-medium text-ink/70">شغل حالي (لسا ما انحاسب):</span>
+                    <span className="block text-ink/50">
+                      {toothSessions.pending.map((r) => `${r.stepTitle}${r.completed ? ' (منجزة)' : ''}`).join('، ')}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {singleSelectedTooth && (
             <div className="mb-4">
               <h4 className="mb-2 text-xs font-medium text-ink/60">السجل</h4>
@@ -670,6 +761,14 @@ export default function ToothChart({
           toothNumber={notesToothNumber}
           notes={notes}
           onClose={() => setNotesToothNumber(null)}
+          onChanged={onChanged}
+        />
+      )}
+
+      {viewingInvoiceId !== null && (
+        <InvoiceDetailModal
+          invoiceId={viewingInvoiceId}
+          onClose={() => setViewingInvoiceId(null)}
           onChanged={onChanged}
         />
       )}

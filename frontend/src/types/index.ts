@@ -213,6 +213,7 @@ export interface WorkItemToothStepRow {
   field_values: Record<string, string>
   completed: boolean
   invoiced: boolean
+  invoice_id: number | null
   /** Only meaningful once invoiced — when this tooth-step was billed, i.e. which prior session it belongs to. */
   completed_at: string | null
 }

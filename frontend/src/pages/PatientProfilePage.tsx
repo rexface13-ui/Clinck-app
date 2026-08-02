@@ -23,7 +23,7 @@ import AppointmentDetailModal from '../components/AppointmentDetailModal'
 import MedicalHistoryField from '../components/MedicalHistoryField'
 import { Card, Badge, Button, Tabs, Modal, Input } from '../components/ui'
 import { useAuth } from '../contexts/AuthContext'
-import type { PatientProfile, Service, Ledger, Doctor } from '../types'
+import type { PatientProfile, Service, Ledger, Doctor, WorkItem } from '../types'
 
 const STATUS_LABELS: Record<string, string> = {
   scheduled: 'مجدول',
@@ -79,6 +79,7 @@ export default function PatientProfilePage() {
   /** Teeth selected from the overview chart's "بدء العمل" button — seeds WorkPlanningPanel's own selection once it mounts on the work tab, so the patient doesn't have to re-pick the same teeth twice. */
   const [pendingWorkTeeth, setPendingWorkTeeth] = useState<number[]>([])
   const [notesModalTooth, setNotesModalTooth] = useState<number | null>(null)
+  const [workItems, setWorkItems] = useState<WorkItem[]>([])
 
   function goToWorkTab() {
     setActiveTab('work')
@@ -95,6 +96,9 @@ export default function PatientProfilePage() {
     if (canViewBilling) {
       api.get(`/patients/${id}/ledger`).then((res) => setLedger(res.data))
     }
+    // All statuses (not just in_progress) — the overview chart's per-tooth
+    // session history needs done/cancelled work too, not just active work.
+    api.get('/work-items', { params: { patient_id: id } }).then((res) => setWorkItems(res.data.data))
     setRefreshSignal((n) => n + 1)
   }
 
@@ -405,6 +409,7 @@ export default function PatientProfilePage() {
                     doctors={doctors}
                     onChanged={load}
                     notes={notes}
+                    workItems={workItems}
                     onStartWork={startWorkOnTeeth}
                   />
                 </div>

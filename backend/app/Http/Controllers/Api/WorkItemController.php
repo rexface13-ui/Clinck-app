@@ -33,7 +33,7 @@ class WorkItemController extends Controller
             'status' => ['sometimes', 'string'],
         ]);
 
-        $query = WorkItem::with(['doctor', 'service', 'teeth', 'steps.toothSteps', 'steps.serviceStep.fields'])
+        $query = WorkItem::with(['doctor', 'service', 'teeth', 'steps.toothSteps.invoiceLine', 'steps.serviceStep.fields'])
             ->where('patient_id', $data['patient_id'])
             ->orderByDesc('created_at');
 
@@ -68,7 +68,7 @@ class WorkItemController extends Controller
     {
         $this->authorizeView($request);
 
-        return new WorkItemResource($workItem->load(['doctor', 'service', 'teeth', 'steps.toothSteps', 'steps.serviceStep.fields']));
+        return new WorkItemResource($workItem->load(['doctor', 'service', 'teeth', 'steps.toothSteps.invoiceLine', 'steps.serviceStep.fields']));
     }
 
     public function updateToothStep(Request $request, WorkItem $workItem, WorkItemToothStep $toothStep, WorkItemService $service)
@@ -106,7 +106,7 @@ class WorkItemController extends Controller
 
         $service->removeTooth($workItem, $toothNumber);
 
-        return new WorkItemResource($workItem->fresh(['doctor', 'service', 'teeth', 'steps.toothSteps', 'steps.serviceStep.fields']));
+        return new WorkItemResource($workItem->fresh(['doctor', 'service', 'teeth', 'steps.toothSteps.invoiceLine', 'steps.serviceStep.fields']));
     }
 
     public function updateStepPrice(Request $request, WorkItem $workItem, WorkItemStep $step, WorkItemService $service)
@@ -118,7 +118,7 @@ class WorkItemController extends Controller
 
         $service->updateStepPrice($step, (float) $data['price']);
 
-        return new WorkItemResource($workItem->fresh(['doctor', 'service', 'teeth', 'steps.toothSteps', 'steps.serviceStep.fields']));
+        return new WorkItemResource($workItem->fresh(['doctor', 'service', 'teeth', 'steps.toothSteps.invoiceLine', 'steps.serviceStep.fields']));
     }
 
     public function applyToAll(Request $request, WorkItem $workItem, WorkItemService $service)
@@ -129,7 +129,7 @@ class WorkItemController extends Controller
 
         $service->applyToAllTeeth($workItem, $data['tooth_number']);
 
-        return new WorkItemResource($workItem->fresh(['doctor', 'service', 'teeth', 'steps.toothSteps', 'steps.serviceStep.fields']));
+        return new WorkItemResource($workItem->fresh(['doctor', 'service', 'teeth', 'steps.toothSteps.invoiceLine', 'steps.serviceStep.fields']));
     }
 
     public function checkout(Request $request, WorkItemService $service)
