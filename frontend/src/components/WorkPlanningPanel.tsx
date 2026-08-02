@@ -1026,48 +1026,57 @@ export default function WorkPlanningPanel({
           </div>
         )}
 
-        <div ref={containerRef} className="relative mx-auto" style={{ maxWidth: 500 }}>
-          <Odontogram
-            key={chartKey}
-            layout="circle"
-            notation="FDI"
-            maxTeeth={8}
-            defaultSelected={selectedTeeth.map(toLibraryId)}
-            singleSelect={false}
-            onChange={() => {}}
-            teethConditions={teethConditions}
-            showLabels={false}
-            // Library's own "selected" tint is driven by its own internal
-            // click state, which clicks no longer go through (see
-            // OdontogramClickOverlay below) — transparent so it can't show
-            // a stale highlight that contradicts our own selection ring.
-            colors={{ darkBlue: 'var(--color-accent)', baseBlue: '#c9b8a8', lightBlue: 'transparent' }}
-          />
-          {geometry && <OdontogramBridgeOverlay geometry={geometry} groups={bridgeGroups} />}
-          {geometry && <OdontogramSelectionOverlay geometry={geometry} selected={selectedTeeth} />}
-          {geometry && <OdontogramNumberOverlay geometry={geometry} toothNumbers={toothNumbers} />}
-          {geometry && <OdontogramClickOverlay geometry={geometry} toothNumbers={toothNumbers} onSelect={toggleTooth} />}
-        </div>
-
-        <div className="mx-auto mt-4 grid gap-4 rounded-xl border border-border bg-background p-4 sm:grid-cols-2" style={{ maxWidth: 500 }}>
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-ink/80">الخدمة</label>
-            {editingWorkItemId ? (
-              <p className="rounded-lg border border-border bg-surface px-3 py-2.5 text-sm text-ink/70">
-                {services.find((s) => String(s.id) === newServiceId)?.name ?? '—'}
-              </p>
-            ) : (
-              <SearchableSelect
-                options={serviceOptions}
-                value={newServiceId}
-                onChange={selectService}
-                placeholder="اختر خدمة..."
-              />
-            )}
+        {/* Grid, not flex — a flex row here let the fields column steal
+            width from the chart (shrank it) even with shrink-0 on the chart
+            side. A grid with a HARD 500px track for the chart can't be
+            squeezed by its sibling no matter what that sibling needs. Fields
+            column is listed first so it lands on the right in RTL. */}
+        <div className="grid gap-4 lg:grid-cols-[1fr_500px] lg:items-start">
+          <div className="order-2 rounded-xl border border-border bg-background p-4 lg:order-1">
+            <div className="space-y-4">
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-ink/80">الخدمة</label>
+                {editingWorkItemId ? (
+                  <p className="rounded-lg border border-border bg-surface px-3 py-2.5 text-sm text-ink/70">
+                    {services.find((s) => String(s.id) === newServiceId)?.name ?? '—'}
+                  </p>
+                ) : (
+                  <SearchableSelect
+                    options={serviceOptions}
+                    value={newServiceId}
+                    onChange={selectService}
+                    placeholder="اختر خدمة..."
+                  />
+                )}
+              </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-ink/80">الطبيب المشرف (إجباري)</label>
+                <SearchableSelect options={doctorOptions} value={doctorId} onChange={setDoctorId} placeholder="اختر طبيب..." />
+              </div>
+            </div>
           </div>
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-ink/80">الطبيب المشرف (إجباري)</label>
-            <SearchableSelect options={doctorOptions} value={doctorId} onChange={setDoctorId} placeholder="اختر طبيب..." />
+
+          <div ref={containerRef} className="relative order-1 mx-auto lg:order-2" style={{ maxWidth: 500 }}>
+            <Odontogram
+              key={chartKey}
+              layout="circle"
+              notation="FDI"
+              maxTeeth={8}
+              defaultSelected={selectedTeeth.map(toLibraryId)}
+              singleSelect={false}
+              onChange={() => {}}
+              teethConditions={teethConditions}
+              showLabels={false}
+              // Library's own "selected" tint is driven by its own internal
+              // click state, which clicks no longer go through (see
+              // OdontogramClickOverlay below) — transparent so it can't show
+              // a stale highlight that contradicts our own selection ring.
+              colors={{ darkBlue: 'var(--color-accent)', baseBlue: '#c9b8a8', lightBlue: 'transparent' }}
+            />
+            {geometry && <OdontogramBridgeOverlay geometry={geometry} groups={bridgeGroups} />}
+            {geometry && <OdontogramSelectionOverlay geometry={geometry} selected={selectedTeeth} />}
+            {geometry && <OdontogramNumberOverlay geometry={geometry} toothNumbers={toothNumbers} />}
+            {geometry && <OdontogramClickOverlay geometry={geometry} toothNumbers={toothNumbers} onSelect={toggleTooth} />}
           </div>
         </div>
 
