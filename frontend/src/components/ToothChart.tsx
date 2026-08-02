@@ -972,6 +972,8 @@ export default function ToothChart({
           onChanged={onChanged}
           sessionTeeth={teethForInvoice(viewingInvoiceId)}
           isChild={isChild}
+          patientId={patientId}
+          notes={notes}
           onEditWorkItem={
             onOpenWorkItem
               ? () => {

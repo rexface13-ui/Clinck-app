@@ -10,6 +10,7 @@ use App\Models\Cashbox;
 use App\Models\Invoice;
 use App\Models\InvoiceLine;
 use App\Models\Patient;
+use App\Models\PatientTransaction;
 use App\Models\WorkItemToothStep;
 use App\Services\PaymentService;
 use Illuminate\Http\Request;
@@ -52,7 +53,10 @@ class PatientBillingController extends Controller
 
     /**
      * Unified ILS ledger — running balance in display order (oldest first)
-     * so "outstanding" is simply the final row's balance.
+     * so "outstanding" is simply the final row's balance. Each row also gets
+     * a human `description` ("خصم على فاتورة INV-000012", "فاتورة
+     * INV-000012"...) so a discount/charge reads as "which session" at a
+     * glance instead of just a bare amount.
      */
     public function ledger(Request $request, Patient $patient)
     {
@@ -60,8 +64,29 @@ class PatientBillingController extends Controller
 
         $transactions = $patient->transactions()->orderBy('occurred_at')->get();
 
+        $invoiceIds = $transactions
+            ->filter(fn ($t) => in_array($t->reference_type, ['invoice', 'invoice_discount', 'invoice_line_reprice'], true))
+            ->pluck('reference_id')
+            ->filter()
+            ->unique();
+        $invoiceNumbers = Invoice::withoutGlobalScopes()->whereIn('id', $invoiceIds)->pluck('invoice_number', 'id');
+
+        $descriptionFor = function ($t) use ($invoiceNumbers) {
+            $invoiceNumber = $invoiceNumbers->get($t->reference_id);
+
+            return match (true) {
+                $t->reference_type === 'invoice' => $invoiceNumber ? "فاتورة {$invoiceNumber}" : 'فاتورة',
+                $t->reference_type === 'invoice_discount' => $invoiceNumber ? "خصم على فاتورة {$invoiceNumber}" : 'خصم على فاتورة',
+                $t->reference_type === 'invoice_line_reprice' => $invoiceNumber ? "تصحيح سعر — فاتورة {$invoiceNumber}" : 'تصحيح سعر',
+                $t->reference_type === 'patient_discount' => 'خصم عام على الحساب',
+                $t->type === 'payment' => 'دفعة',
+                $t->type === 'refund' => 'استرجاع',
+                default => null,
+            };
+        };
+
         $running = 0;
-        $rows = $transactions->map(function ($t) use (&$running) {
+        $rows = $transactions->map(function ($t) use (&$running, $descriptionFor) {
             $signed = in_array($t->type, ['charge', 'adjustment'], true) ? $t->amount_ils : -$t->amount_ils;
             $running += $signed;
 
@@ -70,6 +95,8 @@ class PatientBillingController extends Controller
                 'type' => $t->type,
                 'reference_type' => $t->reference_type,
                 'reference_id' => $t->reference_id,
+                'description' => $descriptionFor($t),
+                'note' => $t->note,
                 'amount' => $t->amount,
                 'currency' => $t->currency,
                 'amount_ils' => $t->amount_ils,
@@ -82,6 +109,38 @@ class PatientBillingController extends Controller
             'outstanding_ils' => round($running, 2),
             'transactions' => $rows->reverse()->values(),
         ];
+    }
+
+    /**
+     * A discount on the whole account, not tied to any one invoice — for
+     * "خصم عام" cases (loyalty, goodwill, family discount...) that should
+     * just lower what the patient owes overall without touching any
+     * invoice's own total (which stays the accurate record of what that
+     * session actually cost).
+     */
+    public function addDiscount(Request $request, Patient $patient)
+    {
+        abort_unless($request->user()->can('billing.manage'), 403);
+
+        $data = $request->validate([
+            'amount' => ['required', 'numeric', 'min:0.01'],
+            'note' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $transaction = PatientTransaction::create([
+            'patient_id' => $patient->id,
+            'type' => 'adjustment',
+            'reference_type' => 'patient_discount',
+            'reference_id' => null,
+            'note' => $data['note'] ?? null,
+            'amount' => -$data['amount'],
+            'currency' => 'ILS',
+            'exchange_rate' => 1,
+            'amount_ils' => -$data['amount'],
+            'occurred_at' => now(),
+        ]);
+
+        return response()->json(['id' => $transaction->id], 201);
     }
 
     /**

@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faPen, faCheck, faPenToSquare } from '@fortawesome/free-solid-svg-icons'
+import { faPen, faCheck, faPenToSquare, faNoteSticky } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import { Modal, Table, Thead, Th, Td, Tr, Badge } from './ui'
 import type { BadgeVariant } from './ui'
-import type { Invoice } from '../types'
+import type { Invoice, Note } from '../types'
 import MiniOdontogramPreview from './MiniOdontogramPreview'
+import ToothNotesModal from './ToothNotesModal'
 
 const STATUS_LABELS: Record<string, string> = {
   unpaid: 'غير مدفوعة',
@@ -30,6 +31,8 @@ export default function InvoiceDetailModal({
   sessionTeeth,
   isChild = false,
   onEditWorkItem,
+  patientId,
+  notes = [],
 }: {
   invoiceId: number
   onClose: () => void
@@ -39,6 +42,9 @@ export default function InvoiceDetailModal({
   isChild?: boolean
   /** Jumps straight to that session's work-planning edit form (teeth/steps editable there) — shown only when the work item behind this invoice is still open (not every invoice has one, e.g. manual charges). */
   onEditWorkItem?: () => void
+  /** Needed (with `notes`) to show a per-tooth notebook shortcut next to each tooth in the session's diagram — omit both to just skip that row. */
+  patientId?: number
+  notes?: Note[]
 }) {
   const { can } = useAuth()
   const canManage = can('billing.manage')
@@ -47,6 +53,7 @@ export default function InvoiceDetailModal({
   const [newTotal, setNewTotal] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [notesToothNumber, setNotesToothNumber] = useState<number | null>(null)
 
   function load() {
     api.get(`/invoices/${invoiceId}`).then((res) => setInvoice(res.data.data))
@@ -93,8 +100,28 @@ export default function InvoiceDetailModal({
           </div>
 
           {sessionTeeth && sessionTeeth.length > 0 && (
-            <div className="flex justify-center rounded-lg bg-background p-2">
-              <MiniOdontogramPreview teeth={sessionTeeth} isChild={isChild} />
+            <div className="rounded-lg bg-background p-2">
+              <div className="flex justify-center">
+                <MiniOdontogramPreview teeth={sessionTeeth} isChild={isChild} />
+              </div>
+              {patientId && (
+                <div className="mt-2 flex flex-wrap justify-center gap-1.5 border-t border-border/60 pt-2">
+                  {[...sessionTeeth].sort((a, b) => a - b).map((tooth) => {
+                    const count = notes.filter((n) => n.tooth_number === tooth).length
+                    return (
+                      <button
+                        key={tooth}
+                        onClick={() => setNotesToothNumber(tooth)}
+                        className={`flex items-center gap-1 rounded-lg border px-1.5 py-0.5 text-[11px] ${count > 0 ? 'border-accent/40 text-accent' : 'border-border text-muted'} hover:border-accent hover:text-accent`}
+                      >
+                        <FontAwesomeIcon icon={faNoteSticky} className="text-[10px]" />
+                        سن {tooth}
+                        {count > 0 && <span className="rounded-full bg-accent px-1 text-[9px] text-white">{count}</span>}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
             </div>
           )}
 
@@ -163,6 +190,16 @@ export default function InvoiceDetailModal({
 
           {error && <p className="text-xs text-danger">{error}</p>}
         </div>
+      )}
+
+      {notesToothNumber !== null && patientId && (
+        <ToothNotesModal
+          patientId={patientId}
+          toothNumber={notesToothNumber}
+          notes={notes}
+          onClose={() => setNotesToothNumber(null)}
+          onChanged={() => onChanged?.()}
+        />
       )}
     </Modal>
   )

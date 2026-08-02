@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faPlus, faCamera } from '@fortawesome/free-solid-svg-icons'
+import { faPlus, faCamera, faPercent } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import DatePicker from './DatePicker'
@@ -45,6 +45,9 @@ export default function PatientLedgerPanel({
   const [cashboxes, setCashboxes] = useState<Cashbox[]>([])
   const [showForm, setShowForm] = useState(() => autoOpenPayment || searchParams.get('pay') === '1')
   const [tab, setTab] = useState<Tab>(canCollectCash ? 'cash' : 'check')
+  const [showDiscountForm, setShowDiscountForm] = useState(false)
+  const [discountAmount, setDiscountAmount] = useState('')
+  const [discountNote, setDiscountNote] = useState('')
 
   const [cashForm, setCashForm] = useState({ invoice_id: '', cashbox_id: '', amount: '', method: 'cash' as 'cash' | 'card' | 'transfer', exchange_rate: '1' })
   const [checkForm, setCheckForm] = useState({ check_number: '', bank_name: '', amount: '', currency: 'ILS', due_date: '' })
@@ -111,6 +114,26 @@ export default function PatientLedgerPanel({
     }
   }
 
+  async function addDiscount() {
+    if (!discountAmount || Number(discountAmount) <= 0) return
+    setBusy(true)
+    setError(null)
+    try {
+      await api.post(`/patients/${patientId}/discount`, {
+        amount: Number(discountAmount),
+        note: discountNote || null,
+      })
+      setShowDiscountForm(false)
+      setDiscountAmount('')
+      setDiscountNote('')
+      load()
+    } catch {
+      setError('تعذّر تسجيل الخصم.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function receiveCheck() {
     if (!checkForm.check_number || !checkForm.amount || !checkForm.due_date) return
     setBusy(true)
@@ -151,16 +174,63 @@ export default function PatientLedgerPanel({
             </p>
           )}
         </div>
-        {(canCollectCash || canCollectCheck) && (
-          <button
-            onClick={() => setShowForm((v) => !v)}
-            className="flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover"
-          >
-            <FontAwesomeIcon icon={faPlus} />
-            تحصيل دفعة
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {canCollectCash && (
+            <button
+              onClick={() => {
+                setShowDiscountForm((v) => !v)
+                setShowForm(false)
+              }}
+              className="flex items-center gap-2 rounded-lg border border-ink/10 px-3 py-1.5 text-xs font-medium text-ink/70 hover:border-accent hover:text-accent"
+            >
+              <FontAwesomeIcon icon={faPercent} />
+              خصم عام
+            </button>
+          )}
+          {(canCollectCash || canCollectCheck) && (
+            <button
+              onClick={() => {
+                setShowForm((v) => !v)
+                setShowDiscountForm(false)
+              }}
+              className="flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover"
+            >
+              <FontAwesomeIcon icon={faPlus} />
+              تحصيل دفعة
+            </button>
+          )}
+        </div>
       </div>
+
+      {showDiscountForm && (
+        <div className="mb-4 space-y-2 rounded-lg bg-background p-3">
+          <p className="text-xs text-ink/50">خصم على كامل حساب المريض (مو مرتبط بفاتورة معيّنة) — بيقلل الرصيد المستحق مباشرة.</p>
+          <div className="flex gap-2">
+            <input
+              type="number"
+              min={0}
+              placeholder="المبلغ"
+              value={discountAmount}
+              onChange={(e) => setDiscountAmount(e.target.value)}
+              className="w-32 rounded-lg border border-ink/10 px-2 py-1.5 text-sm"
+            />
+            <input
+              placeholder="سبب الخصم (اختياري)"
+              value={discountNote}
+              onChange={(e) => setDiscountNote(e.target.value)}
+              className="flex-1 rounded-lg border border-ink/10 px-2 py-1.5 text-sm"
+            />
+          </div>
+          {error && <p className="text-xs text-danger">{error}</p>}
+          <button
+            onClick={addDiscount}
+            disabled={busy || !discountAmount}
+            className="w-full rounded-lg bg-accent py-1.5 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60"
+          >
+            {busy ? 'جارِ الحفظ...' : 'تسجيل الخصم'}
+          </button>
+        </div>
+      )}
 
       {showForm && (
         <div className="mb-4 space-y-3 rounded-lg bg-background p-3">
@@ -320,18 +390,23 @@ export default function PatientLedgerPanel({
       <Table>
         <Thead>
           <Th>النوع</Th>
+          <Th>التفاصيل</Th>
           <Th>المبلغ</Th>
           <Th>الرصيد بعدها</Th>
           <Th>التاريخ</Th>
         </Thead>
         <tbody>
           {!ledger || ledger.transactions.length === 0 ? (
-            <EmptyRow colSpan={4}>لا توجد حركات مالية.</EmptyRow>
+            <EmptyRow colSpan={5}>لا توجد حركات مالية.</EmptyRow>
           ) : (
             ledger.transactions.map((t) => (
               <Tr key={t.id}>
                 <Td>
                   <Badge variant={TYPE_VARIANTS[t.type]}>{TYPE_LABELS[t.type]}</Badge>
+                </Td>
+                <Td className="text-muted">
+                  {t.description}
+                  {t.note && <span className="block text-[11px] text-ink/40">{t.note}</span>}
                 </Td>
                 <Td className={t.type === 'charge' ? 'text-danger' : 'text-success'}>
                   {t.type === 'charge' ? '+' : '-'}{t.amount_ils} ₪

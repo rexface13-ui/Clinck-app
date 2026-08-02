@@ -281,8 +281,12 @@ export interface Payment {
 export interface LedgerRow {
   id: number
   type: 'charge' | 'payment' | 'refund' | 'adjustment'
-  reference_type: string
-  reference_id: number
+  reference_type: string | null
+  reference_id: number | null
+  /** "خصم على فاتورة INV-000012", "فاتورة INV-000012"... — which session/invoice this row belongs to, when it's tied to one. */
+  description: string | null
+  /** Free-text note on a general (not invoice-tied) discount. */
+  note: string | null
   amount: string
   currency: string
   amount_ils: string

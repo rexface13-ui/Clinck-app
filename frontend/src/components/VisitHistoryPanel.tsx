@@ -339,6 +339,8 @@ export default function VisitHistoryPanel({
         }}
         sessionTeeth={viewingInvoice.teeth}
         isChild={isChild}
+        patientId={patientId}
+        notes={notes}
         onEditWorkItem={
           onOpenWorkItem && viewingInvoice.itemId
             ? () => {
