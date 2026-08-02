@@ -176,9 +176,20 @@ export default function WorkPlanningPanel({
   useEffect(() => {
     if (!focusWorkItemId) return
     const w = workItems.find((wi) => wi.id === focusWorkItemId)
-    if (!w) return // work items still loading — retry once they arrive
-    startEditWorkItem(w)
-    onFocusConsumed?.()
+    if (w) {
+      startEditWorkItem(w)
+      onFocusConsumed?.()
+      return
+    }
+    // loadWorkItems() only fetches in_progress items — an already checked-out
+    // (billed) session's work item is status 'done' and never shows up there,
+    // so a session opened from its invoice/session-log entry needs its own
+    // fetch here, then gets merged into the list so the edit UI below (which
+    // only renders for items present in `workItems`) actually has it to show.
+    api.get(`/work-items/${focusWorkItemId}`).then((res) => {
+      const item: WorkItem = res.data.data
+      setWorkItems((prev) => (prev.some((x) => x.id === item.id) ? prev : [item, ...prev]))
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusWorkItemId, workItems])
 
