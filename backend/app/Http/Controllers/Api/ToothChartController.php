@@ -7,6 +7,7 @@ use App\Http\Requests\Dental\StoreToothFindingRequest;
 use App\Http\Resources\ToothFindingResource;
 use App\Http\Resources\ToothStateResource;
 use App\Models\Patient;
+use App\Models\Setting;
 use App\Models\ToothFinding;
 use App\Services\CommissionService;
 use Illuminate\Http\Request;
@@ -133,6 +134,27 @@ class ToothChartController extends Controller
         });
 
         return new ToothFindingResource($finding->fresh(['service', 'doctor']));
+    }
+
+    /**
+     * The overview chart's worked-tooth callout labels are draggable — this
+     * saves where the clinic likes each tooth's label positioned (a single
+     * shared template, keyed by tooth number, not per-patient) so it doesn't
+     * have to be re-dragged into place every time a chart is opened.
+     */
+    public function updateCalloutLayout(Request $request)
+    {
+        abort_unless($request->user()->can('dental_chart.manage'), 403);
+
+        $data = $request->validate([
+            'offsets' => ['required', 'array'],
+            'offsets.*' => ['array', 'size:2'],
+            'offsets.*.*' => ['numeric'],
+        ]);
+
+        Setting::updateOrCreate(['key' => 'tooth_callout_offsets'], ['value' => json_encode($data['offsets'])]);
+
+        return ['tooth_callout_offsets' => $data['offsets']];
     }
 
     public function destroyFinding(Request $request, Patient $patient, ToothFinding $finding)

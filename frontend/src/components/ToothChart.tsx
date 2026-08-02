@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import type { MouseEvent as ReactMouseEvent } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faPen, faTrash, faNoteSticky, faPlay, faFileInvoice } from '@fortawesome/free-solid-svg-icons'
 import { Odontogram } from 'react-odontogram'
@@ -81,7 +82,7 @@ export default function ToothChart({
   onStartWork,
   onOpenWorkItem,
 }: Props) {
-  const { can } = useAuth()
+  const { can, data: authData, refresh: refreshAuth } = useAuth()
   const containerRef = useRef<HTMLDivElement>(null)
   // The callout overlay's side margins are computed in viewBox units from
   // this — measured live (not assumed to always equal the nominal 460px)
@@ -98,6 +99,49 @@ export default function ToothChart({
     observer.observe(el)
     return () => observer.disconnect()
   }, [])
+  /**
+   * Manually-dragged callout label positions, saved as one shared template
+   * (keyed by tooth number, not per-patient) so every chart benefits from
+   * the same layout once someone's arranged it the way they like — instead
+   * of the fixed radial-offset guess having to be re-fought every time.
+   */
+  const [labelEditMode, setLabelEditMode] = useState(false)
+  const [offsetOverrides, setOffsetOverrides] = useState<Map<number, { dx: number; dy: number }>>(new Map())
+  const [savingLayout, setSavingLayout] = useState(false)
+  useEffect(() => {
+    const raw = authData?.settings?.tooth_callout_offsets
+    if (typeof raw !== 'string') return
+    try {
+      const parsed = JSON.parse(raw) as Record<string, [number, number]>
+      const map = new Map<number, { dx: number; dy: number }>()
+      for (const [tooth, [dx, dy]] of Object.entries(parsed)) map.set(Number(tooth), { dx, dy })
+      setOffsetOverrides(map)
+    } catch {
+      // ignore malformed stored layout
+    }
+  }, [authData?.settings?.tooth_callout_offsets])
+
+  function setLabelOffset(toothNumber: number, dx: number, dy: number) {
+    setOffsetOverrides((prev) => {
+      const next = new Map(prev)
+      next.set(toothNumber, { dx, dy })
+      return next
+    })
+  }
+
+  async function saveCalloutLayout() {
+    setSavingLayout(true)
+    try {
+      const offsets: Record<number, [number, number]> = {}
+      offsetOverrides.forEach((v, k) => (offsets[k] = [v.dx, v.dy]))
+      await api.put('/chart-callout-layout', { offsets })
+      await refreshAuth()
+      setLabelEditMode(false)
+    } finally {
+      setSavingLayout(false)
+    }
+  }
+
   const toothNumbers = isChild ? [...UPPER_PRIMARY, ...LOWER_PRIMARY] : [...UPPER_PERMANENT, ...LOWER_PERMANENT]
   const toLibraryId = isChild ? toLibraryToothId : (n: number) => `teeth-${n}`
   const [selectedTeeth, setSelectedTeeth] = useState<number[]>([])
@@ -533,7 +577,29 @@ export default function ToothChart({
               تأكيد الاختيار ({selectedTeeth.length})
             </button>
           )}
+          {!pickMode && calloutTeeth.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setLabelEditMode((v) => !v)}
+              className={`rounded-lg border px-2.5 py-1 text-xs ${labelEditMode ? 'border-accent bg-accent-soft text-accent' : 'border-ink/10 text-ink/70 hover:border-accent hover:text-accent'}`}
+            >
+              {labelEditMode ? 'خلص السحب' : 'رتّب أماكن الليبلات'}
+            </button>
+          )}
+          {labelEditMode && (
+            <button
+              type="button"
+              onClick={saveCalloutLayout}
+              disabled={savingLayout}
+              className="rounded-lg bg-accent px-2.5 py-1 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-60"
+            >
+              {savingLayout ? 'جارِ الحفظ...' : 'حفظ الترتيب'}
+            </button>
+          )}
         </div>
+        {labelEditMode && (
+          <p className="mb-2 text-xs text-ink/50">اسحب أي ليبل للمكان الي بدك ياه — الترتيب بينحفظ لكل المرضى مو بس هاد.</p>
+        )}
         <div className="relative mx-auto w-full" style={{ maxWidth: 460 + SIDE_PAD * 2 }}>
           <div ref={containerRef} className="relative mx-auto w-full" style={{ maxWidth: 460 }}>
           <Odontogram
@@ -576,6 +642,9 @@ export default function ToothChart({
               notesCountByTooth={notesCountByTooth}
               onSelectTooth={handleToothClick}
               containerWidthPx={containerWidthPx}
+              editMode={labelEditMode}
+              offsetOverrides={offsetOverrides}
+              onDragOffset={setLabelOffset}
             />
           )}
         </div>
@@ -925,6 +994,9 @@ function ToothCalloutOverlay({
   notesCountByTooth,
   onSelectTooth,
   containerWidthPx,
+  editMode = false,
+  offsetOverrides,
+  onDragOffset,
 }: {
   geometry: { viewBox: string }
   teeth: CalloutTooth[]
@@ -932,7 +1004,13 @@ function ToothCalloutOverlay({
   onSelectTooth: (toothNumber: number) => void
   /** The chart container's real, currently-rendered pixel width — used (not a hardcoded 460) so the side margin stays correctly proportioned at any screen size, including once the layout shrinks responsively. */
   containerWidthPx: number
+  /** While on, labels can be dragged instead of opening the tooth on click. */
+  editMode?: boolean
+  /** Manually-placed positions (viewBox units, relative to the tooth's own center) saved as a shared template — takes over from the default radial guess for any tooth that has one. */
+  offsetOverrides?: Map<number, { dx: number; dy: number }>
+  onDragOffset?: (toothNumber: number, dx: number, dy: number) => void
 }) {
+  const svgRef = useRef<SVGSVGElement>(null)
   const [, , w, h] = geometry.viewBox.split(' ').map(Number)
   const padUnits = SIDE_PAD * (w / containerWidthPx)
   const viewBox = `${-padUnits} 0 ${w + padUnits * 2} ${h}`
@@ -941,21 +1019,60 @@ function ToothCalloutOverlay({
   // direction away from the arch's center — "حوالين السن" — instead of the
   // old design that pushed every label out to a shared side margin far from
   // the tooth it described. Distance is in real pixels (via containerWidthPx)
-  // so it looks the same short hop at any screen size.
+  // so it looks the same short hop at any screen size. A manually-dragged
+  // override (see labelEditMode above) replaces this guess entirely once set.
   const offsetUnits = 80 * (w / containerWidthPx)
   const cx = w / 2
   const cy = h / 2
   const rows = teeth.map((t) => {
-    const dx = t.center.x - cx
-    const dy = t.center.y - cy
-    const len = Math.hypot(dx, dy) || 1
-    const ux = dx / len
-    const uy = dy / len
-    const labelX = t.center.x + ux * offsetUnits
-    const labelY = t.center.y + uy * offsetUnits
-    const anchor: 'start' | 'middle' | 'end' = ux > 0.2 ? 'start' : ux < -0.2 ? 'end' : 'middle'
+    const override = offsetOverrides?.get(t.number)
+    let dx: number
+    let dy: number
+    if (override) {
+      dx = override.dx
+      dy = override.dy
+    } else {
+      const rawDx = t.center.x - cx
+      const rawDy = t.center.y - cy
+      const len = Math.hypot(rawDx, rawDy) || 1
+      dx = (rawDx / len) * offsetUnits
+      dy = (rawDy / len) * offsetUnits
+    }
+    const labelX = t.center.x + dx
+    const labelY = t.center.y + dy
+    const anchor: 'start' | 'middle' | 'end' = dx > 8 ? 'start' : dx < -8 ? 'end' : 'middle'
     return { ...t, labelX, labelY, anchor }
   })
+
+  /** Converts a mouse event's screen position into this SVG's own viewBox coordinate space — same getScreenCTM technique the rest of the chart's overlays already rely on for pixel-accurate placement. */
+  function toSvgPoint(clientX: number, clientY: number): { x: number; y: number } | null {
+    const svg = svgRef.current
+    if (!svg) return null
+    const ctm = svg.getScreenCTM()
+    if (!ctm) return null
+    const pt = svg.createSVGPoint()
+    pt.x = clientX
+    pt.y = clientY
+    const local = pt.matrixTransform(ctm.inverse())
+    return { x: local.x, y: local.y }
+  }
+
+  function startDrag(toothNumber: number, center: { x: number; y: number }, e: ReactMouseEvent) {
+    if (!editMode || !onDragOffset) return
+    e.preventDefault()
+    e.stopPropagation()
+    function onMove(ev: MouseEvent) {
+      const p = toSvgPoint(ev.clientX, ev.clientY)
+      if (!p) return
+      onDragOffset!(toothNumber, p.x - center.x, p.y - center.y)
+    }
+    function onUp() {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
 
   return (
     // pointer-events-none on the root is essential — this overlay's pixel
@@ -963,7 +1080,7 @@ function ToothCalloutOverlay({
     // click-target overlay), so without it every label/line here would
     // swallow clicks meant for the teeth themselves. Only the label text
     // opts back in (pointer-events-auto) to stay clickable.
-    <svg viewBox={viewBox} className="pointer-events-none absolute inset-0 size-full" style={{ overflow: 'visible' }}>
+    <svg ref={svgRef} viewBox={viewBox} className="pointer-events-none absolute inset-0 size-full" style={{ overflow: 'visible' }}>
       <defs>
         <marker id="tooth-callout-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
           <path d="M0,0 L8,4 L0,8 z" fill="var(--color-ink)" opacity={0.75} />
@@ -991,8 +1108,11 @@ function ToothCalloutOverlay({
               fontSize="11"
               fontWeight={600}
               fill={t.done ? 'var(--color-ink)' : 'var(--color-tooth-planned)'}
-              className="pointer-events-auto cursor-pointer select-none hover:underline"
-              onClick={() => onSelectTooth(t.number)}
+              className={`pointer-events-auto select-none ${editMode ? 'cursor-move' : 'cursor-pointer hover:underline'}`}
+              onMouseDown={(e) => startDrag(t.number, t.center, e)}
+              onClick={() => {
+                if (!editMode) onSelectTooth(t.number)
+              }}
             >
               {t.number}: {t.label}
               {noteCount > 0 ? ` 📝${noteCount}` : ''}

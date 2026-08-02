@@ -216,6 +216,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('reports/pending-treatments', [ReportController::class, 'pendingTreatments']);
 
     Route::put('settings', [SettingController::class, 'update']);
+    Route::put('chart-callout-layout', [\App\Http\Controllers\Api\ToothChartController::class, 'updateCalloutLayout']);
     Route::post('system/update', [\App\Http\Controllers\Api\SystemUpdateController::class, 'update']);
 
     // Telegram linking (Phase 4)
