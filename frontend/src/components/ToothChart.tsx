@@ -39,6 +39,9 @@ import type { Doctor, Note, Service, ToothFinding, ToothState } from '../types'
  */
 const CHILD_PHANTOM_LIBRARY_IDS = [16, 17, 18, 26, 27, 28, 36, 37, 38, 46, 47, 48].map((n) => `teeth-${n}`)
 
+/** Extra room reserved on each side of the chart for the worked-tooth callout labels. */
+const SIDE_PAD = 130
+
 interface Props {
   patientId: number
   isChild: boolean
@@ -332,6 +335,36 @@ export default function ToothChart({
 
   const geometry = useOdontogramGeometry(containerRef, toothNumbers, toLibraryId, [chartKey, isChild])
 
+  const notesCountByTooth = useMemo(() => {
+    const map = new Map<number, number>()
+    notes.forEach((n) => map.set(n.tooth_number, (map.get(n.tooth_number) ?? 0) + 1))
+    return map
+  }, [notes])
+
+  /**
+   * The general-overview ask: show what was done to a worked tooth right
+   * on the chart, without clicking it. Every tooth with an active
+   * (service-linked) finding — done or still planned — gets a short label
+   * out in the side margin, connected back to the tooth by a line, sorted
+   * top-to-bottom on whichever side it naturally sits. Clicking a label
+   * opens that tooth's notebook directly.
+   */
+  const calloutTeeth = useMemo(() => {
+    if (!geometry) return []
+    const [, , w] = geometry.viewBox.split(' ').map(Number)
+    return toothNumbers
+      .map((n) => {
+        const finding = activeFindingByTooth.get(n)
+        if (!finding) return null
+        const c = geometry.centers.get(n)
+        if (!c) return null
+        const label = (finding.service_name ?? finding.finding_type ?? '').slice(0, 16)
+        if (!label) return null
+        return { number: n, center: c, label, done: finding.status === 'done', side: c.x < w / 2 ? 'left' : 'right' } as const
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null)
+  }, [geometry, toothNumbers, activeFindingByTooth])
+
   return (
     <div className="flex flex-col gap-6 lg:flex-row">
       <div className="min-w-0 flex-1 rounded-xl bg-white p-4 shadow-sm">
@@ -370,7 +403,8 @@ export default function ToothChart({
             </button>
           )}
         </div>
-        <div ref={containerRef} className="relative mx-auto" style={{ maxWidth: 460 }}>
+        <div className="relative mx-auto" style={{ maxWidth: 460 + SIDE_PAD * 2 }}>
+          <div ref={containerRef} className="relative mx-auto" style={{ width: 460 }}>
           <Odontogram
             key={chartKey}
             layout="circle"
@@ -396,6 +430,16 @@ export default function ToothChart({
               geometry={geometry}
               toothNumbers={toothNumbers.filter((n) => stateByTooth.get(n) !== 'missing' || pickMode || multiSelect)}
               onSelect={handleToothClick}
+            />
+          )}
+          </div>
+
+          {geometry && calloutTeeth.length > 0 && (
+            <ToothCalloutOverlay
+              geometry={geometry}
+              teeth={calloutTeeth}
+              notesCountByTooth={notesCountByTooth}
+              onOpenNotes={setNotesToothNumber}
             />
           )}
         </div>
@@ -634,4 +678,90 @@ const STATUS_LABEL: Record<'planned' | 'in_progress' | 'done', string> = {
   planned: 'مخطط',
   in_progress: 'قيد التنفيذ',
   done: 'منجز',
+}
+
+interface CalloutTooth {
+  number: number
+  center: { x: number; y: number }
+  label: string
+  done: boolean
+  side: 'left' | 'right'
+}
+
+/**
+ * Side-panel-style callouts (like a radiology/anatomy diagram): a short
+ * leader line + arrowhead from every worked tooth out to a label in the
+ * chart's side margin, naming what was done — visible at a glance, no
+ * click needed. Clicking a label opens that tooth's notebook directly.
+ *
+ * Shares the same viewBox *units* as the tooth chart's own overlays, just
+ * extended with extra room on both sides (SIDE_PAD, converted to viewBox
+ * units at the chart's own px-per-unit scale) so a tooth's real measured
+ * position and the label position line up correctly across both SVGs.
+ */
+function ToothCalloutOverlay({
+  geometry,
+  teeth,
+  notesCountByTooth,
+  onOpenNotes,
+}: {
+  geometry: { viewBox: string }
+  teeth: CalloutTooth[]
+  notesCountByTooth: Map<number, number>
+  onOpenNotes: (toothNumber: number) => void
+}) {
+  const [, , w, h] = geometry.viewBox.split(' ').map(Number)
+  const padUnits = SIDE_PAD * (w / 460)
+  const viewBox = `${-padUnits} 0 ${w + padUnits * 2} ${h}`
+
+  const left = teeth.filter((t) => t.side === 'left').sort((a, b) => a.center.y - b.center.y)
+  const right = teeth.filter((t) => t.side === 'right').sort((a, b) => a.center.y - b.center.y)
+
+  function layout(list: CalloutTooth[]) {
+    return list.map((t, i) => ({ ...t, labelY: ((i + 0.5) / list.length) * h }))
+  }
+
+  const rows = [
+    ...layout(left).map((t) => ({ ...t, labelX: -padUnits * 0.92, anchor: 'end' as const })),
+    ...layout(right).map((t) => ({ ...t, labelX: w + padUnits * 0.92, anchor: 'start' as const })),
+  ]
+
+  return (
+    <svg viewBox={viewBox} className="absolute inset-0 size-full" style={{ overflow: 'visible' }}>
+      <defs>
+        <marker id="tooth-callout-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0,0 L8,4 L0,8 z" fill="var(--color-ink)" opacity={0.55} />
+        </marker>
+      </defs>
+      {rows.map((t) => {
+        const noteCount = notesCountByTooth.get(t.number) ?? 0
+        return (
+          <g key={t.number} className="cursor-pointer" onClick={() => onOpenNotes(t.number)}>
+            <line
+              x1={t.center.x}
+              y1={t.center.y}
+              x2={t.labelX + (t.anchor === 'end' ? 6 : -6)}
+              y2={t.labelY}
+              stroke="var(--color-ink)"
+              strokeOpacity={0.4}
+              strokeWidth={1}
+              markerEnd="url(#tooth-callout-arrow)"
+            />
+            <text
+              x={t.labelX}
+              y={t.labelY}
+              textAnchor={t.anchor}
+              dominantBaseline="middle"
+              fontSize="9"
+              fill={t.done ? 'var(--color-ink)' : 'var(--color-tooth-planned)'}
+              className="select-none hover:underline"
+            >
+              {t.number}: {t.label}
+              {noteCount > 0 ? ` 📝${noteCount}` : ''}
+            </text>
+          </g>
+        )
+      })}
+    </svg>
+  )
 }
