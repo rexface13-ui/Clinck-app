@@ -388,6 +388,39 @@ export default function ToothChart({
   const toothStepsCompleted = toothStepRows.filter((r) => r.completed).length
   const toothStepsTotal = toothStepRows.length
 
+  /**
+   * A billed session can cover more than just the selected tooth (a bridge,
+   * or several teeth done together in one visit) — this looks across every
+   * work item's tooth-steps (not just the selected tooth's own rows) to
+   * find every tooth actually billed under a given invoice, so the
+   * "رسمة الشغل" preview in InvoiceDetailModal shows the real full session,
+   * not just the one tooth the user happened to click from.
+   */
+  function teethForInvoice(invoiceId: number): number[] {
+    const set = new Set<number>()
+    for (const wi of workItems) {
+      if (wi.status === 'cancelled') continue
+      for (const step of wi.steps) {
+        for (const ts of step.tooth_steps) {
+          if (ts.invoice_id === invoiceId) set.add(ts.tooth_number)
+        }
+      }
+    }
+    return Array.from(set)
+  }
+
+  function workItemForInvoice(invoiceId: number): number | null {
+    for (const wi of workItems) {
+      if (wi.status === 'cancelled') continue
+      for (const step of wi.steps) {
+        for (const ts of step.tooth_steps) {
+          if (ts.invoice_id === invoiceId) return wi.id
+        }
+      }
+    }
+    return null
+  }
+
   /** Sessions = distinct invoices the tooth's steps were actually billed under, each with the steps billed in it — "أي جلسة اشتغلت فيها إيش". Not-yet-billed steps are grouped separately as the still-open work item. */
   const toothSessions = useMemo(() => {
     const byInvoice = new Map<number, typeof toothStepRows>()
@@ -793,6 +826,19 @@ export default function ToothChart({
           invoiceId={viewingInvoiceId}
           onClose={() => setViewingInvoiceId(null)}
           onChanged={onChanged}
+          sessionTeeth={teethForInvoice(viewingInvoiceId)}
+          isChild={isChild}
+          onEditWorkItem={
+            onOpenWorkItem
+              ? () => {
+                  const wiId = workItemForInvoice(viewingInvoiceId)
+                  if (wiId) {
+                    setViewingInvoiceId(null)
+                    onOpenWorkItem(wiId)
+                  }
+                }
+              : undefined
+          }
         />
       )}
     </div>

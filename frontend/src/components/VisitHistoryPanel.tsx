@@ -76,6 +76,7 @@ export default function VisitHistoryPanel({
   medicalAlerts = [],
   onChanged,
   notes = [],
+  onOpenWorkItem,
 }: {
   patientId: number
   patientName?: string
@@ -84,6 +85,8 @@ export default function VisitHistoryPanel({
   onChanged?: () => void
   /** Same patient notes list the tooth notebooks use — surfaced per visit here, filtered to that visit's own teeth, so a session's notes are visible without hunting through the notebook separately. */
   notes?: Note[]
+  /** Jumps to the Work tab and opens that session's work item straight into edit mode — surfaced from the invoice-detail popup so a session can be corrected without hunting for it in the tooth chart. */
+  onOpenWorkItem?: (workItemId: number) => void
 }) {
   const { can } = useAuth()
   const canCollect = can('billing.manage')
@@ -92,7 +95,7 @@ export default function VisitHistoryPanel({
   const [medsText, setMedsText] = useState<Record<string, string>>({})
   const [prescriptionsVersion, setPrescriptionsVersion] = useState(0)
   const [notesFor, setNotesFor] = useState<{ toothNumber: number; workItemId?: number; sessionLabel?: string } | null>(null)
-  const [viewingInvoiceId, setViewingInvoiceId] = useState<number | null>(null)
+  const [viewingInvoice, setViewingInvoice] = useState<{ invoiceId: number; teeth: number[]; itemId: number | null } | null>(null)
 
   function printPrescriptionFor(key: string, v: Visit) {
     const meds = medsText[key] ?? ''
@@ -284,7 +287,7 @@ export default function VisitHistoryPanel({
                     <button
                       onClick={(e) => {
                         e.stopPropagation()
-                        setViewingInvoiceId(first.invoice_id)
+                        setViewingInvoice({ invoiceId: first.invoice_id, teeth, itemId: first.item_id ?? null })
                       }}
                       title="عرض تفاصيل الفاتورة"
                     >
@@ -326,14 +329,25 @@ export default function VisitHistoryPanel({
       />
     )}
 
-    {viewingInvoiceId && (
+    {viewingInvoice && (
       <InvoiceDetailModal
-        invoiceId={viewingInvoiceId}
-        onClose={() => setViewingInvoiceId(null)}
+        invoiceId={viewingInvoice.invoiceId}
+        onClose={() => setViewingInvoice(null)}
         onChanged={() => {
           load()
           onChanged?.()
         }}
+        sessionTeeth={viewingInvoice.teeth}
+        isChild={isChild}
+        onEditWorkItem={
+          onOpenWorkItem && viewingInvoice.itemId
+            ? () => {
+                const itemId = viewingInvoice.itemId!
+                setViewingInvoice(null)
+                onOpenWorkItem(itemId)
+              }
+            : undefined
+        }
       />
     )}
     </div>
@@ -371,7 +385,7 @@ export default function VisitHistoryPanel({
               <button
                 onClick={(e) => {
                   e.stopPropagation()
-                  setViewingInvoiceId(v.invoice_id)
+                  setViewingInvoice({ invoiceId: v.invoice_id, teeth, itemId: v.item_id ?? null })
                 }}
                 title="عرض تفاصيل الفاتورة"
               >

@@ -61,6 +61,8 @@ export default function WorkPlanningPanel({
   initialSelectedTeeth = [],
   onInitialSelectionConsumed,
   notes = [],
+  focusWorkItemId,
+  onFocusConsumed,
 }: {
   patientId: number
   patientName: string
@@ -79,6 +81,9 @@ export default function WorkPlanningPanel({
   onInitialSelectionConsumed?: () => void
   /** Same patient notes list the overview tab's notebook button uses — surfaced here too so a note can be added mid-work without switching tabs. */
   notes?: Note[]
+  /** An existing work item to jump straight into edit mode for — from the overview chart's "شغل حالي" callout, so the user lands here with that item's teeth already loaded instead of having to find it in the list. Cleared via onFocusConsumed once handled. */
+  focusWorkItemId?: number | null
+  onFocusConsumed?: () => void
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const toothNumbers = isChild ? [...UPPER_PRIMARY, ...LOWER_PRIMARY] : [...UPPER_PERMANENT, ...LOWER_PERMANENT]
@@ -167,6 +172,15 @@ export default function WorkPlanningPanel({
     onInitialSelectionConsumed?.()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialSelectedTeeth])
+
+  useEffect(() => {
+    if (!focusWorkItemId) return
+    const w = workItems.find((wi) => wi.id === focusWorkItemId)
+    if (!w) return // work items still loading — retry once they arrive
+    startEditWorkItem(w)
+    onFocusConsumed?.()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusWorkItemId, workItems])
 
   const selectedService = services.find((s) => String(s.id) === newServiceId)
 

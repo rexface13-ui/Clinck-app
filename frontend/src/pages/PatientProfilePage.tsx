@@ -456,6 +456,7 @@ export default function PatientProfilePage() {
                 medicalAlerts={patient.medical_alerts}
                 onChanged={load}
                 notes={notes}
+                onOpenWorkItem={openWorkItem}
               />
             ),
           },
