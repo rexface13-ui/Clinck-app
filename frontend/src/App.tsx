@@ -26,6 +26,7 @@ import ReportsPage from './pages/ReportsPage'
 import PrintPage from './pages/PrintPage'
 import LabCasesPage from './pages/LabCasesPage'
 import ActivityLogPage from './pages/ActivityLogPage'
+import ChartLayoutEditorPage from './pages/ChartLayoutEditorPage'
 
 function App() {
   return (
@@ -188,6 +189,14 @@ function App() {
               }
             />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route
+              path="/chart-layout"
+              element={
+                <ProtectedRoute permission="dental_chart.manage">
+                  <ChartLayoutEditorPage />
+                </ProtectedRoute>
+              }
+            />
             <Route
               path="/telegram"
               element={

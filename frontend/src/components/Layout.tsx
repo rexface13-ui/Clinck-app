@@ -59,6 +59,7 @@ const navGroups: NavGroup[] = [
       { to: '/doctors', label: 'الأطباء', icon: faUserDoctor, permission: 'doctors.view' },
       { to: '/services', label: 'الخدمات', icon: faList, permission: 'services.view' },
       { to: '/medications', label: 'الأدوية', icon: faPills, permission: 'medications.view' },
+      { to: '/chart-layout', label: 'ترتيب ليبلات الرسمة', icon: faGear, permission: 'dental_chart.manage' },
     ],
   },
   {
