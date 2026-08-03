@@ -3,11 +3,14 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Cashbox;
 use App\Models\Doctor;
 use App\Models\DoctorTransaction;
 use App\Models\InvoiceLine;
+use App\Services\CashboxService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 
 class DoctorCommissionController extends Controller
 {
@@ -96,8 +99,13 @@ class DoctorCommissionController extends Controller
      * more than what's due is allowed and simply shows as a negative
      * "remaining" (a credit carried into the conversation with the doctor,
      * not silently rejected).
+     *
+     * Draws from a cashbox exactly like a supplier payment does (expense_out)
+     * — this used to only post the DoctorTransaction and never touch any
+     * cashbox at all, so a real cash payout to a doctor never showed up as
+     * money actually leaving the register.
      */
-    public function pay(Request $request, Doctor $doctor)
+    public function pay(Request $request, Doctor $doctor, CashboxService $cashboxService)
     {
         abort_unless($request->user()->can('commissions.view'), 403);
 
@@ -105,19 +113,29 @@ class DoctorCommissionController extends Controller
             'month' => ['required', 'date'],
             'amount' => ['required', 'numeric', 'min:0.01'],
             'notes' => ['nullable', 'string', 'max:1000'],
+            'cashbox_id' => ['required', 'integer', 'exists:cashboxes,id'],
         ]);
 
+        $cashbox = Cashbox::findOrFail($data['cashbox_id']);
+        // DoctorTransaction only ever stores an ILS amount (no currency/
+        // exchange_rate columns) — only an ILS cashbox can be debited
+        // without silently mixing up units.
+        abort_if($cashbox->currency !== 'ILS', 422, 'صرف رواتب الأطباء لازم يكون من صندوق بالشيكل.');
         $month = Carbon::parse($data['month'])->startOfMonth();
 
-        DoctorTransaction::create([
-            'clinic_id' => $doctor->clinic_id,
-            'doctor_id' => $doctor->id,
-            'type' => 'settlement',
-            'amount_ils' => $data['amount'],
-            'period_month' => $month->toDateString(),
-            'settled_at' => now(),
-            'notes' => $data['notes'] ?? null,
-        ]);
+        DB::transaction(function () use ($doctor, $data, $month, $cashbox, $cashboxService) {
+            $transaction = DoctorTransaction::create([
+                'clinic_id' => $doctor->clinic_id,
+                'doctor_id' => $doctor->id,
+                'type' => 'settlement',
+                'amount_ils' => $data['amount'],
+                'period_month' => $month->toDateString(),
+                'settled_at' => now(),
+                'notes' => $data['notes'] ?? null,
+            ]);
+
+            $cashboxService->record($cashbox, 'expense_out', 'doctor_transaction', $transaction->id, -$data['amount']);
+        });
 
         return response()->noContent();
     }

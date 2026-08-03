@@ -4,11 +4,11 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faInfoCircle } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
-import { Card, PageHeader, Badge, Button, Table, Thead, Th, Td, Tr, EmptyRow, Modal } from '../components/ui'
+import { Card, PageHeader, Badge, Button, Table, Thead, Th, Td, Tr, EmptyRow, Modal, SearchableSelect } from '../components/ui'
 import type { BadgeVariant } from '../components/ui'
 import { ToothCrown, ToothDefs } from '../components/ToothCrown'
 import { toothShapeType, toothSize, toothCrownPath, cuspPositions } from '../lib/dental'
-import type { CommissionStatement, Doctor } from '../types'
+import type { Cashbox, CommissionStatement, Doctor } from '../types'
 
 const MONTH_LABELS = [
   'يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو',
@@ -86,12 +86,19 @@ export default function CommissionsPage() {
   const [showPayForm, setShowPayForm] = useState(false)
   const [payAmount, setPayAmount] = useState('')
   const [payNotes, setPayNotes] = useState('')
+  const [payCashboxId, setPayCashboxId] = useState('')
+  const [cashboxes, setCashboxes] = useState<Cashbox[]>([])
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
     api.get('/doctors').then((res) => {
       setDoctors(res.data.data)
       if (!preselectedDoctorId && res.data.data.length > 0) setDoctorId(res.data.data[0].id)
+    })
+    api.get('/cashboxes').then((res) => {
+      const ils = (res.data as Cashbox[]).filter((c) => c.currency === 'ILS')
+      setCashboxes(ils)
+      if (ils.length > 0) setPayCashboxId(String(ils[0].id))
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -110,13 +117,14 @@ export default function CommissionsPage() {
   }
 
   async function submitPay() {
-    if (!doctorId || !payAmount || Number(payAmount) <= 0) return
+    if (!doctorId || !payAmount || Number(payAmount) <= 0 || !payCashboxId) return
     setBusy(true)
     try {
       await api.post(`/doctors/${doctorId}/commission-statement/pay`, {
         month: `${month}-01`,
         amount: Number(payAmount),
         notes: payNotes || null,
+        cashbox_id: Number(payCashboxId),
       })
       setShowPayForm(false)
       load()
@@ -197,6 +205,15 @@ export default function CommissionsPage() {
                   <p className="mt-1 text-xs text-muted">المتبقي: {money(statement.remaining_ils)} ₪ — عبّي المبلغ الكامل أو جزء منه.</p>
                 </div>
                 <div>
+                  <label className="mb-1 block text-xs font-medium text-muted">الصندوق</label>
+                  <SearchableSelect
+                    options={cashboxes.map((c) => ({ value: String(c.id), label: c.name, sublabel: c.currency }))}
+                    value={payCashboxId}
+                    onChange={setPayCashboxId}
+                    placeholder="الصندوق..."
+                  />
+                </div>
+                <div>
                   <label className="mb-1 block text-xs font-medium text-muted">ملاحظات (اختياري)</label>
                   <textarea
                     value={payNotes}
@@ -206,7 +223,7 @@ export default function CommissionsPage() {
                     className="w-full rounded-lg border border-border px-3 py-2 text-sm focus:border-accent focus:outline-none"
                   />
                 </div>
-                <Button onClick={submitPay} loading={busy} disabled={!payAmount || Number(payAmount) <= 0} className="w-full justify-center">
+                <Button onClick={submitPay} loading={busy} disabled={!payAmount || Number(payAmount) <= 0 || !payCashboxId} className="w-full justify-center">
                   تأكيد الصرف
                 </Button>
               </div>
