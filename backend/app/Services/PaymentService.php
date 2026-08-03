@@ -187,6 +187,44 @@ class PaymentService
         });
     }
 
+    /**
+     * Undoes a wrongly-entered payment (or refund) as if it never happened —
+     * reverses the cashbox balance it moved, removes its ledger trace, and
+     * re-derives the invoice's paid status, then deletes the payment row
+     * itself. The clinic's own workflow for "fix a payment" is delete +
+     * re-enter correctly, not an in-place amount edit — much less error-prone
+     * than trying to replay a delta across cashbox/ledger/invoice at once.
+     */
+    public function deletePayment(Payment $payment): void
+    {
+        DB::transaction(function () use ($payment) {
+            $cashbox = $payment->cashbox;
+            if ($cashbox) {
+                $newBalance = $cashbox->balance - $payment->amount;
+                CashboxTransaction::create([
+                    'clinic_id' => $payment->clinic_id,
+                    'cashbox_id' => $cashbox->id,
+                    'type' => 'adjustment',
+                    'reference_type' => 'payment_deleted',
+                    'reference_id' => $payment->id,
+                    'amount' => -$payment->amount,
+                    'balance_after' => $newBalance,
+                    'occurred_at' => now(),
+                ]);
+                $cashbox->update(['balance' => $newBalance]);
+            }
+
+            PatientTransaction::where('reference_type', 'payment')->where('reference_id', $payment->id)->delete();
+
+            $invoice = $payment->invoice;
+            $payment->delete();
+
+            if ($invoice) {
+                $this->refreshInvoiceStatus($invoice->fresh());
+            }
+        });
+    }
+
     public function refreshInvoiceStatus(Invoice $invoice): void
     {
         $paidIls = Payment::where('invoice_id', $invoice->id)->sum('amount_ils');

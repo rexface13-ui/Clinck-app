@@ -216,4 +216,13 @@ class PatientBillingController extends Controller
 
         return new PaymentResource($payment);
     }
+
+    public function destroyPayment(Request $request, Payment $payment, PaymentService $paymentService)
+    {
+        abort_unless($request->user()->can('billing.manage'), 403);
+
+        $paymentService->deletePayment($payment);
+
+        return response()->noContent();
+    }
 }

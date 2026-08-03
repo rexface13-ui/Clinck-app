@@ -12,7 +12,7 @@ import { describeTeeth } from '../lib/dental'
 import MiniOdontogramPreview from './MiniOdontogramPreview'
 import ToothNotesModal from './ToothNotesModal'
 import InvoiceDetailModal from './InvoiceDetailModal'
-import type { Cashbox, Medication, Note, Prescription, Visit } from '../types'
+import type { Medication, Note, Prescription, Visit } from '../types'
 
 interface VisitGroup {
   key: string
@@ -118,7 +118,6 @@ export default function VisitHistoryPanel({
   const [visits, setVisits] = useState<Visit[]>([])
   const [prescriptions, setPrescriptions] = useState<Prescription[]>([])
   const [showPrescriptions, setShowPrescriptions] = useState(false)
-  const [cashboxes, setCashboxes] = useState<Cashbox[]>([])
   const [openKey, setOpenKey] = useState<string | null>(null)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   const [diagramFor, setDiagramFor] = useState<string | null>(null)
@@ -135,10 +134,6 @@ export default function VisitHistoryPanel({
       return next
     })
   }
-  const [payAmount, setPayAmount] = useState<Record<string, string>>({})
-  const [payCashboxId, setPayCashboxId] = useState<Record<string, string>>({})
-  const [payExchangeRate, setPayExchangeRate] = useState<Record<string, string>>({})
-  const [busy, setBusy] = useState(false)
   const [medications, setMedications] = useState<Medication[]>([])
   const [pickedMedicationId, setPickedMedicationId] = useState<Record<string, string>>({})
 
@@ -148,7 +143,6 @@ export default function VisitHistoryPanel({
 
   useEffect(() => {
     load()
-    api.get('/cashboxes').then((res) => setCashboxes(res.data))
     api.get<Medication[]>('/medications').then((res) => setMedications(res.data)).catch(() => {})
   }, [patientId])
 
@@ -177,40 +171,8 @@ export default function VisitHistoryPanel({
     api.get('/prescriptions', { params: { patient_id: patientId } }).then((res) => setPrescriptions(res.data.data))
   }, [patientId, prescriptionsVersion])
 
-  function open(key: string, v: Visit) {
-    if (openKey === key) {
-      setOpenKey(null)
-      return
-    }
-    setOpenKey(key)
-    setPayAmount({ ...payAmount, [key]: v.price })
-    const ils = cashboxes.find((c) => c.currency === 'ILS')
-    if (ils) setPayCashboxId({ ...payCashboxId, [key]: String(ils.id) })
-  }
-
-  async function collect(key: string, v: Visit) {
-    const boxId = payCashboxId[key]
-    const amount = Number(payAmount[key])
-    if (!boxId || !amount) return
-    const box = cashboxes.find((c) => c.id === Number(boxId))
-    if (!box) return
-    const exchangeRate = Number(payExchangeRate[key]) || 1
-    if (box.currency !== 'ILS' && exchangeRate <= 0) return
-    setBusy(true)
-    try {
-      await api.post(`/patients/${patientId}/payments`, {
-        invoice_id: v.invoice_id,
-        cashbox_id: box.id,
-        amount,
-        currency: box.currency,
-        exchange_rate: exchangeRate,
-        method: 'cash',
-      })
-      load()
-      onChanged?.()
-    } finally {
-      setBusy(false)
-    }
+  function open(key: string) {
+    setOpenKey(openKey === key ? null : key)
   }
 
   return (
@@ -361,7 +323,7 @@ export default function VisitHistoryPanel({
     return (
       <div className={`relative ${nested ? 'rounded-lg bg-background/60' : 'rounded-lg border border-ink/10'}`}>
         <div
-          onClick={() => open(rowKey, v)}
+          onClick={() => open(rowKey)}
           className="flex w-full cursor-pointer items-center justify-between px-3 py-2 text-sm hover:bg-background"
         >
           <div className="flex items-center gap-2">
@@ -495,49 +457,14 @@ export default function VisitHistoryPanel({
                     )}
                   </div>
 
-                  {canCollect && v.invoice_status !== 'paid' && v.invoice_status !== 'void' && (
-                    <div className="flex items-end gap-2 border-t border-ink/5 pt-2">
-                      <div>
-                        <label className="mb-1 block text-[11px] text-muted">الصندوق</label>
-                        <SearchableSelect
-                          options={cashboxes.map((c) => ({ value: String(c.id), label: c.name, sublabel: c.currency }))}
-                          value={payCashboxId[rowKey] ?? ''}
-                          onChange={(value) => setPayCashboxId({ ...payCashboxId, [rowKey]: value })}
-                          placeholder="الصندوق..."
-                        />
-                      </div>
-                      <div>
-                        <label className="mb-1 block text-[11px] text-muted">المبلغ</label>
-                        <input
-                          type="number"
-                          value={payAmount[rowKey] ?? ''}
-                          onChange={(e) => setPayAmount({ ...payAmount, [rowKey]: e.target.value })}
-                          className="w-24 rounded-lg border border-ink/10 px-2 py-1 text-sm"
-                        />
-                      </div>
-                      {(() => {
-                        const box = cashboxes.find((c) => c.id === Number(payCashboxId[rowKey]))
-                        if (!box || box.currency === 'ILS') return null
-                        return (
-                          <div>
-                            <label className="mb-1 block text-[11px] text-muted">سعر الصرف (₪)</label>
-                            <input
-                              type="number"
-                              step="0.01"
-                              value={payExchangeRate[rowKey] ?? ''}
-                              onChange={(e) => setPayExchangeRate({ ...payExchangeRate, [rowKey]: e.target.value })}
-                              className="w-20 rounded-lg border border-ink/10 px-2 py-1 text-sm"
-                            />
-                          </div>
-                        )
-                      })()}
+                  {canCollect && v.invoice_status !== 'void' && (
+                    <div className="border-t border-ink/5 pt-2">
                       <button
-                        onClick={() => collect(rowKey, v)}
-                        disabled={busy}
-                        className="flex items-center gap-1 rounded-lg bg-success-soft px-3 py-1.5 text-xs font-medium text-success hover:opacity-80 disabled:opacity-60"
+                        onClick={() => setViewingInvoice({ invoiceId: v.invoice_id, teeth, itemId: v.item_id ?? null })}
+                        className="flex items-center gap-1 rounded-lg bg-success-soft px-3 py-1.5 text-xs font-medium text-success hover:opacity-80"
                       >
                         <FontAwesomeIcon icon={faMoneyBill} />
-                        تحصيل دفعة
+                        تحصيل دفعة / خصم على هاي الجلسة
                       </button>
                     </div>
                   )}

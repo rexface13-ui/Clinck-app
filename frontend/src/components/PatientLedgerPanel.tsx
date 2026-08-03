@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faPlus, faCamera, faPercent } from '@fortawesome/free-solid-svg-icons'
+import { faPlus, faCamera, faPercent, faTrash } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import DatePicker from './DatePicker'
@@ -129,6 +129,20 @@ export default function PatientLedgerPanel({
       load()
     } catch {
       setError('تعذّر تسجيل الخصم.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function deletePayment(paymentId: number) {
+    if (!window.confirm('حذف هاي الدفعة نهائياً؟ رصيد الصندوق وحالة الفاتورة رح يترجعوا متل قبل ما تنسجل.')) return
+    setBusy(true)
+    setError(null)
+    try {
+      await api.delete(`/payments/${paymentId}`)
+      load()
+    } catch {
+      setError('تعذّر حذف الدفعة.')
     } finally {
       setBusy(false)
     }
@@ -394,10 +408,11 @@ export default function PatientLedgerPanel({
           <Th>المبلغ</Th>
           <Th>الرصيد بعدها</Th>
           <Th>التاريخ</Th>
+          <Th></Th>
         </Thead>
         <tbody>
           {!ledger || ledger.transactions.length === 0 ? (
-            <EmptyRow colSpan={5}>لا توجد حركات مالية.</EmptyRow>
+            <EmptyRow colSpan={6}>لا توجد حركات مالية.</EmptyRow>
           ) : (
             ledger.transactions.map((t) => (
               <Tr key={t.id}>
@@ -413,6 +428,13 @@ export default function PatientLedgerPanel({
                 </Td>
                 <Td>{t.balance_after_ils} ₪</Td>
                 <Td className="text-muted">{t.occurred_at}</Td>
+                <Td>
+                  {canCollectCash && (t.type === 'payment' || t.type === 'refund') && t.reference_type === 'payment' && t.reference_id && (
+                    <button onClick={() => deletePayment(t.reference_id!)} title="حذف الدفعة" className="text-ink/30 hover:text-danger">
+                      <FontAwesomeIcon icon={faTrash} />
+                    </button>
+                  )}
+                </Td>
               </Tr>
             ))
           )}
