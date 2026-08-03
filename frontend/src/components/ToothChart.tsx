@@ -819,18 +819,31 @@ export default function ToothChart({
                 })}
 
                 {toothSessions.pending.length > 0 && (
-                  <button
-                    onClick={() => onOpenWorkItem?.(toothSessions.pending[0].workItemId)}
-                    disabled={!onOpenWorkItem}
-                    className="w-full rounded-lg border border-dashed border-ink/15 px-2.5 py-1.5 text-start text-xs hover:border-accent disabled:cursor-default disabled:hover:border-ink/15"
-                  >
-                    <span className="font-medium text-ink/70">
-                      جلسة قيد التنفيذ — {toothSessions.pending[0].doctorName ?? 'طبيب عام'} — {toothSessions.pending.filter((r) => r.completed).length} من {toothSessions.pending.length} خطوة (اضغط للتعديل)
-                    </span>
-                    <span className="block text-ink/50">
-                      {toothSessions.pending[0].serviceName ?? 'خدمة'}: {toothSessions.pending.map((r) => `${r.stepTitle}${r.completed ? ' (منجزة)' : ''}`).join('، ')}
-                    </span>
-                  </button>
+                  <div className="flex items-start gap-1.5">
+                    <button
+                      onClick={() => onOpenWorkItem?.(toothSessions.pending[0].workItemId)}
+                      disabled={!onOpenWorkItem}
+                      className="flex-1 rounded-lg border border-dashed border-ink/15 px-2.5 py-1.5 text-start text-xs hover:border-accent disabled:cursor-default disabled:hover:border-ink/15"
+                    >
+                      <span className="font-medium text-ink/70">
+                        جلسة قيد التنفيذ — {toothSessions.pending[0].doctorName ?? 'طبيب عام'} — {toothSessions.pending.filter((r) => r.completed).length} من {toothSessions.pending.length} خطوة (اضغط للتعديل)
+                      </span>
+                      <span className="block text-ink/50">
+                        {toothSessions.pending[0].serviceName ?? 'خدمة'}: {toothSessions.pending.map((r) => `${r.stepTitle}${r.completed ? ' (منجزة)' : ''}`).join('، ')}
+                      </span>
+                    </button>
+                    <button
+                      onClick={async () => {
+                        if (!window.confirm('حذف هالشغل بالكامل؟ لو كان انحسب منه شي، الفاتورة رح تترجع متل قبل.')) return
+                        await api.delete(`/work-items/${toothSessions.pending[0].workItemId}`)
+                        onChanged()
+                      }}
+                      title="حذف الشغل"
+                      className="mt-1.5 shrink-0 text-ink/30 hover:text-danger"
+                    >
+                      <FontAwesomeIcon icon={faTrash} />
+                    </button>
+                  </div>
                 )}
               </div>
             </div>
