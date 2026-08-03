@@ -49,11 +49,16 @@ class Patient extends Model
 
     protected static function nextCode(): string
     {
-        $count = static::withoutGlobalScopes()
+        $lastCode = static::withoutGlobalScopes()
             ->where('clinic_id', CurrentClinic::id())
-            ->count();
+            ->whereRaw("code ~ '^P-[0-9]+$'")
+            ->orderByRaw("CAST(SUBSTRING(code FROM 3) AS INTEGER) DESC")
+            ->lockForUpdate()
+            ->value('code');
 
-        return sprintf('P-%06d', $count + 1);
+        $next = $lastCode ? ((int) substr($lastCode, 2)) + 1 : 1;
+
+        return sprintf('P-%06d', $next);
     }
 
     public function branch(): BelongsTo
