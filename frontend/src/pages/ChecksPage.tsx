@@ -148,6 +148,20 @@ export default function ChecksPage() {
     attachInputRef.current?.click()
   }
 
+  /**
+   * Fetches the image through the authenticated axios client (same cookie
+   * handling as every other API call) instead of a plain <a href> browser
+   * navigation — a raw link can drop the session depending on the browser's
+   * referrer/cookie policy for cross-tab navigations, which showed up as
+   * "Unauthenticated" even while logged in.
+   */
+  async function viewImage(checkId: number, slot: 1 | 2) {
+    const res = await api.get(`/checks/${checkId}/image`, { params: slot === 2 ? { slot: 2 } : undefined, responseType: 'blob' })
+    const url = URL.createObjectURL(res.data)
+    window.open(url, '_blank')
+    setTimeout(() => URL.revokeObjectURL(url), 60_000)
+  }
+
   async function attachImage(file: File) {
     if (!attachTargetId) return
     setBusy(true)
@@ -319,54 +333,48 @@ export default function ChecksPage() {
                       <span className="flex items-center gap-2">
                         {c.check_number}
                         {/* Slot 1 (الوجه) */}
-                        {c.image_path ? (
-                          <a
-                            href={`/api/checks/${c.id}/image`}
-                            target="_blank"
-                            rel="noreferrer"
-                            onClick={(e) => e.stopPropagation()}
+                        {c.image_path && (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); viewImage(c.id, 1) }}
                             className="text-accent hover:text-accent-hover"
                             title="عرض صورة الوجه"
                           >
                             <FontAwesomeIcon icon={faImage} />
-                          </a>
-                        ) : (
-                          canManage && (
-                            <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); openAttach(c.id, 1) }}
-                              disabled={busy}
-                              className="text-ink/30 hover:text-accent disabled:opacity-50"
-                              title="إرفاق صورة الوجه من هالجهاز"
-                            >
-                              <FontAwesomeIcon icon={faCamera} />
-                            </button>
-                          )
+                          </button>
+                        )}
+                        {canManage && (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); openAttach(c.id, 1) }}
+                            disabled={busy}
+                            className="text-ink/30 hover:text-accent disabled:opacity-50"
+                            title={c.image_path ? 'استبدال صورة الوجه' : 'إرفاق صورة الوجه من هالجهاز'}
+                          >
+                            <FontAwesomeIcon icon={faCamera} />
+                          </button>
                         )}
                         {/* Slot 2 (الظهر) */}
-                        {c.image_path_2 ? (
-                          <a
-                            href={`/api/checks/${c.id}/image?slot=2`}
-                            target="_blank"
-                            rel="noreferrer"
-                            onClick={(e) => e.stopPropagation()}
+                        {c.image_path_2 && (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); viewImage(c.id, 2) }}
                             className="text-accent hover:text-accent-hover"
                             title="عرض صورة الظهر"
                           >
                             <FontAwesomeIcon icon={faImage} className="opacity-70" />
-                          </a>
-                        ) : (
-                          canManage && (
-                            <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); openAttach(c.id, 2) }}
-                              disabled={busy}
-                              className="text-ink/20 hover:text-accent disabled:opacity-50"
-                              title="إرفاق صورة الظهر من هالجهاز"
-                            >
-                              <FontAwesomeIcon icon={faCamera} className="text-[11px]" />
-                            </button>
-                          )
+                          </button>
+                        )}
+                        {canManage && (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); openAttach(c.id, 2) }}
+                            disabled={busy}
+                            className="text-ink/20 hover:text-accent disabled:opacity-50"
+                            title={c.image_path_2 ? 'استبدال صورة الظهر' : 'إرفاق صورة الظهر من هالجهاز'}
+                          >
+                            <FontAwesomeIcon icon={faCamera} className="text-[11px]" />
+                          </button>
                         )}
                         {canManage && (!c.image_path || !c.image_path_2) && (
                           <button

@@ -242,6 +242,13 @@ export default function PatientProfilePage() {
     }
   }
 
+  async function viewAttachment(downloadUrl: string) {
+    const res = await api.get(downloadUrl, { responseType: 'blob' })
+    const url = URL.createObjectURL(res.data)
+    window.open(url, '_blank')
+    setTimeout(() => URL.revokeObjectURL(url), 60_000)
+  }
+
   async function deleteAttachment(attachmentId: number) {
     if (!window.confirm('حذف هذا المرفق نهائياً؟')) return
     await api.delete(`/patients/${id}/attachments/${attachmentId}`)
@@ -651,17 +658,17 @@ export default function PatientProfilePage() {
               {attachments.map((a) => (
                 <li key={a.id} className="flex items-center justify-between border-b border-border/70 pb-2 text-sm last:border-0">
                   <div>
-                    <a href={a.download_url} target="_blank" rel="noreferrer" className="text-accent hover:underline">
+                    <button onClick={() => viewAttachment(a.download_url)} className="text-accent hover:underline">
                       {a.original_name}
-                    </a>
+                    </button>
                     <p className="text-xs text-muted">
                       {formatFileSize(a.size_bytes)} · {a.uploaded_by ?? '—'} · {a.created_at}
                     </p>
                   </div>
                   <div className="flex items-center gap-3">
-                    <a href={a.download_url} target="_blank" rel="noreferrer" className="text-muted hover:text-accent">
+                    <button onClick={() => viewAttachment(a.download_url)} className="text-muted hover:text-accent">
                       <FontAwesomeIcon icon={faDownload} />
-                    </a>
+                    </button>
                     <button onClick={() => deleteAttachment(a.id)} className="text-danger hover:underline">
                       <FontAwesomeIcon icon={faTrash} />
                     </button>
