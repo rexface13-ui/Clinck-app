@@ -30,9 +30,11 @@ class CheckService
         string $currency,
         string $dueDate,
         ?UploadedFile $image = null,
+        ?UploadedFile $image2 = null,
     ): CheckModel {
-        $check = DB::transaction(function () use ($direction, $partyType, $partyId, $checkNumber, $bankName, $amount, $currency, $dueDate, $image) {
+        $check = DB::transaction(function () use ($direction, $partyType, $partyId, $checkNumber, $bankName, $amount, $currency, $dueDate, $image, $image2) {
             $imagePath = $image?->store('checks', 'local');
+            $imagePath2 = $image2?->store('checks', 'local');
 
             $check = CheckModel::create([
                 'direction' => $direction,
@@ -44,6 +46,7 @@ class CheckService
                 'currency' => $currency,
                 'due_date' => $dueDate,
                 'image_path' => $imagePath,
+                'image_path_2' => $imagePath2,
                 'status' => 'in_wallet',
                 'received_at' => now(),
             ]);
@@ -78,7 +81,10 @@ class CheckService
         });
 
         if ($check->image_path) {
-            $this->notifyImageReceived($check);
+            $this->notifyImageReceived($check, $check->image_path);
+        }
+        if ($check->image_path_2) {
+            $this->notifyImageReceived($check, $check->image_path_2);
         }
 
         return $check;
@@ -88,9 +94,9 @@ class CheckService
      * Notifies every owner/accountant with a linked Telegram chat as soon as
      * a check's photo is on file, so they can verify it without opening the app.
      */
-    protected function notifyImageReceived(CheckModel $check): void
+    protected function notifyImageReceived(CheckModel $check, string $imagePath): void
     {
-        $absolutePath = Storage::disk('local')->path($check->image_path);
+        $absolutePath = Storage::disk('local')->path($imagePath);
         $caption = sprintf(
             "📎 صورة شيك جديدة\nرقم الشيك: %s\nالمبلغ: %s %s\nتاريخ الاستحقاق: %s",
             $check->check_number,
@@ -107,18 +113,22 @@ class CheckService
 
     /**
      * Attaches (or replaces) a check's photo after it's already been
-     * received — the "استلام شيك" form only asks for one up front, but a
-     * photo often only becomes available later.
+     * received — the "استلام شيك" form only asks for the first slot up
+     * front, but a second side (or a photo that only becomes available
+     * later) can be added afterward. `$slot` is 1 or 2.
      */
-    public function attachImage(CheckModel $check, UploadedFile $image): CheckModel
+    public function attachImage(CheckModel $check, UploadedFile $image, int $slot = 1): CheckModel
     {
-        if ($check->image_path) {
-            Storage::disk('local')->delete($check->image_path);
+        $column = $slot === 2 ? 'image_path_2' : 'image_path';
+
+        if ($check->{$column}) {
+            Storage::disk('local')->delete($check->{$column});
         }
 
-        $check->update(['image_path' => $image->store('checks', 'local')]);
+        $newPath = $image->store('checks', 'local');
+        $check->update([$column => $newPath]);
 
-        $this->notifyImageReceived($check);
+        $this->notifyImageReceived($check, $newPath);
 
         return $check->fresh();
     }

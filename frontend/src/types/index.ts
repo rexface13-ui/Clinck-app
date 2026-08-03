@@ -495,6 +495,7 @@ export interface CheckItem {
   currency: string
   due_date: string
   image_path: string | null
+  image_path_2: string | null
   status: 'in_wallet' | 'endorsed' | 'bounced' | 'cleared'
   received_at: string
   events?: CheckEvent[]

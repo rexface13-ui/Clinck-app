@@ -50,6 +50,8 @@ export default function ChecksPage() {
   useEffect(() => setForm((f) => ({ ...f, currency: defaultCurrency })), [defaultCurrency])
   const [image, setImage] = useState<File | null>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
+  const [image2, setImage2] = useState<File | null>(null)
+  const image2InputRef = useRef<HTMLInputElement>(null)
   const [endorseTarget, setEndorseTarget] = useState<CheckItem | null>(null)
   const [endorseSupplier, setEndorseSupplier] = useState('')
   const [clearTarget, setClearTarget] = useState<CheckItem | null>(null)
@@ -57,6 +59,7 @@ export default function ChecksPage() {
   const [busy, setBusy] = useState(false)
   const [search, setSearch] = useState('')
   const [attachTargetId, setAttachTargetId] = useState<number | null>(null)
+  const [attachSlot, setAttachSlot] = useState<1 | 2>(1)
   const [requestTarget, setRequestTarget] = useState<CheckItem | null>(null)
   const [requestUserId, setRequestUserId] = useState('')
   const [requestError, setRequestError] = useState<string | null>(null)
@@ -108,11 +111,14 @@ export default function ChecksPage() {
       data.append('currency', form.currency)
       data.append('due_date', form.due_date)
       if (image) data.append('image', image)
+      if (image2) data.append('image2', image2)
 
       await api.post('/checks', data, { headers: { 'Content-Type': 'multipart/form-data' } })
       setForm({ party_id: '', check_number: '', bank_name: '', amount: '', currency: 'ILS', due_date: '' })
       setImage(null)
+      setImage2(null)
       if (imageInputRef.current) imageInputRef.current.value = ''
+      if (image2InputRef.current) image2InputRef.current.value = ''
       setShowForm(false)
       loadAll()
     } finally {
@@ -155,8 +161,9 @@ export default function ChecksPage() {
     loadAll()
   }
 
-  function openAttach(checkId: number) {
+  function openAttach(checkId: number, slot: 1 | 2 = 1) {
     setAttachTargetId(checkId)
+    setAttachSlot(slot)
     attachInputRef.current?.click()
   }
 
@@ -166,6 +173,7 @@ export default function ChecksPage() {
     try {
       const data = new FormData()
       data.append('image', file)
+      data.append('slot', String(attachSlot))
       await api.post(`/checks/${attachTargetId}/image`, data, { headers: { 'Content-Type': 'multipart/form-data' } })
       loadAll()
     } finally {
@@ -243,7 +251,23 @@ export default function ChecksPage() {
               className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border px-3 py-2 text-sm text-muted hover:border-accent hover:text-accent"
             >
               <FontAwesomeIcon icon={faCamera} />
-              {image ? `تم اختيار: ${image.name}` : 'إرفاق صورة الشيك (اختياري)'}
+              {image ? `تم اختيار: ${image.name}` : 'إرفاق صورة الوجه (اختياري)'}
+            </button>
+
+            <input
+              ref={image2InputRef}
+              type="file"
+              accept="image/*"
+              onChange={(e) => setImage2(e.target.files?.[0] ?? null)}
+              className="hidden"
+            />
+            <button
+              type="button"
+              onClick={() => image2InputRef.current?.click()}
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border px-3 py-2 text-sm text-muted hover:border-accent hover:text-accent"
+            >
+              <FontAwesomeIcon icon={faCamera} />
+              {image2 ? `تم اختيار: ${image2.name}` : 'إرفاق صورة الظهر (اختياري)'}
             </button>
 
             <Button onClick={submit} loading={busy} className="w-full justify-center">
@@ -313,6 +337,7 @@ export default function ChecksPage() {
                     <Td className="text-muted">
                       <span className="flex items-center gap-2">
                         {c.check_number}
+                        {/* Slot 1 (الوجه) */}
                         {c.image_path ? (
                           <a
                             href={`/api/checks/${c.id}/image`}
@@ -320,33 +345,58 @@ export default function ChecksPage() {
                             rel="noreferrer"
                             onClick={(e) => e.stopPropagation()}
                             className="text-accent hover:text-accent-hover"
-                            title="عرض صورة الشيك"
+                            title="عرض صورة الوجه"
                           >
                             <FontAwesomeIcon icon={faImage} />
                           </a>
                         ) : (
                           canManage && (
-                            <>
-                              <button
-                                type="button"
-                                onClick={(e) => { e.stopPropagation(); openAttach(c.id) }}
-                                disabled={busy}
-                                className="text-ink/30 hover:text-accent disabled:opacity-50"
-                                title="إرفاق صورة الشيك من هالجهاز"
-                              >
-                                <FontAwesomeIcon icon={faCamera} />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={(e) => { e.stopPropagation(); setRequestTarget(c) }}
-                                disabled={busy}
-                                className="text-ink/30 hover:text-accent disabled:opacity-50"
-                                title="طلب الصورة من موظف عبر تيليغرام"
-                              >
-                                <FontAwesomeIcon icon={faPaperPlane} />
-                              </button>
-                            </>
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); openAttach(c.id, 1) }}
+                              disabled={busy}
+                              className="text-ink/30 hover:text-accent disabled:opacity-50"
+                              title="إرفاق صورة الوجه من هالجهاز"
+                            >
+                              <FontAwesomeIcon icon={faCamera} />
+                            </button>
                           )
+                        )}
+                        {/* Slot 2 (الظهر) */}
+                        {c.image_path_2 ? (
+                          <a
+                            href={`/api/checks/${c.id}/image?slot=2`}
+                            target="_blank"
+                            rel="noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="text-accent hover:text-accent-hover"
+                            title="عرض صورة الظهر"
+                          >
+                            <FontAwesomeIcon icon={faImage} className="opacity-70" />
+                          </a>
+                        ) : (
+                          canManage && (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); openAttach(c.id, 2) }}
+                              disabled={busy}
+                              className="text-ink/20 hover:text-accent disabled:opacity-50"
+                              title="إرفاق صورة الظهر من هالجهاز"
+                            >
+                              <FontAwesomeIcon icon={faCamera} className="text-[11px]" />
+                            </button>
+                          )
+                        )}
+                        {canManage && !c.image_path && (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setRequestTarget(c) }}
+                            disabled={busy}
+                            className="text-ink/30 hover:text-accent disabled:opacity-50"
+                            title="طلب الصورة من موظف عبر تيليغرام"
+                          >
+                            <FontAwesomeIcon icon={faPaperPlane} />
+                          </button>
                         )}
                       </span>
                     </Td>

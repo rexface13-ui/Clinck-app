@@ -46,6 +46,7 @@ class CheckController extends Controller
             'currency' => ['required', 'string', 'size:3'],
             'due_date' => ['required', 'date'],
             'image' => ['nullable', 'image', 'max:5120'],
+            'image2' => ['nullable', 'image', 'max:5120'],
         ]);
 
         return $checkService->receive(
@@ -58,6 +59,7 @@ class CheckController extends Controller
             currency: $data['currency'],
             dueDate: $data['due_date'],
             image: $request->file('image'),
+            image2: $request->file('image2'),
         );
     }
 
@@ -92,9 +94,12 @@ class CheckController extends Controller
     {
         abort_unless($request->user()->can('checks.manage'), 403);
 
-        $request->validate(['image' => ['required', 'image', 'max:5120']]);
+        $data = $request->validate([
+            'image' => ['required', 'image', 'max:5120'],
+            'slot' => ['nullable', 'integer', Rule::in([1, 2])],
+        ]);
 
-        return $checkService->attachImage($check, $request->file('image'));
+        return $checkService->attachImage($check, $request->file('image'), (int) ($data['slot'] ?? 1));
     }
 
     /**
@@ -124,8 +129,11 @@ class CheckController extends Controller
     public function image(Request $request, CheckModel $check)
     {
         abort_unless($request->user()->can('checks.view'), 403);
-        abort_unless($check->image_path, 404);
 
-        return response()->file(\Illuminate\Support\Facades\Storage::disk('local')->path($check->image_path));
+        $slot = (int) $request->query('slot', 1);
+        $path = $slot === 2 ? $check->image_path_2 : $check->image_path;
+        abort_unless($path, 404);
+
+        return response()->file(\Illuminate\Support\Facades\Storage::disk('local')->path($path));
     }
 }

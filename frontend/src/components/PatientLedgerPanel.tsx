@@ -53,6 +53,8 @@ export default function PatientLedgerPanel({
   const [checkForm, setCheckForm] = useState({ check_number: '', bank_name: '', amount: '', currency: 'ILS', due_date: '' })
   const [checkImage, setCheckImage] = useState<File | null>(null)
   const checkImageInputRef = useRef<HTMLInputElement>(null)
+  const [checkImage2, setCheckImage2] = useState<File | null>(null)
+  const checkImage2InputRef = useRef<HTMLInputElement>(null)
 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -163,12 +165,15 @@ export default function PatientLedgerPanel({
       data.append('currency', checkForm.currency)
       data.append('due_date', checkForm.due_date)
       if (checkImage) data.append('image', checkImage)
+      if (checkImage2) data.append('image2', checkImage2)
 
       await api.post('/checks', data, { headers: { 'Content-Type': 'multipart/form-data' } })
       setShowForm(false)
       setCheckForm({ check_number: '', bank_name: '', amount: '', currency: 'ILS', due_date: '' })
       setCheckImage(null)
+      setCheckImage2(null)
       if (checkImageInputRef.current) checkImageInputRef.current.value = ''
+      if (checkImage2InputRef.current) checkImage2InputRef.current.value = ''
       load()
     } catch {
       setError('تعذّر تسجيل الشيك.')
@@ -382,7 +387,22 @@ export default function PatientLedgerPanel({
                 className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-ink/15 px-3 py-2 text-xs text-ink/50 hover:border-accent hover:text-accent"
               >
                 <FontAwesomeIcon icon={faCamera} />
-                {checkImage ? `تم اختيار: ${checkImage.name}` : 'إرفاق صورة الشيك (اختياري)'}
+                {checkImage ? `تم اختيار: ${checkImage.name}` : 'إرفاق صورة الوجه (اختياري)'}
+              </button>
+              <input
+                ref={checkImage2InputRef}
+                type="file"
+                accept="image/*"
+                onChange={(e) => setCheckImage2(e.target.files?.[0] ?? null)}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => checkImage2InputRef.current?.click()}
+                className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-ink/15 px-3 py-2 text-xs text-ink/50 hover:border-accent hover:text-accent"
+              >
+                <FontAwesomeIcon icon={faCamera} />
+                {checkImage2 ? `تم اختيار: ${checkImage2.name}` : 'إرفاق صورة الظهر (اختياري)'}
               </button>
               <p className="text-[11px] text-ink/40">
                 الشيك ما بيأثر على رصيد الصندوق أو دين المريض إلا لما يتحصّل من صفحة الشيكات. صورة الشيك بترسل إشعار تلغرام فوراً.

@@ -15,7 +15,7 @@ class CheckModel extends Model
 
     protected $fillable = [
         'clinic_id', 'direction', 'party_type', 'party_id', 'check_number',
-        'bank_name', 'amount', 'currency', 'due_date', 'status', 'image_path',
+        'bank_name', 'amount', 'currency', 'due_date', 'status', 'image_path', 'image_path_2',
         'image_requested_at', 'received_at', 'purchase_invoice_id',
     ];
 
