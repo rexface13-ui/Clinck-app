@@ -8,6 +8,7 @@ use App\Models\Invoice;
 use App\Models\Patient;
 use App\Models\PatientTransaction;
 use App\Models\Payment;
+use App\Models\WorkItemToothStep;
 use Illuminate\Support\Facades\DB;
 
 class PaymentService
@@ -266,38 +267,28 @@ class PaymentService
     }
 
     /**
-     * Voids an invoice from the patient's account — e.g. it was created by
-     * mistake. Never deletes the original charge row (keeps the audit
-     * trail); instead posts a compensating adjustment that zeroes it out of
-     * the ledger balance, same pattern as adjustTotal(). Payments already
-     * collected against it are left untouched (real cash that changed
-     * hands) — delete/edit those separately if they need reversing too.
+     * Deletes an invoice from the patient's account completely — e.g. it was
+     * created by mistake. Unlike a soft void, this actually removes the
+     * charge and every ledger row tied to it (no leftover "discount" line),
+     * and un-bills whatever work was on it (tooth-steps go back to
+     * not-yet-invoiced). Blocked if payments were already collected against
+     * it — delete/reassign those first, since real cash changed hands and
+     * silently orphaning it would be worse than refusing.
      */
-    public function voidInvoice(Invoice $invoice): Invoice
+    public function deleteInvoice(Invoice $invoice): void
     {
-        abort_if($invoice->status === 'void', 422, 'الفاتورة ملغاة أصلاً.');
+        abort_if($invoice->payments()->exists(), 422, 'في دفعات مسجّلة عالفاتورة هاي — احذفهم أول قبل ما تحذف الفاتورة.');
 
-        return DB::transaction(function () use ($invoice) {
-            $remaining = (float) $invoice->total_amount_ils;
+        DB::transaction(function () use ($invoice) {
+            WorkItemToothStep::whereIn('invoice_line_id', $invoice->lines()->pluck('id'))
+                ->update(['completed_at' => null, 'invoice_line_id' => null]);
 
-            if ($remaining !== 0.0) {
-                PatientTransaction::create([
-                    'clinic_id' => $invoice->clinic_id,
-                    'patient_id' => $invoice->patient_id,
-                    'type' => 'adjustment',
-                    'reference_type' => 'invoice_void',
-                    'reference_id' => $invoice->id,
-                    'amount' => -$remaining,
-                    'currency' => 'ILS',
-                    'exchange_rate' => 1,
-                    'amount_ils' => -$remaining,
-                    'occurred_at' => now(),
-                ]);
-            }
+            PatientTransaction::where('reference_id', $invoice->id)
+                ->whereIn('reference_type', ['invoice', 'invoice_discount', 'invoice_line_reversal', 'invoice_line_reprice', 'invoice_void'])
+                ->delete();
 
-            $invoice->update(['status' => 'void']);
-
-            return $invoice->fresh(['lines', 'payments']);
+            $invoice->lines()->delete();
+            $invoice->delete();
         });
     }
 

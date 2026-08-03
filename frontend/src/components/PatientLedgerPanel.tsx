@@ -202,15 +202,16 @@ export default function PatientLedgerPanel({
   }
 
   async function voidInvoice(invoiceId: number) {
-    if (!window.confirm('إلغاء هاي الفاتورة نهائياً؟ رح تختفي من دين المريض (الدفعات المسجّلة عليها ما بتنحذف).')) return
+    if (!window.confirm('حذف هاي الفاتورة نهائياً؟ الشغل يلي كان محسوب عليها بيرجع "مش محسوب" (فيك تحاسبه من جديد لاحقاً).')) return
     setBusy(true)
     setError(null)
     try {
       await api.delete(`/invoices/${invoiceId}`)
       load()
       onChanged?.()
-    } catch {
-      setError('تعذّر إلغاء الفاتورة.')
+    } catch (err) {
+      const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      setError(message ?? 'تعذّر حذف الفاتورة.')
     } finally {
       setBusy(false)
     }
@@ -225,8 +226,9 @@ export default function PatientLedgerPanel({
       setEditingInvoiceId(null)
       load()
       onChanged?.()
-    } catch {
-      setError('تعذّر تعديل الفاتورة.')
+    } catch (err) {
+      const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      setError(message ?? 'تعذّر تعديل الفاتورة.')
     } finally {
       setBusy(false)
     }

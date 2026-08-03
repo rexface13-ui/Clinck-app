@@ -232,9 +232,9 @@ class PatientBillingController extends Controller
     {
         abort_unless($request->user()->can('billing.manage'), 403);
 
-        $invoice = $paymentService->voidInvoice($invoice);
+        $paymentService->deleteInvoice($invoice);
 
-        return new InvoiceResource($invoice);
+        return response()->noContent();
     }
 
     public function updateTransaction(Request $request, PatientTransaction $transaction, PaymentService $paymentService)
