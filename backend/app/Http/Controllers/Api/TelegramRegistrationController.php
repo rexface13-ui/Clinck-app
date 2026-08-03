@@ -31,6 +31,48 @@ class TelegramRegistrationController extends Controller
             ->get();
     }
 
+    /**
+     * Every doctor/patient already linked to a Telegram chat — for the
+     * "شو مرتبط أصلاً" overview on the Telegram admin page, separate from
+     * the pending (not-yet-classified) queue above.
+     */
+    public function linked(Request $request)
+    {
+        abort_unless($request->user()->can('settings.manage'), 403);
+
+        $doctorLinks = TelegramLink::whereNotNull('linked_at')
+            ->whereNotNull('doctor_id')
+            ->with('doctor')
+            ->orderByDesc('linked_at')
+            ->get()
+            ->map(fn (TelegramLink $l) => [
+                'id' => $l->doctor?->id,
+                'full_name' => $l->doctor?->full_name,
+                'linked_at' => display_datetime($l->linked_at),
+            ])
+            ->filter(fn ($d) => $d['id'] !== null)
+            ->values();
+
+        $patientLinks = TelegramLink::whereNotNull('linked_at')
+            ->whereNotNull('patient_id')
+            ->with('patient')
+            ->orderByDesc('linked_at')
+            ->get()
+            ->map(fn (TelegramLink $l) => [
+                'id' => $l->patient?->id,
+                'full_name' => $l->patient?->full_name,
+                'phone' => $l->patient?->phone,
+                'linked_at' => display_datetime($l->linked_at),
+            ])
+            ->filter(fn ($p) => $p['id'] !== null)
+            ->values();
+
+        return [
+            'doctors' => $doctorLinks,
+            'patients' => $patientLinks,
+        ];
+    }
+
     public function linkStaff(Request $request, TelegramLink $link, TelegramService $telegram)
     {
         abort_unless($request->user()->can('settings.manage'), 403);

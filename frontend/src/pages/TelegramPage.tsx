@@ -21,6 +21,19 @@ interface DoctorOption {
   full_name: string
 }
 
+interface LinkedDoctor {
+  id: number
+  full_name: string
+  linked_at: string
+}
+
+interface LinkedPatient {
+  id: number
+  full_name: string
+  phone: string | null
+  linked_at: string
+}
+
 function BotConfigCard() {
   const { can } = useAuth()
   const [form, setForm] = useState({ telegram_bot_token: '', telegram_bot_username: '' })
@@ -144,6 +157,8 @@ export default function TelegramPage() {
   const navigate = useNavigate()
   const [pending, setPending] = useState<PendingRegistration[] | null>(null)
   const [doctors, setDoctors] = useState<DoctorOption[]>([])
+  const [linkedDoctors, setLinkedDoctors] = useState<LinkedDoctor[] | null>(null)
+  const [linkedPatients, setLinkedPatients] = useState<LinkedPatient[] | null>(null)
   const [busyId, setBusyId] = useState<number | null>(null)
   const [mode, setMode] = useState<Record<number, 'doctor' | 'patient' | null>>({})
   const [doctorChoice, setDoctorChoice] = useState<Record<number, string>>({})
@@ -152,6 +167,10 @@ export default function TelegramPage() {
   function load() {
     api.get('/telegram-registrations').then((res) => setPending(res.data))
     api.get('/doctors').then((res) => setDoctors(res.data.data.map((d: { id: number; full_name: string }) => ({ id: d.id, full_name: d.full_name }))))
+    api.get('/telegram-registrations-linked').then((res) => {
+      setLinkedDoctors(res.data.doctors)
+      setLinkedPatients(res.data.patients)
+    })
   }
 
   useEffect(load, [])
@@ -294,6 +313,53 @@ export default function TelegramPage() {
             </div>
           )}
         </Card>
+
+        <div className="grid gap-6 lg:grid-cols-2">
+          <Card className="p-6">
+            <h2 className="mb-1 flex items-center gap-2 text-sm font-medium text-ink/70">
+              <FontAwesomeIcon icon={faUserDoctor} className="text-accent" />
+              الأطباء المرتبطين {linkedDoctors && linkedDoctors.length > 0 && `(${linkedDoctors.length})`}
+            </h2>
+            {linkedDoctors === null ? (
+              <p className="mt-3 text-sm text-muted">جارِ التحميل...</p>
+            ) : linkedDoctors.length === 0 ? (
+              <p className="mt-3 text-sm text-muted">ولا طبيب مربوط بتيليغرام حالياً.</p>
+            ) : (
+              <ul className="mt-3 space-y-2">
+                {linkedDoctors.map((d) => (
+                  <li key={d.id} className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-sm">
+                    <span className="text-ink">{d.full_name}</span>
+                    <span className="text-xs text-muted">{d.linked_at}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+
+          <Card className="p-6">
+            <h2 className="mb-1 flex items-center gap-2 text-sm font-medium text-ink/70">
+              <FontAwesomeIcon icon={faUser} className="text-accent" />
+              المرضى المرتبطين {linkedPatients && linkedPatients.length > 0 && `(${linkedPatients.length})`}
+            </h2>
+            {linkedPatients === null ? (
+              <p className="mt-3 text-sm text-muted">جارِ التحميل...</p>
+            ) : linkedPatients.length === 0 ? (
+              <p className="mt-3 text-sm text-muted">ولا مريض مربوط بتيليغرام حالياً.</p>
+            ) : (
+              <ul className="mt-3 max-h-96 space-y-2 overflow-y-auto">
+                {linkedPatients.map((p) => (
+                  <li key={p.id} className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-sm">
+                    <span className="text-ink">
+                      {p.full_name}
+                      {p.phone && <span className="text-muted"> — {p.phone}</span>}
+                    </span>
+                    <span className="text-xs text-muted">{p.linked_at}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        </div>
       </div>
     </div>
   )
