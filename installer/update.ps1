@@ -60,12 +60,29 @@ if ($LASTEXITCODE -ne 0) {
     Pause-Exit
     exit 1
 }
+
+# php83 وvendor مو جزء من الريبو (كبار وما بتغيّروا) — لو انحذفوا من الشجرة
+# البعيدة بالغلط بأي وقت، "git reset --hard" رح يمسحهم من عندك كمان. منحفظ
+# نسخة احتياطية قبل الـ reset ونرجّعها لو انمسحت.
+$php83Backup = Join-Path $env:TEMP "dentaflow_php83_backup"
+$php83Path = Join-Path $ROOT "php83"
+if ((Test-Path $php83Path) -and -not (Test-Path $php83Backup)) {
+    Copy-Item $php83Path $php83Backup -Recurse -Force
+}
+
 git reset --hard origin/main
 if ($LASTEXITCODE -ne 0) {
     Write-Host "[!] فشل السحب" -ForegroundColor Red
     Pause-Exit
     exit 1
 }
+
+if (-not (Test-Path $php83Path) -and (Test-Path $php83Backup)) {
+    Write-Host "[!] php83 انمسح مع التحديث — جاري استرجاعه..." -ForegroundColor Yellow
+    Copy-Item $php83Backup $php83Path -Recurse -Force
+    Write-Host "[OK] تم استرجاع php83" -ForegroundColor Green
+}
+
 Write-Host "[OK] تم جلب أحدث كود" -ForegroundColor Green
 
 Write-Host ""
