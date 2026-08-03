@@ -1021,7 +1021,12 @@ export default function WorkPlanningPanel({
 
         {editingWorkItemId && editingItem && (
           <div className="mb-4 border-b border-ink/10 pb-4">
-            <p className="mb-2 text-xs font-medium text-ink/70">شو اشتغلت بهاي الجلسة:</p>
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-xs font-medium text-ink/70">شو اشتغلت بهاي الجلسة:</p>
+              <p className="text-sm font-semibold text-ink">
+                المبلغ المتفق عليه: <span className="text-accent">{money(itemTotal(editingItem))} ₪</span>
+              </p>
+            </div>
             {renderStepsEditor(editingItem)}
           </div>
         )}
