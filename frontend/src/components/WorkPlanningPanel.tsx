@@ -892,11 +892,20 @@ export default function WorkPlanningPanel({
         </Card>
       )}
 
-      {workItems.length > 0 && (
+      {/* workItems can also hold a done/already-billed item merged in just so
+          its edit form has something to show (see the focus-effect above) —
+          that one shouldn't show up in this list, which is specifically the
+          still-open work, not everything ever loaded into state. Without this
+          filter, editing an already-billed session made it appear here right
+          after saving, then vanish on the next real page load once nothing
+          re-merges it in. */}
+      {(() => {
+        const openItems = workItems.filter((w) => w.status === 'in_progress')
+        return openItems.length > 0 && (
         <Card className="p-4">
-          <h2 className="mb-3 text-sm font-medium text-ink/70">شغل قيد التنفيذ اليوم</h2>
+          <h2 className="mb-3 text-sm font-medium text-ink/70">شغل مفتوح</h2>
           <div className="space-y-2">
-            {workItems.map((w) => {
+            {openItems.map((w) => {
               const done = w.steps.reduce((s, st) => s + st.tooth_steps.filter((ts) => ts.completed).length, 0)
               const of = w.steps.reduce((s, st) => s + st.tooth_steps.length, 0)
               return (
@@ -1010,7 +1019,8 @@ export default function WorkPlanningPanel({
             })}
           </div>
         </Card>
-      )}
+        )
+      })()}
 
       <PickerWrapper editing={editingWorkItemId !== null} onClose={cancelEditWorkItem} title={`تعديل جلسة — ${services.find((s) => String(s.id) === newServiceId)?.name ?? ''}`} sectionRef={pickerSectionRef}>
       <Card className={editingWorkItemId !== null ? 'border-0 p-0 shadow-none' : 'p-4'}>
