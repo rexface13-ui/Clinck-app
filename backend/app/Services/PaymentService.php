@@ -266,6 +266,36 @@ class PaymentService
     }
 
     /**
+     * Deletes a correction-type ledger entry (a manual discount, a
+     * price-reversal from deleting billed work, a line reprice) as if it
+     * never happened — undoes its effect on the invoice total first, if it
+     * had one, then removes the row. Deliberately scoped to 'adjustment'
+     * rows only: a 'charge' (the original invoice line) or 'payment' isn't
+     * a standalone correction, deleting those needs to go through voiding
+     * the invoice / PaymentService::deletePayment() instead, which handle
+     * the wider blast radius (invoice lines, cashbox) correctly.
+     */
+    public function deleteAdjustment(PatientTransaction $transaction): void
+    {
+        abort_unless($transaction->type === 'adjustment', 422, 'هاي الحركة مش خصم/تصحيح — ما فيك تحذفها من هون.');
+
+        DB::transaction(function () use ($transaction) {
+            $invoiceReferenceTypes = ['invoice_discount', 'invoice_line_reversal', 'invoice_line_reprice'];
+
+            if (in_array($transaction->reference_type, $invoiceReferenceTypes, true) && $transaction->reference_id) {
+                $invoice = Invoice::withoutGlobalScopes()->find($transaction->reference_id);
+                if ($invoice) {
+                    $restored = max(0, (float) $invoice->total_amount_ils - (float) $transaction->amount_ils);
+                    $invoice->update(['total_amount_ils' => $restored]);
+                    $this->refreshInvoiceStatus($invoice->fresh());
+                }
+            }
+
+            $transaction->delete();
+        });
+    }
+
+    /**
      * Undoes a wrongly-entered payment (or refund) as if it never happened —
      * reverses the cashbox balance it moved, removes its ledger trace, and
      * re-derives the invoice's paid status, then deletes the payment row

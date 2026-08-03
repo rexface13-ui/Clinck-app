@@ -160,6 +160,20 @@ export default function PatientLedgerPanel({
     }
   }
 
+  async function deleteAdjustment(transactionId: number) {
+    if (!window.confirm('حذف هاي الحركة نهائياً؟ لو كانت مرتبطة بفاتورة، الإجمالي رح يترجع متل قبل ما تنسجل.')) return
+    setBusy(true)
+    setError(null)
+    try {
+      await api.delete(`/patient-transactions/${transactionId}`)
+      load()
+    } catch {
+      setError('تعذّر حذف الحركة.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function saveEditPayment(paymentId: number) {
     if (!editAmount || !editCashboxId) return
     setBusy(true)
@@ -551,6 +565,11 @@ export default function PatientLedgerPanel({
                         <FontAwesomeIcon icon={faTrash} />
                       </button>
                     </div>
+                  )}
+                  {canCollectCash && t.type === 'adjustment' && (
+                    <button onClick={() => deleteAdjustment(t.id)} title="حذف الحركة" className="text-ink/30 hover:text-danger">
+                      <FontAwesomeIcon icon={faTrash} />
+                    </button>
                   )}
                 </Td>
               </Tr>
