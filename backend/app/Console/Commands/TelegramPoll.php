@@ -125,6 +125,17 @@ class TelegramPoll extends Command
         $text = trim($message['text'] ?? '');
         $photos = $message['photo'] ?? null;
 
+        // Telegram sends compressed pictures as "photo" (an array of sizes)
+        // but a picture sent as "send as file" (uncompressed) arrives as a
+        // "document" instead — treat an image-mimetype document the same as
+        // a photo so a check-photo reply isn't silently dropped.
+        if (! $photos && isset($message['document']['mime_type']) && str_starts_with($message['document']['mime_type'], 'image/')) {
+            $photos = [[
+                'file_id' => $message['document']['file_id'],
+                'file_size' => $message['document']['file_size'] ?? 0,
+            ]];
+        }
+
         // Commands run outside HTTP context — bind clinic before any query.
         CurrentClinic::set((int) config('dentaflow.local_clinic_id'));
 
