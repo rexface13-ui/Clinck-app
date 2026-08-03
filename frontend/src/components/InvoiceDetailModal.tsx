@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faPen, faCheck, faPenToSquare, faNoteSticky } from '@fortawesome/free-solid-svg-icons'
+import { faPen, faCheck, faPenToSquare, faNoteSticky, faMoneyBill, faPercent } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
-import { Modal, Table, Thead, Th, Td, Tr, Badge } from './ui'
+import { Modal, Table, Thead, Th, Td, Tr, Badge, SearchableSelect } from './ui'
 import type { BadgeVariant } from './ui'
-import type { Invoice, Note } from '../types'
+import type { Cashbox, Invoice, Note } from '../types'
 import MiniOdontogramPreview from './MiniOdontogramPreview'
 import ToothNotesModal from './ToothNotesModal'
 
@@ -55,11 +55,36 @@ export default function InvoiceDetailModal({
   const [error, setError] = useState<string | null>(null)
   const [notesToothNumber, setNotesToothNumber] = useState<number | null>(null)
 
+  const [showDiscount, setShowDiscount] = useState(false)
+  const [discountAmount, setDiscountAmount] = useState('')
+
+  const [showCollect, setShowCollect] = useState(false)
+  const [collectTab, setCollectTab] = useState<'cash' | 'check'>('cash')
+  const [cashboxes, setCashboxes] = useState<Cashbox[]>([])
+  const [payAmount, setPayAmount] = useState('')
+  const [payCashboxId, setPayCashboxId] = useState('')
+  const [payMethod, setPayMethod] = useState<'cash' | 'card' | 'transfer'>('cash')
+  const [checkNumber, setCheckNumber] = useState('')
+  const [checkBank, setCheckBank] = useState('')
+  const [checkAmount, setCheckAmount] = useState('')
+  const [checkDueDate, setCheckDueDate] = useState('')
+  const [collecting, setCollecting] = useState(false)
+
   function load() {
     api.get(`/invoices/${invoiceId}`).then((res) => setInvoice(res.data.data))
   }
 
   useEffect(load, [invoiceId])
+
+  useEffect(() => {
+    if (!patientId) return
+    api.get('/cashboxes').then((res) => {
+      setCashboxes(res.data)
+      const ils = res.data.find((c: Cashbox) => c.currency === 'ILS')
+      if (ils) setPayCashboxId(String(ils.id))
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [patientId])
 
   function startEdit() {
     if (!invoice) return
@@ -81,6 +106,77 @@ export default function InvoiceDetailModal({
       setError('تعذّر الحفظ.')
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function applyDiscount() {
+    if (!invoice || !discountAmount || Number(discountAmount) <= 0) return
+    setSaving(true)
+    setError(null)
+    try {
+      const total = Number(invoice.total_amount_ils)
+      const target = Math.max(0, total - Number(discountAmount))
+      const res = await api.patch(`/invoices/${invoice.id}`, { total_amount_ils: target })
+      setInvoice(res.data.data)
+      setShowDiscount(false)
+      setDiscountAmount('')
+      onChanged?.()
+    } catch {
+      setError('تعذّر تسجيل الخصم.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function collectCash() {
+    if (!patientId || !payCashboxId || !payAmount) return
+    setCollecting(true)
+    setError(null)
+    try {
+      await api.post(`/patients/${patientId}/payments`, {
+        invoice_id: invoiceId,
+        cashbox_id: Number(payCashboxId),
+        amount: Number(payAmount),
+        currency: 'ILS',
+        exchange_rate: 1,
+        method: payMethod,
+      })
+      setShowCollect(false)
+      setPayAmount('')
+      load()
+      onChanged?.()
+    } catch {
+      setError('تعذّر تسجيل الدفعة.')
+    } finally {
+      setCollecting(false)
+    }
+  }
+
+  async function collectCheck() {
+    if (!patientId || !checkNumber || !checkAmount || !checkDueDate) return
+    setCollecting(true)
+    setError(null)
+    try {
+      const data = new FormData()
+      data.append('direction', 'incoming')
+      data.append('party_type', 'patient')
+      data.append('party_id', String(patientId))
+      data.append('check_number', checkNumber)
+      if (checkBank) data.append('bank_name', checkBank)
+      data.append('amount', checkAmount)
+      data.append('currency', 'ILS')
+      data.append('due_date', checkDueDate)
+      await api.post('/checks', data, { headers: { 'Content-Type': 'multipart/form-data' } })
+      setShowCollect(false)
+      setCheckNumber('')
+      setCheckBank('')
+      setCheckAmount('')
+      setCheckDueDate('')
+      onChanged?.()
+    } catch {
+      setError('تعذّر تسجيل الشيك.')
+    } finally {
+      setCollecting(false)
     }
   }
 
@@ -187,6 +283,157 @@ export default function InvoiceDetailModal({
               )}
             </div>
           </div>
+
+          {invoice.status !== 'void' && (canManage || patientId) && (
+            <div className="flex flex-wrap gap-2">
+              {canManage && (
+                <button
+                  onClick={() => {
+                    setShowDiscount((v) => !v)
+                    setShowCollect(false)
+                  }}
+                  className="flex items-center gap-1.5 rounded-lg border border-ink/10 px-2.5 py-1.5 text-xs text-ink/70 hover:border-accent hover:text-accent"
+                >
+                  <FontAwesomeIcon icon={faPercent} />
+                  إضافة خصم
+                </button>
+              )}
+              {patientId && remaining > 0 && (
+                <button
+                  onClick={() => {
+                    setShowCollect((v) => !v)
+                    setShowDiscount(false)
+                    setPayAmount(String(remaining))
+                    setCheckAmount(String(remaining))
+                  }}
+                  className="flex items-center gap-1.5 rounded-lg bg-accent px-2.5 py-1.5 text-xs font-medium text-white hover:bg-accent-hover"
+                >
+                  <FontAwesomeIcon icon={faMoneyBill} />
+                  تحصيل دفعة
+                </button>
+              )}
+            </div>
+          )}
+
+          {showDiscount && (
+            <div className="space-y-2 rounded-lg bg-background p-3">
+              <p className="text-xs text-muted">مبلغ الخصم على هاي الفاتورة بس — بينخصم من إجماليها مباشرة.</p>
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  min={0}
+                  max={total}
+                  placeholder="مبلغ الخصم"
+                  value={discountAmount}
+                  onChange={(e) => setDiscountAmount(e.target.value)}
+                  className="w-32 rounded-lg border border-border px-2 py-1.5 text-sm"
+                />
+                <button
+                  onClick={applyDiscount}
+                  disabled={saving || !discountAmount}
+                  className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60"
+                >
+                  {saving ? 'جارِ الحفظ...' : 'تسجيل الخصم'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {showCollect && (
+            <div className="space-y-3 rounded-lg bg-background p-3">
+              <div className="flex gap-1 rounded-lg border border-ink/10 bg-white p-1">
+                <button
+                  type="button"
+                  onClick={() => setCollectTab('cash')}
+                  className={`flex-1 rounded-md py-1.5 text-xs font-medium transition-colors ${collectTab === 'cash' ? 'bg-accent text-white' : 'text-ink/60 hover:bg-background'}`}
+                >
+                  نقدي / بطاقة / تحويل
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCollectTab('check')}
+                  className={`flex-1 rounded-md py-1.5 text-xs font-medium transition-colors ${collectTab === 'check' ? 'bg-accent text-white' : 'text-ink/60 hover:bg-background'}`}
+                >
+                  شيك
+                </button>
+              </div>
+
+              {collectTab === 'cash' ? (
+                <>
+                  <div className="flex gap-2">
+                    <SearchableSelect
+                      options={cashboxes.map((c) => ({ value: String(c.id), label: c.name, sublabel: c.currency }))}
+                      value={payCashboxId}
+                      onChange={setPayCashboxId}
+                      placeholder="الصندوق..."
+                      className="flex-1"
+                    />
+                    <input
+                      type="number"
+                      placeholder="المبلغ"
+                      value={payAmount}
+                      onChange={(e) => setPayAmount(e.target.value)}
+                      className="w-28 rounded-lg border border-ink/10 px-2 py-1.5 text-sm"
+                    />
+                    <select
+                      value={payMethod}
+                      onChange={(e) => setPayMethod(e.target.value as typeof payMethod)}
+                      className="rounded-lg border border-ink/10 px-2 py-1.5 text-sm"
+                    >
+                      <option value="cash">نقدي</option>
+                      <option value="card">بطاقة</option>
+                      <option value="transfer">تحويل</option>
+                    </select>
+                  </div>
+                  <button
+                    onClick={collectCash}
+                    disabled={collecting}
+                    className="w-full rounded-lg bg-accent py-1.5 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60"
+                  >
+                    {collecting ? 'جارِ التسجيل...' : 'تسجيل الدفعة'}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <input
+                    placeholder="رقم الشيك"
+                    value={checkNumber}
+                    onChange={(e) => setCheckNumber(e.target.value)}
+                    className="w-full rounded-lg border border-ink/10 px-2 py-1.5 text-sm"
+                  />
+                  <input
+                    placeholder="اسم البنك"
+                    value={checkBank}
+                    onChange={(e) => setCheckBank(e.target.value)}
+                    className="w-full rounded-lg border border-ink/10 px-2 py-1.5 text-sm"
+                  />
+                  <div className="flex gap-2">
+                    <input
+                      type="number"
+                      placeholder="المبلغ"
+                      value={checkAmount}
+                      onChange={(e) => setCheckAmount(e.target.value)}
+                      className="flex-1 rounded-lg border border-ink/10 px-2 py-1.5 text-sm"
+                    />
+                    <input
+                      type="date"
+                      value={checkDueDate}
+                      onChange={(e) => setCheckDueDate(e.target.value)}
+                      className="rounded-lg border border-ink/10 px-2 py-1.5 text-sm"
+                    />
+                  </div>
+                  <p className="text-[11px] text-ink/40">الشيك ما بيأثر على الرصيد إلا لما يتحصّل من صفحة الشيكات.</p>
+                  <button
+                    onClick={collectCheck}
+                    disabled={collecting}
+                    className="w-full rounded-lg bg-accent py-1.5 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60"
+                  >
+                    {collecting ? 'جارِ التسجيل...' : 'استلام الشيك'}
+                  </button>
+                </>
+              )}
+            </div>
+          )}
 
           {error && <p className="text-xs text-danger">{error}</p>}
         </div>
