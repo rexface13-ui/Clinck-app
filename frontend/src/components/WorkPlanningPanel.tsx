@@ -634,6 +634,7 @@ export default function WorkPlanningPanel({
    * just what's newly done today. Mirrors the backend's own billing rule
    * (WorkItemService::billableCharges only charges pending steps).
    */
+  /** What's still left to charge at the NEXT checkout — completed steps that haven't been invoiced yet. Used for the "التحصيل" section total, not for "how much was this session worth overall" (see sessionTotal). */
   function itemTotal(workItem: WorkItem): number {
     let total = 0
     for (const step of workItem.steps) {
@@ -644,6 +645,23 @@ export default function WorkPlanningPanel({
       } else {
         total += Number(step.price)
       }
+    }
+    return total
+  }
+
+  /**
+   * The session's actual agreed price — every completed step counts,
+   * whether it was billed just now or in an earlier checkout. itemTotal()
+   * only counts what's still pending, so it reads as "0" for a session
+   * that's fully done and already fully invoiced, which isn't what "المبلغ
+   * المتفق عليه" is asking.
+   */
+  function sessionTotal(workItem: WorkItem): number {
+    let total = 0
+    for (const step of workItem.steps) {
+      const doneTeeth = step.tooth_steps.filter((ts) => ts.completed)
+      if (doneTeeth.length === 0) continue
+      total += workItem.price_per_tooth ? doneTeeth.length * Number(step.price) : Number(step.price)
     }
     return total
   }
@@ -1024,7 +1042,7 @@ export default function WorkPlanningPanel({
             <div className="mb-2 flex items-center justify-between">
               <p className="text-xs font-medium text-ink/70">شو اشتغلت بهاي الجلسة:</p>
               <p className="text-sm font-semibold text-ink">
-                المبلغ المتفق عليه: <span className="text-accent">{money(itemTotal(editingItem))} ₪</span>
+                المبلغ المتفق عليه: <span className="text-accent">{money(sessionTotal(editingItem))} ₪</span>
               </p>
             </div>
             {renderStepsEditor(editingItem)}
