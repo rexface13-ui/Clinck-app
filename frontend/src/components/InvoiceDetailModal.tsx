@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faPen, faCheck, faPenToSquare, faNoteSticky, faMoneyBill, faPercent } from '@fortawesome/free-solid-svg-icons'
+import { faPen, faCheck, faPenToSquare, faNoteSticky, faMoneyBill, faPercent, faCamera } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import { Modal, Table, Thead, Th, Td, Tr, Badge, SearchableSelect } from './ui'
@@ -8,6 +8,7 @@ import type { BadgeVariant } from './ui'
 import type { Cashbox, Invoice, Note } from '../types'
 import MiniOdontogramPreview from './MiniOdontogramPreview'
 import ToothNotesModal from './ToothNotesModal'
+import DatePicker from './DatePicker'
 
 const STATUS_LABELS: Record<string, string> = {
   unpaid: 'غير مدفوعة',
@@ -68,6 +69,8 @@ export default function InvoiceDetailModal({
   const [checkBank, setCheckBank] = useState('')
   const [checkAmount, setCheckAmount] = useState('')
   const [checkDueDate, setCheckDueDate] = useState('')
+  const [checkImage, setCheckImage] = useState<File | null>(null)
+  const checkImageInputRef = useRef<HTMLInputElement>(null)
   const [collecting, setCollecting] = useState(false)
 
   function load() {
@@ -166,12 +169,15 @@ export default function InvoiceDetailModal({
       data.append('amount', checkAmount)
       data.append('currency', 'ILS')
       data.append('due_date', checkDueDate)
+      if (checkImage) data.append('image', checkImage)
       await api.post('/checks', data, { headers: { 'Content-Type': 'multipart/form-data' } })
       setShowCollect(false)
       setCheckNumber('')
       setCheckBank('')
       setCheckAmount('')
       setCheckDueDate('')
+      setCheckImage(null)
+      if (checkImageInputRef.current) checkImageInputRef.current.value = ''
       onChanged?.()
     } catch {
       setError('تعذّر تسجيل الشيك.')
@@ -415,14 +421,24 @@ export default function InvoiceDetailModal({
                       onChange={(e) => setCheckAmount(e.target.value)}
                       className="flex-1 rounded-lg border border-ink/10 px-2 py-1.5 text-sm"
                     />
-                    <input
-                      type="date"
-                      value={checkDueDate}
-                      onChange={(e) => setCheckDueDate(e.target.value)}
-                      className="rounded-lg border border-ink/10 px-2 py-1.5 text-sm"
-                    />
+                    <DatePicker value={checkDueDate} onChange={setCheckDueDate} placeholder="تاريخ الاستحقاق" />
                   </div>
-                  <p className="text-[11px] text-ink/40">الشيك ما بيأثر على الرصيد إلا لما يتحصّل من صفحة الشيكات.</p>
+                  <input
+                    ref={checkImageInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => setCheckImage(e.target.files?.[0] ?? null)}
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => checkImageInputRef.current?.click()}
+                    className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-ink/15 px-3 py-2 text-xs text-ink/50 hover:border-accent hover:text-accent"
+                  >
+                    <FontAwesomeIcon icon={faCamera} />
+                    {checkImage ? `تم اختيار: ${checkImage.name}` : 'إرفاق صورة الشيك (اختياري)'}
+                  </button>
+                  <p className="text-[11px] text-ink/40">الشيك ما بيأثر على الرصيد إلا لما يتحصّل من صفحة الشيكات. صورة الشيك بترسل إشعار تلغرام فوراً.</p>
                   <button
                     onClick={collectCheck}
                     disabled={collecting}
