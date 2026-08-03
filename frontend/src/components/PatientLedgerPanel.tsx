@@ -57,6 +57,8 @@ export default function PatientLedgerPanel({
   const [checkImage2, setCheckImage2] = useState<File | null>(null)
   const checkImage2InputRef = useRef<HTMLInputElement>(null)
   const [createdCheck, setCreatedCheck] = useState<{ id: number; check_number: string } | null>(null)
+  const [editingInvoiceId, setEditingInvoiceId] = useState<number | null>(null)
+  const [editInvoiceTotal, setEditInvoiceTotal] = useState('')
   const [editingPaymentId, setEditingPaymentId] = useState<number | null>(null)
   const [editAmount, setEditAmount] = useState('')
   const [editCashboxId, setEditCashboxId] = useState('')
@@ -169,6 +171,35 @@ export default function PatientLedgerPanel({
       load()
     } catch {
       setError('تعذّر حذف الحركة.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function voidInvoice(invoiceId: number) {
+    if (!window.confirm('إلغاء هاي الفاتورة نهائياً؟ رح تختفي من دين المريض (الدفعات المسجّلة عليها ما بتنحذف).')) return
+    setBusy(true)
+    setError(null)
+    try {
+      await api.delete(`/invoices/${invoiceId}`)
+      load()
+    } catch {
+      setError('تعذّر إلغاء الفاتورة.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function saveEditInvoice(invoiceId: number) {
+    if (!editInvoiceTotal) return
+    setBusy(true)
+    setError(null)
+    try {
+      await api.patch(`/invoices/${invoiceId}`, { total_amount_ils: Number(editInvoiceTotal) })
+      setEditingInvoiceId(null)
+      load()
+    } catch {
+      setError('تعذّر تعديل الفاتورة.')
     } finally {
       setBusy(false)
     }
@@ -571,8 +602,51 @@ export default function PatientLedgerPanel({
                       <FontAwesomeIcon icon={faTrash} />
                     </button>
                   )}
+                  {canCollectCash && t.type === 'charge' && t.reference_type === 'invoice' && t.reference_id && (
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => {
+                          setEditingInvoiceId(t.reference_id)
+                          setEditInvoiceTotal(String(Math.abs(Number(t.amount_ils))))
+                        }}
+                        title="تعديل الفاتورة"
+                        className="text-ink/30 hover:text-accent"
+                      >
+                        <FontAwesomeIcon icon={faPen} />
+                      </button>
+                      <button onClick={() => voidInvoice(t.reference_id!)} title="حذف الفاتورة" className="text-ink/30 hover:text-danger">
+                        <FontAwesomeIcon icon={faTrash} />
+                      </button>
+                    </div>
+                  )}
                 </Td>
               </Tr>
+              {editingInvoiceId === t.reference_id && t.type === 'charge' && (
+                <Tr>
+                  <Td colSpan={6}>
+                    <div className="flex flex-wrap items-center gap-2 rounded-lg bg-background p-2">
+                      <span className="text-xs text-ink/60">الإجمالي الجديد:</span>
+                      <input
+                        type="number"
+                        value={editInvoiceTotal}
+                        onChange={(e) => setEditInvoiceTotal(e.target.value)}
+                        className="w-28 rounded-lg border border-ink/10 px-2 py-1.5 text-sm"
+                      />
+                      <span className="text-xs text-muted">₪</span>
+                      <button
+                        onClick={() => saveEditInvoice(t.reference_id!)}
+                        disabled={busy || !editInvoiceTotal}
+                        className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-60"
+                      >
+                        <FontAwesomeIcon icon={faCheck} /> حفظ
+                      </button>
+                      <button onClick={() => setEditingInvoiceId(null)} className="rounded-lg border border-ink/10 px-3 py-1.5 text-xs text-ink/60">
+                        إلغاء
+                      </button>
+                    </div>
+                  </Td>
+                </Tr>
+              )}
               {editingPaymentId === t.reference_id && isEditablePayment && (
                 <Tr>
                   <Td colSpan={6}>

@@ -228,6 +228,15 @@ class PatientBillingController extends Controller
         return response()->noContent();
     }
 
+    public function destroyInvoice(Request $request, Invoice $invoice, PaymentService $paymentService)
+    {
+        abort_unless($request->user()->can('billing.manage'), 403);
+
+        $invoice = $paymentService->voidInvoice($invoice);
+
+        return new InvoiceResource($invoice);
+    }
+
     public function destroyTransaction(Request $request, PatientTransaction $transaction, PaymentService $paymentService)
     {
         abort_unless($request->user()->can('billing.manage'), 403);

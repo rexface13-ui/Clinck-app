@@ -266,6 +266,42 @@ class PaymentService
     }
 
     /**
+     * Voids an invoice from the patient's account — e.g. it was created by
+     * mistake. Never deletes the original charge row (keeps the audit
+     * trail); instead posts a compensating adjustment that zeroes it out of
+     * the ledger balance, same pattern as adjustTotal(). Payments already
+     * collected against it are left untouched (real cash that changed
+     * hands) — delete/edit those separately if they need reversing too.
+     */
+    public function voidInvoice(Invoice $invoice): Invoice
+    {
+        abort_if($invoice->status === 'void', 422, 'الفاتورة ملغاة أصلاً.');
+
+        return DB::transaction(function () use ($invoice) {
+            $remaining = (float) $invoice->total_amount_ils;
+
+            if ($remaining !== 0.0) {
+                PatientTransaction::create([
+                    'clinic_id' => $invoice->clinic_id,
+                    'patient_id' => $invoice->patient_id,
+                    'type' => 'adjustment',
+                    'reference_type' => 'invoice_void',
+                    'reference_id' => $invoice->id,
+                    'amount' => -$remaining,
+                    'currency' => 'ILS',
+                    'exchange_rate' => 1,
+                    'amount_ils' => -$remaining,
+                    'occurred_at' => now(),
+                ]);
+            }
+
+            $invoice->update(['status' => 'void']);
+
+            return $invoice->fresh(['lines', 'payments']);
+        });
+    }
+
+    /**
      * Deletes a correction-type ledger entry (a manual discount, a
      * price-reversal from deleting billed work, a line reprice) as if it
      * never happened — undoes its effect on the invoice total first, if it
