@@ -6,6 +6,7 @@ use App\Models\Cashbox;
 use App\Models\CashboxTransaction;
 use App\Models\CheckEvent;
 use App\Models\CheckModel;
+use App\Models\Patient;
 use App\Models\PatientTransaction;
 use App\Models\Supplier;
 use App\Models\SupplierTransaction;
@@ -135,35 +136,53 @@ class CheckService
 
     /**
      * Only valid for incoming checks still in the wallet. Endorsing to a
-     * supplier settles part of what the clinic owes them, so it credits
-     * the supplier ledger the same way a payment does (negative — purchase
-     * amounts are stored positive as debt).
+     * supplier settles part of what the clinic owes them (credits the
+     * supplier ledger, negative — purchase amounts are stored positive as
+     * debt). Endorsing to a patient instead hands the check over as a
+     * refund — same idea, credited to the patient's ledger.
      */
-    public function endorse(CheckModel $check, Supplier $supplier): CheckModel
+    public function endorse(CheckModel $check, Supplier|Patient $target): CheckModel
     {
         abort_if($check->direction !== 'incoming', 422, 'التظهير متاح فقط للشيكات الواردة.');
         abort_if($check->status !== 'in_wallet', 422, 'الشيك ليس في المحفظة.');
 
-        return DB::transaction(function () use ($check, $supplier) {
+        return DB::transaction(function () use ($check, $target) {
             $check->update(['status' => 'endorsed']);
+            $isPatient = $target instanceof Patient;
 
             CheckEvent::create([
                 'clinic_id' => $check->clinic_id,
                 'check_id' => $check->id,
                 'event_type' => 'endorsed',
-                'endorsed_to_supplier_id' => $supplier->id,
+                'endorsed_to_supplier_id' => $isPatient ? null : $target->id,
+                'endorsed_to_patient_id' => $isPatient ? $target->id : null,
                 'occurred_at' => now(),
             ]);
 
-            SupplierTransaction::create([
-                'clinic_id' => $check->clinic_id,
-                'supplier_id' => $supplier->id,
-                'type' => 'check_endorsed',
-                'reference_type' => 'check',
-                'reference_id' => $check->id,
-                'amount_ils' => -$check->amount,
-                'occurred_at' => now(),
-            ]);
+            if ($isPatient) {
+                PatientTransaction::create([
+                    'clinic_id' => $check->clinic_id,
+                    'patient_id' => $target->id,
+                    'type' => 'refund',
+                    'reference_type' => 'check',
+                    'reference_id' => $check->id,
+                    'amount' => -$check->amount,
+                    'currency' => $check->currency,
+                    'exchange_rate' => 1,
+                    'amount_ils' => -$check->amount,
+                    'occurred_at' => now(),
+                ]);
+            } else {
+                SupplierTransaction::create([
+                    'clinic_id' => $check->clinic_id,
+                    'supplier_id' => $target->id,
+                    'type' => 'check_endorsed',
+                    'reference_type' => 'check',
+                    'reference_id' => $check->id,
+                    'amount_ils' => -$check->amount,
+                    'occurred_at' => now(),
+                ]);
+            }
 
             return $check->fresh('events');
         });
@@ -176,12 +195,15 @@ class CheckService
         return DB::transaction(function () use ($check) {
             $wasEndorsed = $check->status === 'endorsed';
             $endorsedToSupplierId = null;
+            $endorsedToPatientId = null;
 
             if ($wasEndorsed) {
-                $endorsedToSupplierId = $check->events()
+                $endorsedEvent = $check->events()
                     ->where('event_type', 'endorsed')
                     ->latest('occurred_at')
-                    ->value('endorsed_to_supplier_id');
+                    ->first();
+                $endorsedToSupplierId = $endorsedEvent?->endorsed_to_supplier_id;
+                $endorsedToPatientId = $endorsedEvent?->endorsed_to_patient_id;
             }
 
             $check->update(['status' => 'bounced']);
@@ -200,6 +222,21 @@ class CheckService
                     'type' => 'check_bounced',
                     'reference_type' => 'check',
                     'reference_id' => $check->id,
+                    'amount_ils' => $check->amount,
+                    'occurred_at' => now(),
+                ]);
+            }
+
+            if ($wasEndorsed && $endorsedToPatientId) {
+                PatientTransaction::create([
+                    'clinic_id' => $check->clinic_id,
+                    'patient_id' => $endorsedToPatientId,
+                    'type' => 'charge',
+                    'reference_type' => 'check',
+                    'reference_id' => $check->id,
+                    'amount' => $check->amount,
+                    'currency' => $check->currency,
+                    'exchange_rate' => 1,
                     'amount_ils' => $check->amount,
                     'occurred_at' => now(),
                 ]);
@@ -257,17 +294,34 @@ class CheckService
 
                 $cashboxService->record($cashbox, 'check_in', 'check', $check->id, (float) $check->amount);
             } elseif ($check->direction === 'outgoing') {
-                $supplier = Supplier::withoutGlobalScopes()->findOrFail($check->party_id);
+                if ($check->party_type === 'patient') {
+                    $patient = Patient::withoutGlobalScopes()->findOrFail($check->party_id);
 
-                SupplierTransaction::create([
-                    'clinic_id' => $check->clinic_id,
-                    'supplier_id' => $supplier->id,
-                    'type' => 'payment',
-                    'reference_type' => 'check',
-                    'reference_id' => $check->id,
-                    'amount_ils' => -$check->amount,
-                    'occurred_at' => now(),
-                ]);
+                    PatientTransaction::create([
+                        'clinic_id' => $check->clinic_id,
+                        'patient_id' => $patient->id,
+                        'type' => 'refund',
+                        'reference_type' => 'check',
+                        'reference_id' => $check->id,
+                        'amount' => -$check->amount,
+                        'currency' => $check->currency,
+                        'exchange_rate' => 1,
+                        'amount_ils' => -$check->amount,
+                        'occurred_at' => now(),
+                    ]);
+                } else {
+                    $supplier = Supplier::withoutGlobalScopes()->findOrFail($check->party_id);
+
+                    SupplierTransaction::create([
+                        'clinic_id' => $check->clinic_id,
+                        'supplier_id' => $supplier->id,
+                        'type' => 'payment',
+                        'reference_type' => 'check',
+                        'reference_id' => $check->id,
+                        'amount_ils' => -$check->amount,
+                        'occurred_at' => now(),
+                    ]);
+                }
 
                 if ($cashbox) {
                     abort_if($cashbox->currency !== $check->currency, 422, 'عملة الشيك لازم تطابق عملة الصندوق.');

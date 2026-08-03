@@ -53,7 +53,9 @@ export default function ChecksPage() {
   const imageInputRef = useRef<HTMLInputElement>(null)
   const [image2, setImage2] = useState<File | null>(null)
   const image2InputRef = useRef<HTMLInputElement>(null)
+  const [outgoingPartyType, setOutgoingPartyType] = useState<'supplier' | 'patient'>('supplier')
   const [endorseTarget, setEndorseTarget] = useState<CheckItem | null>(null)
+  const [endorseTargetType, setEndorseTargetType] = useState<'supplier' | 'patient'>('supplier')
   const [endorseSupplier, setEndorseSupplier] = useState('')
   const [clearTarget, setClearTarget] = useState<CheckItem | null>(null)
   const [clearCashbox, setClearCashbox] = useState('')
@@ -86,7 +88,7 @@ export default function ChecksPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const partyType: CheckItem['party_type'] = direction === 'incoming' ? 'patient' : 'supplier'
+  const partyType: CheckItem['party_type'] = direction === 'incoming' ? 'patient' : outgoingPartyType
   const partyOptions = partyType === 'patient' ? patients : suppliers
 
   function partyName(check: CheckItem): string {
@@ -127,7 +129,9 @@ export default function ChecksPage() {
     if (!endorseTarget || !endorseSupplier) return
     setBusy(true)
     try {
-      await api.post(`/checks/${endorseTarget.id}/endorse`, { supplier_id: Number(endorseSupplier) })
+      await api.post(`/checks/${endorseTarget.id}/endorse`, endorseTargetType === 'patient'
+        ? { patient_id: Number(endorseSupplier) }
+        : { supplier_id: Number(endorseSupplier) })
       setEndorseTarget(null)
       setEndorseSupplier('')
       loadAll()
@@ -215,6 +219,24 @@ export default function ChecksPage() {
       {showForm && (
         <Modal title="استلام شيك" onClose={() => setShowForm(false)}>
           <div className="space-y-3">
+            {direction === 'outgoing' && (
+              <div className="flex gap-1 rounded-lg border border-border bg-surface p-1">
+                <button
+                  type="button"
+                  onClick={() => { setOutgoingPartyType('supplier'); setForm((f) => ({ ...f, party_id: '' })) }}
+                  className={`flex-1 rounded-md py-1 text-xs font-medium transition-colors ${outgoingPartyType === 'supplier' ? 'bg-accent text-white' : 'text-ink/60'}`}
+                >
+                  دفع لمورد
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setOutgoingPartyType('patient'); setForm((f) => ({ ...f, party_id: '' })) }}
+                  className={`flex-1 rounded-md py-1 text-xs font-medium transition-colors ${outgoingPartyType === 'patient' ? 'bg-accent text-white' : 'text-ink/60'}`}
+                >
+                  دفع لمريض (استرجاع)
+                </button>
+              </div>
+            )}
             <select value={form.party_id} onChange={(e) => setForm({ ...form, party_id: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
               <option value="">{partyType === 'patient' ? 'المريض...' : 'المورد...'}</option>
               {partyOptions.map((p) => (
@@ -399,7 +421,7 @@ export default function ChecksPage() {
                       <Td onClick={(e) => e.stopPropagation()}>
                         <div className="flex gap-2">
                           {c.status === 'in_wallet' && c.direction === 'incoming' && (
-                            <button onClick={() => setEndorseTarget(c)} className="rounded-lg bg-info-soft px-2 py-1 text-xs text-info hover:opacity-80">تظهير</button>
+                            <button onClick={() => { setEndorseTarget(c); setEndorseTargetType('supplier'); setEndorseSupplier('') }} className="rounded-lg bg-info-soft px-2 py-1 text-xs text-info hover:opacity-80">تظهير</button>
                           )}
                           {c.status === 'in_wallet' || c.status === 'endorsed' ? (
                             <>
@@ -443,11 +465,29 @@ export default function ChecksPage() {
       </Card>
 
       {endorseTarget && (
-        <Modal title={`تظهير الشيك #${endorseTarget.check_number} لمورد`} onClose={() => setEndorseTarget(null)}>
+        <Modal title={`تظهير الشيك #${endorseTarget.check_number}`} onClose={() => setEndorseTarget(null)}>
           <div className="space-y-3">
+            <div className="flex gap-1 rounded-lg border border-border bg-surface p-1">
+              <button
+                type="button"
+                onClick={() => { setEndorseTargetType('supplier'); setEndorseSupplier('') }}
+                className={`flex-1 rounded-md py-1 text-xs font-medium transition-colors ${endorseTargetType === 'supplier' ? 'bg-accent text-white' : 'text-ink/60'}`}
+              >
+                لمورد
+              </button>
+              <button
+                type="button"
+                onClick={() => { setEndorseTargetType('patient'); setEndorseSupplier('') }}
+                className={`flex-1 rounded-md py-1 text-xs font-medium transition-colors ${endorseTargetType === 'patient' ? 'bg-accent text-white' : 'text-ink/60'}`}
+              >
+                لمريض (استرجاع)
+              </button>
+            </div>
             <select value={endorseSupplier} onChange={(e) => setEndorseSupplier(e.target.value)} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
-              <option value="">المورد...</option>
-              {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              <option value="">{endorseTargetType === 'patient' ? 'المريض...' : 'المورد...'}</option>
+              {(endorseTargetType === 'patient' ? patients : suppliers).map((p) => (
+                <option key={p.id} value={p.id}>{'full_name' in p ? p.full_name : p.name}</option>
+              ))}
             </select>
             <Button onClick={endorse} loading={busy} className="w-full justify-center">
               تأكيد التظهير

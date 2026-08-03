@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Cashbox;
 use App\Models\CheckModel;
+use App\Models\Patient;
 use App\Models\Supplier;
 use App\Models\TelegramLink;
 use App\Services\CashboxService;
@@ -67,10 +68,16 @@ class CheckController extends Controller
     {
         abort_unless($request->user()->can('checks.manage'), 403);
 
-        $data = $request->validate(['supplier_id' => ['required', 'exists:suppliers,id']]);
-        $supplier = Supplier::findOrFail($data['supplier_id']);
+        $data = $request->validate([
+            'supplier_id' => ['required_without:patient_id', 'nullable', 'exists:suppliers,id'],
+            'patient_id' => ['required_without:supplier_id', 'nullable', 'exists:patients,id'],
+        ]);
 
-        return $checkService->endorse($check, $supplier);
+        $target = ! empty($data['patient_id'])
+            ? Patient::findOrFail($data['patient_id'])
+            : Supplier::findOrFail($data['supplier_id']);
+
+        return $checkService->endorse($check, $target);
     }
 
     public function bounce(Request $request, CheckModel $check, CheckService $checkService)

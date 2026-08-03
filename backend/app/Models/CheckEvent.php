@@ -11,7 +11,7 @@ class CheckEvent extends Model
     use BelongsToClinic;
 
     protected $fillable = [
-        'clinic_id', 'check_id', 'event_type', 'endorsed_to_supplier_id',
+        'clinic_id', 'check_id', 'event_type', 'endorsed_to_supplier_id', 'endorsed_to_patient_id',
         'occurred_at', 'notes',
     ];
 

@@ -1,9 +1,10 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faPlus, faPen, faTrash } from '@fortawesome/free-solid-svg-icons'
+import { faPlus, faPen, faTrash, faMagnifyingGlass } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import { Card, PageHeader, Button, Input, Table, Thead, Th, Td, Tr, EmptyRow, TableSkeleton } from '../components/ui'
+import { normalizeArabic } from '../lib/arabic'
 import type { Service } from '../types'
 
 interface StepDraft {
@@ -111,6 +112,7 @@ export default function ServicesPage() {
   const [steps, setSteps] = useState<StepDraft[]>([])
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [search, setSearch] = useState('')
 
   function load() {
     api.get('/services').then((res) => setServices(res.data.data))
@@ -323,6 +325,18 @@ export default function ServicesPage() {
         </Card>
       )}
 
+      <Card className="mb-4 p-3">
+        <div className="relative">
+          <FontAwesomeIcon icon={faMagnifyingGlass} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-ink/30" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="بحث باسم الخدمة..."
+            className="w-full rounded-lg border border-border bg-surface py-2 pe-9 ps-3 text-sm focus:border-accent focus:outline-none"
+          />
+        </div>
+      </Card>
+
       <Card>
         {!services ? (
           <TableSkeleton />
@@ -336,10 +350,13 @@ export default function ServicesPage() {
               <Th></Th>
             </Thead>
             <tbody>
-              {services.length === 0 ? (
-                <EmptyRow colSpan={5}>لا توجد خدمات بعد.</EmptyRow>
-              ) : (
-                services.map((s) => (
+              {(() => {
+                const q = normalizeArabic(search.trim().toLowerCase())
+                const filtered = q ? services.filter((s) => normalizeArabic(s.name.toLowerCase()).includes(q)) : services
+                if (filtered.length === 0) {
+                  return <EmptyRow colSpan={5}>{q ? 'لا توجد نتائج مطابقة.' : 'لا توجد خدمات بعد.'}</EmptyRow>
+                }
+                return filtered.map((s) => (
                   <Tr key={s.id}>
                     <Td>
                       <span
@@ -365,7 +382,7 @@ export default function ServicesPage() {
                     </Td>
                   </Tr>
                 ))
-              )}
+              })()}
             </tbody>
           </Table>
         )}
