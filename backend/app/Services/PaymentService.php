@@ -332,6 +332,38 @@ class PaymentService
     }
 
     /**
+     * Corrects a discount's amount in place — general (patient_discount) or
+     * per-invoice (invoice_discount) only; system-generated corrections
+     * (invoice_line_reversal/reprice) aren't user-entered discounts and
+     * aren't editable here. Re-applies the new amount's effect on the
+     * invoice total (if any) by the delta from the old amount, same as
+     * updatePayment() does for the cashbox.
+     */
+    public function updateAdjustment(PatientTransaction $transaction, float $newAmount): PatientTransaction
+    {
+        abort_unless($transaction->type === 'adjustment', 422, 'هاي الحركة مش خصم — ما فيك تعدّلها من هون.');
+        abort_unless(in_array($transaction->reference_type, ['patient_discount', 'invoice_discount'], true), 422, 'هاي الحركة مش خصم قابل للتعديل.');
+        abort_if($newAmount <= 0, 422, 'المبلغ لازم يكون أكبر من صفر.');
+
+        return DB::transaction(function () use ($transaction, $newAmount) {
+            $newSignedAmount = -$newAmount;
+            $delta = round($newSignedAmount - (float) $transaction->amount_ils, 2);
+
+            if ($transaction->reference_type === 'invoice_discount' && $transaction->reference_id) {
+                $invoice = Invoice::withoutGlobalScopes()->find($transaction->reference_id);
+                if ($invoice) {
+                    $invoice->update(['total_amount_ils' => max(0, (float) $invoice->total_amount_ils + $delta)]);
+                    $this->refreshInvoiceStatus($invoice->fresh());
+                }
+            }
+
+            $transaction->update(['amount' => $newSignedAmount, 'amount_ils' => $newSignedAmount]);
+
+            return $transaction->fresh();
+        });
+    }
+
+    /**
      * Undoes a wrongly-entered payment (or refund) as if it never happened —
      * reverses the cashbox balance it moved, removes its ledger trace, and
      * re-derives the invoice's paid status, then deletes the payment row

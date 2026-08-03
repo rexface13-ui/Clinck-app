@@ -60,6 +60,8 @@ export default function PatientLedgerPanel({
   const [checkImage2, setCheckImage2] = useState<File | null>(null)
   const checkImage2InputRef = useRef<HTMLInputElement>(null)
   const [createdCheck, setCreatedCheck] = useState<{ id: number; check_number: string } | null>(null)
+  const [editingAdjustmentId, setEditingAdjustmentId] = useState<number | null>(null)
+  const [editAdjustmentAmount, setEditAdjustmentAmount] = useState('')
   const [editingInvoiceId, setEditingInvoiceId] = useState<number | null>(null)
   const [editInvoiceTotal, setEditInvoiceTotal] = useState('')
   const [editingPaymentId, setEditingPaymentId] = useState<number | null>(null)
@@ -163,6 +165,22 @@ export default function PatientLedgerPanel({
       onChanged?.()
     } catch {
       setError('تعذّر حذف الدفعة.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function saveEditAdjustment(transactionId: number) {
+    if (!editAdjustmentAmount) return
+    setBusy(true)
+    setError(null)
+    try {
+      await api.patch(`/patient-transactions/${transactionId}`, { amount: Number(editAdjustmentAmount) })
+      setEditingAdjustmentId(null)
+      load()
+      onChanged?.()
+    } catch {
+      setError('تعذّر تعديل الخصم.')
     } finally {
       setBusy(false)
     }
@@ -609,9 +627,23 @@ export default function PatientLedgerPanel({
                     </div>
                   )}
                   {canCollectCash && t.type === 'adjustment' && (
-                    <button onClick={() => deleteAdjustment(t.id)} title="حذف الحركة" className="text-ink/30 hover:text-danger">
-                      <FontAwesomeIcon icon={faTrash} />
-                    </button>
+                    <div className="flex items-center gap-2">
+                      {(t.reference_type === 'patient_discount' || t.reference_type === 'invoice_discount') && (
+                        <button
+                          onClick={() => {
+                            setEditingAdjustmentId(t.id)
+                            setEditAdjustmentAmount(String(Math.abs(Number(t.amount_ils))))
+                          }}
+                          title="تعديل الخصم"
+                          className="text-ink/30 hover:text-accent"
+                        >
+                          <FontAwesomeIcon icon={faPen} />
+                        </button>
+                      )}
+                      <button onClick={() => deleteAdjustment(t.id)} title="حذف الحركة" className="text-ink/30 hover:text-danger">
+                        <FontAwesomeIcon icon={faTrash} />
+                      </button>
+                    </div>
                   )}
                   {canCollectCash && t.type === 'charge' && t.reference_type === 'invoice' && t.reference_id && (
                     <div className="flex items-center gap-2">
@@ -632,6 +664,32 @@ export default function PatientLedgerPanel({
                   )}
                 </Td>
               </Tr>
+              {editingAdjustmentId === t.id && t.type === 'adjustment' && (
+                <Tr>
+                  <Td colSpan={6}>
+                    <div className="flex flex-wrap items-center gap-2 rounded-lg bg-background p-2">
+                      <span className="text-xs text-ink/60">مبلغ الخصم الجديد:</span>
+                      <input
+                        type="number"
+                        value={editAdjustmentAmount}
+                        onChange={(e) => setEditAdjustmentAmount(e.target.value)}
+                        className="w-28 rounded-lg border border-ink/10 px-2 py-1.5 text-sm"
+                      />
+                      <span className="text-xs text-muted">₪</span>
+                      <button
+                        onClick={() => saveEditAdjustment(t.id)}
+                        disabled={busy || !editAdjustmentAmount}
+                        className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-60"
+                      >
+                        <FontAwesomeIcon icon={faCheck} /> حفظ
+                      </button>
+                      <button onClick={() => setEditingAdjustmentId(null)} className="rounded-lg border border-ink/10 px-3 py-1.5 text-xs text-ink/60">
+                        إلغاء
+                      </button>
+                    </div>
+                  </Td>
+                </Tr>
+              )}
               {editingInvoiceId === t.reference_id && t.type === 'charge' && (
                 <Tr>
                   <Td colSpan={6}>

@@ -237,6 +237,17 @@ class PatientBillingController extends Controller
         return new InvoiceResource($invoice);
     }
 
+    public function updateTransaction(Request $request, PatientTransaction $transaction, PaymentService $paymentService)
+    {
+        abort_unless($request->user()->can('billing.manage'), 403);
+
+        $data = $request->validate(['amount' => ['required', 'numeric', 'min:0.01']]);
+
+        $transaction = $paymentService->updateAdjustment($transaction, (float) $data['amount']);
+
+        return response()->json($transaction);
+    }
+
     public function destroyTransaction(Request $request, PatientTransaction $transaction, PaymentService $paymentService)
     {
         abort_unless($request->user()->can('billing.manage'), 403);

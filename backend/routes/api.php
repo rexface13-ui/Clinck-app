@@ -128,6 +128,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('patients/{patient}/discount', [PatientBillingController::class, 'addDiscount']);
     Route::patch('payments/{payment}', [PatientBillingController::class, 'updatePayment']);
     Route::delete('payments/{payment}', [PatientBillingController::class, 'destroyPayment']);
+    Route::patch('patient-transactions/{transaction}', [PatientBillingController::class, 'updateTransaction']);
     Route::delete('patient-transactions/{transaction}', [PatientBillingController::class, 'destroyTransaction']);
     Route::get('patients/{patient}/visits', [PatientBillingController::class, 'visits']);
 
