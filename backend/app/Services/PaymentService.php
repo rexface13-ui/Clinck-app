@@ -188,6 +188,84 @@ class PaymentService
     }
 
     /**
+     * Corrects an already-entered payment/refund in place — reverses its old
+     * cashbox effect, applies the new one (same or different cashbox), keeps
+     * the original payment/refund direction (a payment can't be edited into
+     * a refund or vice versa), and re-derives the invoice status. Keeps the
+     * same Payment row (not delete+recreate) so it stays the same audit
+     * trail entry, just corrected.
+     */
+    public function updatePayment(Payment $payment, Cashbox $cashbox, float $amount, float $exchangeRate, string $method): Payment
+    {
+        abort_if($cashbox->currency !== $payment->currency, 422, 'عملة الدفعة لازم تطابق عملة الصندوق.');
+        abort_if($amount <= 0, 422, 'المبلغ لازم يكون أكبر من صفر.');
+
+        $sign = $payment->amount < 0 ? -1 : 1;
+        $signedAmount = $sign * $amount;
+        $signedAmountIls = round($signedAmount * $exchangeRate, 2);
+
+        return DB::transaction(function () use ($payment, $cashbox, $signedAmount, $exchangeRate, $signedAmountIls, $method) {
+            $oldCashbox = $payment->cashbox;
+            if ($oldCashbox) {
+                $revertedBalance = $oldCashbox->balance - $payment->amount;
+                CashboxTransaction::create([
+                    'clinic_id' => $payment->clinic_id,
+                    'cashbox_id' => $oldCashbox->id,
+                    'type' => 'adjustment',
+                    'reference_type' => 'payment_edited',
+                    'reference_id' => $payment->id,
+                    'amount' => -$payment->amount,
+                    'balance_after' => $revertedBalance,
+                    'occurred_at' => now(),
+                ]);
+                $oldCashbox->update(['balance' => $revertedBalance]);
+            }
+
+            $cashbox->refresh();
+            $newBalance = $cashbox->balance + $signedAmount;
+            CashboxTransaction::create([
+                'clinic_id' => $payment->clinic_id,
+                'cashbox_id' => $cashbox->id,
+                'type' => 'adjustment',
+                'reference_type' => 'payment_edited',
+                'reference_id' => $payment->id,
+                'amount' => $signedAmount,
+                'balance_after' => $newBalance,
+                'occurred_at' => now(),
+            ]);
+            $cashbox->update(['balance' => $newBalance]);
+
+            PatientTransaction::where('reference_type', 'payment')->where('reference_id', $payment->id)->delete();
+            PatientTransaction::create([
+                'clinic_id' => $payment->clinic_id,
+                'patient_id' => $payment->patient_id,
+                'type' => $signedAmount < 0 ? 'refund' : 'payment',
+                'reference_type' => 'payment',
+                'reference_id' => $payment->id,
+                'amount' => $signedAmount,
+                'currency' => $payment->currency,
+                'exchange_rate' => $exchangeRate,
+                'amount_ils' => $signedAmountIls,
+                'occurred_at' => now(),
+            ]);
+
+            $payment->update([
+                'cashbox_id' => $cashbox->id,
+                'amount' => $signedAmount,
+                'exchange_rate' => $exchangeRate,
+                'amount_ils' => $signedAmountIls,
+                'method' => $method,
+            ]);
+
+            if ($payment->invoice_id) {
+                $this->refreshInvoiceStatus($payment->invoice->fresh());
+            }
+
+            return $payment->fresh(['cashbox', 'invoice']);
+        });
+    }
+
+    /**
      * Undoes a wrongly-entered payment (or refund) as if it never happened —
      * reverses the cashbox balance it moved, removes its ledger trace, and
      * re-derives the invoice's paid status, then deletes the payment row

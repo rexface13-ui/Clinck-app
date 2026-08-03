@@ -125,6 +125,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('patients/{patient}/ledger', [PatientBillingController::class, 'ledger']);
     Route::post('patients/{patient}/payments', [PatientBillingController::class, 'storePayment']);
     Route::post('patients/{patient}/discount', [PatientBillingController::class, 'addDiscount']);
+    Route::patch('payments/{payment}', [PatientBillingController::class, 'updatePayment']);
     Route::delete('payments/{payment}', [PatientBillingController::class, 'destroyPayment']);
     Route::get('patients/{patient}/visits', [PatientBillingController::class, 'visits']);
 

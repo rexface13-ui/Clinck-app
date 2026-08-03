@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faPlus, faCamera, faPercent, faTrash } from '@fortawesome/free-solid-svg-icons'
+import { faPlus, faCamera, faPercent, faTrash, faPen, faCheck } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import DatePicker from './DatePicker'
@@ -57,6 +57,11 @@ export default function PatientLedgerPanel({
   const [checkImage2, setCheckImage2] = useState<File | null>(null)
   const checkImage2InputRef = useRef<HTMLInputElement>(null)
   const [createdCheck, setCreatedCheck] = useState<{ id: number; check_number: string } | null>(null)
+  const [editingPaymentId, setEditingPaymentId] = useState<number | null>(null)
+  const [editAmount, setEditAmount] = useState('')
+  const [editCashboxId, setEditCashboxId] = useState('')
+  const [editMethod, setEditMethod] = useState<'cash' | 'card' | 'transfer'>('cash')
+  const [editExchangeRate, setEditExchangeRate] = useState(1)
   const [checkImageSource, setCheckImageSource] = useState<'device' | 'telegram'>('device')
   const [telegramTarget, setTelegramTarget] = useState('')
   const [telegramSlots, setTelegramSlots] = useState<(1 | 2)[]>([1])
@@ -150,6 +155,26 @@ export default function PatientLedgerPanel({
       load()
     } catch {
       setError('تعذّر حذف الدفعة.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function saveEditPayment(paymentId: number) {
+    if (!editAmount || !editCashboxId) return
+    setBusy(true)
+    setError(null)
+    try {
+      await api.patch(`/payments/${paymentId}`, {
+        cashbox_id: Number(editCashboxId),
+        amount: Number(editAmount),
+        exchange_rate: editExchangeRate,
+        method: editMethod,
+      })
+      setEditingPaymentId(null)
+      load()
+    } catch {
+      setError('تعذّر تعديل الدفعة.')
     } finally {
       setBusy(false)
     }
@@ -489,8 +514,11 @@ export default function PatientLedgerPanel({
           {!ledger || ledger.transactions.length === 0 ? (
             <EmptyRow colSpan={6}>لا توجد حركات مالية.</EmptyRow>
           ) : (
-            ledger.transactions.map((t) => (
-              <Tr key={t.id}>
+            ledger.transactions.map((t) => {
+              const isEditablePayment = (t.type === 'payment' || t.type === 'refund') && t.reference_type === 'payment' && t.reference_id
+              return (
+              <Fragment key={t.id}>
+              <Tr>
                 <Td>
                   <Badge variant={TYPE_VARIANTS[t.type]}>{TYPE_LABELS[t.type]}</Badge>
                 </Td>
@@ -504,14 +532,70 @@ export default function PatientLedgerPanel({
                 <Td>{t.balance_after_ils} ₪</Td>
                 <Td className="text-muted">{t.occurred_at}</Td>
                 <Td>
-                  {canCollectCash && (t.type === 'payment' || t.type === 'refund') && t.reference_type === 'payment' && t.reference_id && (
-                    <button onClick={() => deletePayment(t.reference_id!)} title="حذف الدفعة" className="text-ink/30 hover:text-danger">
-                      <FontAwesomeIcon icon={faTrash} />
-                    </button>
+                  {canCollectCash && isEditablePayment && (
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => {
+                          setEditingPaymentId(t.reference_id)
+                          setEditAmount(String(Math.abs(Number(t.amount))))
+                          setEditCashboxId('')
+                          setEditMethod('cash')
+                          setEditExchangeRate(Math.abs(Number(t.amount)) > 0 ? Math.abs(Number(t.amount_ils) / Number(t.amount)) : 1)
+                        }}
+                        title="تعديل الدفعة"
+                        className="text-ink/30 hover:text-accent"
+                      >
+                        <FontAwesomeIcon icon={faPen} />
+                      </button>
+                      <button onClick={() => deletePayment(t.reference_id!)} title="حذف الدفعة" className="text-ink/30 hover:text-danger">
+                        <FontAwesomeIcon icon={faTrash} />
+                      </button>
+                    </div>
                   )}
                 </Td>
               </Tr>
-            ))
+              {editingPaymentId === t.reference_id && isEditablePayment && (
+                <Tr>
+                  <Td colSpan={6}>
+                    <div className="flex flex-wrap items-center gap-2 rounded-lg bg-background p-2">
+                      <SearchableSelect
+                        options={cashboxes.filter((c) => c.currency === t.currency).map((c) => ({ value: String(c.id), label: c.name, sublabel: c.currency }))}
+                        value={editCashboxId}
+                        onChange={setEditCashboxId}
+                        placeholder="اختر الصندوق..."
+                      />
+                      <input
+                        type="number"
+                        value={editAmount}
+                        onChange={(e) => setEditAmount(e.target.value)}
+                        className="w-28 rounded-lg border border-ink/10 px-2 py-1.5 text-sm"
+                      />
+                      <select
+                        value={editMethod}
+                        onChange={(e) => setEditMethod(e.target.value as 'cash' | 'card' | 'transfer')}
+                        className="rounded-lg border border-ink/10 px-2 py-1.5 text-sm"
+                      >
+                        <option value="cash">نقدي</option>
+                        <option value="card">بطاقة</option>
+                        <option value="transfer">تحويل</option>
+                      </select>
+                      <button
+                        onClick={() => saveEditPayment(t.reference_id!)}
+                        disabled={busy || !editCashboxId || !editAmount}
+                        className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-60"
+                      >
+                        <FontAwesomeIcon icon={faCheck} /> حفظ
+                      </button>
+                      <button onClick={() => setEditingPaymentId(null)} className="rounded-lg border border-ink/10 px-3 py-1.5 text-xs text-ink/60">
+                        إلغاء
+                      </button>
+                    </div>
+                  </Td>
+                </Tr>
+              )}
+              </Fragment>
+              )
+            })
           )}
         </tbody>
       </Table>

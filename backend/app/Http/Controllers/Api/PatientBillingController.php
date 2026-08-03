@@ -11,9 +11,11 @@ use App\Models\Invoice;
 use App\Models\InvoiceLine;
 use App\Models\Patient;
 use App\Models\PatientTransaction;
+use App\Models\Payment;
 use App\Models\WorkItemToothStep;
 use App\Services\PaymentService;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class PatientBillingController extends Controller
 {
@@ -224,5 +226,29 @@ class PatientBillingController extends Controller
         $paymentService->deletePayment($payment);
 
         return response()->noContent();
+    }
+
+    public function updatePayment(Request $request, Payment $payment, PaymentService $paymentService)
+    {
+        abort_unless($request->user()->can('billing.manage'), 403);
+
+        $data = $request->validate([
+            'cashbox_id' => ['required', 'exists:cashboxes,id'],
+            'amount' => ['required', 'numeric', 'min:0.01'],
+            'exchange_rate' => ['required', 'numeric', 'min:0.000001'],
+            'method' => ['required', Rule::in(['cash', 'card', 'transfer'])],
+        ]);
+
+        $cashbox = Cashbox::findOrFail($data['cashbox_id']);
+
+        $payment = $paymentService->updatePayment(
+            payment: $payment,
+            cashbox: $cashbox,
+            amount: (float) $data['amount'],
+            exchangeRate: (float) $data['exchange_rate'],
+            method: $data['method'],
+        );
+
+        return new PaymentResource($payment);
     }
 }
