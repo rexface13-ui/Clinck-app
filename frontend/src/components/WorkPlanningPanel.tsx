@@ -556,12 +556,12 @@ export default function WorkPlanningPanel({
                   <button
                     onClick={() => { setNotesToothNumber(ts.tooth_number); setNotesWorkItemId(w.id); setNotesToothStepId(ts.id) }}
                     title={`دفتر ملاحظات السن — خطوة ${step.title}`}
-                    className="flex items-center gap-1 text-[11px] text-accent hover:underline"
+                    className="flex items-center gap-1 rounded-lg border border-accent/30 bg-accent-soft px-2 py-1 text-[11px] font-medium text-accent hover:border-accent"
                   >
                     <FontAwesomeIcon icon={faNoteSticky} />
                     {(() => {
                       const count = notes.filter((n) => n.tooth_number === ts.tooth_number && n.work_item_tooth_step_id === ts.id).length
-                      return count > 0 ? `ملاحظات (${count})` : 'ملاحظة'
+                      return count > 0 ? `دفتر الملاحظات (${count})` : 'دفتر الملاحظات'
                     })()}
                   </button>
                   {step.fields.map((f) => (
