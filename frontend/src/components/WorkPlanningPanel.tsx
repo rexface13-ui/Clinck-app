@@ -615,13 +615,14 @@ export default function WorkPlanningPanel({
   }
 
   async function cancelWorkItem(workItem: WorkItem) {
-    if (!window.confirm('إلغاء هالشغل بالكامل؟ (فقط إذا ما انحسب منه شي بعد)')) return
+    if (!window.confirm('حذف هالشغل بالكامل؟ لو كان انحسب منه شي، الفاتورة رح تترجع متل قبل.')) return
     try {
       await api.delete(`/work-items/${workItem.id}`)
       loadWorkItems()
+      onChanged?.()
       if (activeWorkItemId === workItem.id) setActiveWorkItemId(null)
     } catch {
-      window.alert('ما فيك تلغي شغل انحسب منه شي.')
+      window.alert('تعذّر حذف الشغل.')
     }
   }
 

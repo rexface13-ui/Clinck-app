@@ -747,13 +747,56 @@ class WorkItemService
         return $appointment;
     }
 
-    /** Cancels a work item entirely — only allowed while nothing on it has been billed yet. */
+    /**
+     * Cancels a work item entirely — a manual "احذف الشغل" escape hatch for
+     * when removing teeth one at a time is too slow/awkward. Reverses any
+     * already-billed invoice lines first (once per unique line, not per
+     * tooth-step — a flat-fee step's line is shared across every tooth that
+     * had it), so this works regardless of billing status instead of
+     * refusing outright.
+     */
     public function cancel(WorkItem $workItem): void
     {
-        $hasBilled = $workItem->toothSteps()->whereNotNull('invoice_line_id')->exists();
-        abort_if($hasBilled, 422, 'ما فيك تلغي شغل انحسب منه شي — فيك تلغي بس الأجزاء يلي لسا ما انحسبت.');
+        DB::transaction(function () use ($workItem) {
+            $toothSteps = $workItem->toothSteps()->whereNotNull('invoice_line_id')->get();
+            $lineIds = $toothSteps->pluck('invoice_line_id')->unique();
 
-        $workItem->update(['status' => 'cancelled']);
+            foreach ($lineIds as $lineId) {
+                $line = InvoiceLine::find($lineId);
+                if (! $line) {
+                    continue;
+                }
+
+                $invoice = $line->invoice;
+                $price = (float) $line->amount_ils;
+                $line->delete();
+
+                $actualReversal = min($price, (float) $invoice->total_amount_ils);
+                $invoice->update(['total_amount_ils' => max(0, (float) $invoice->total_amount_ils - $actualReversal)]);
+
+                PatientTransaction::create([
+                    'patient_id' => $workItem->patient_id,
+                    'type' => 'adjustment',
+                    'reference_type' => 'invoice_line_reversal',
+                    'reference_id' => $invoice->id,
+                    'amount' => -$actualReversal,
+                    'currency' => 'ILS',
+                    'exchange_rate' => 1,
+                    'amount_ils' => -$actualReversal,
+                    'occurred_at' => now(),
+                ]);
+
+                $this->paymentService->refreshInvoiceStatus($invoice->fresh());
+            }
+
+            WorkItemToothStep::where('work_item_id', $workItem->id)->update(['completed_at' => null, 'invoice_line_id' => null]);
+
+            foreach ($toothSteps->pluck('tooth_number')->unique() as $toothNumber) {
+                $this->recomputeToothFinding($workItem->patient_id, (int) $toothNumber, $workItem->service_id);
+            }
+
+            $workItem->update(['status' => 'cancelled']);
+        });
     }
 
     protected function nextInvoiceNumber(): string
