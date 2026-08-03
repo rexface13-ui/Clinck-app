@@ -738,8 +738,14 @@ class WorkItemService
 
     protected function nextInvoiceNumber(): string
     {
-        $count = Invoice::withoutGlobalScopes()->count();
+        $lastNumber = Invoice::withoutGlobalScopes()
+            ->whereRaw("invoice_number ~ '^INV-[0-9]+$'")
+            ->orderByRaw("CAST(SUBSTRING(invoice_number FROM 5) AS INTEGER) DESC")
+            ->lockForUpdate()
+            ->value('invoice_number');
 
-        return sprintf('INV-%06d', $count + 1);
+        $next = $lastNumber ? ((int) substr($lastNumber, 4)) + 1 : 1;
+
+        return sprintf('INV-%06d', $next);
     }
 }
