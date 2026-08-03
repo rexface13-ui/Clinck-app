@@ -8,7 +8,7 @@ import DatePicker from './DatePicker'
 import { Card, Table, Thead, Th, Td, Tr, EmptyRow, Badge, SearchableSelect } from './ui'
 import type { BadgeVariant } from './ui'
 import type { Cashbox, Invoice, Ledger } from '../types'
-import RequestCheckImageButton from './RequestCheckImageButton'
+import RequestCheckImageButton, { TelegramCheckTargetPicker, sendTelegramCheckRequest } from './RequestCheckImageButton'
 
 const TYPE_LABELS: Record<string, string> = {
   charge: 'فاتورة',
@@ -57,6 +57,9 @@ export default function PatientLedgerPanel({
   const [checkImage2, setCheckImage2] = useState<File | null>(null)
   const checkImage2InputRef = useRef<HTMLInputElement>(null)
   const [createdCheck, setCreatedCheck] = useState<{ id: number; check_number: string } | null>(null)
+  const [checkImageSource, setCheckImageSource] = useState<'device' | 'telegram'>('device')
+  const [telegramTarget, setTelegramTarget] = useState('')
+  const [telegramSlots, setTelegramSlots] = useState<(1 | 2)[]>([1])
 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -154,6 +157,7 @@ export default function PatientLedgerPanel({
 
   async function receiveCheck() {
     if (!checkForm.check_number || !checkForm.amount || !checkForm.due_date) return
+    if (checkImageSource === 'telegram' && !telegramTarget) return
     setBusy(true)
     setError(null)
     try {
@@ -166,8 +170,8 @@ export default function PatientLedgerPanel({
       data.append('amount', checkForm.amount)
       data.append('currency', checkForm.currency)
       data.append('due_date', checkForm.due_date)
-      if (checkImage) data.append('image', checkImage)
-      if (checkImage2) data.append('image2', checkImage2)
+      if (checkImageSource === 'device' && checkImage) data.append('image', checkImage)
+      if (checkImageSource === 'device' && checkImage2) data.append('image2', checkImage2)
 
       const res = await api.post('/checks', data, { headers: { 'Content-Type': 'multipart/form-data' } })
       setShowForm(false)
@@ -176,7 +180,13 @@ export default function PatientLedgerPanel({
       setCheckImage2(null)
       if (checkImageInputRef.current) checkImageInputRef.current.value = ''
       if (checkImage2InputRef.current) checkImage2InputRef.current.value = ''
-      if (!checkImage || !checkImage2) {
+      if (checkImageSource === 'telegram') {
+        const message = await sendTelegramCheckRequest(res.data.id, telegramTarget, telegramSlots)
+        if (message) setError(message)
+        setTelegramTarget('')
+        setTelegramSlots([1])
+        setCheckImageSource('device')
+      } else if (!checkImage || !checkImage2) {
         setCreatedCheck({ id: res.data.id, check_number: res.data.check_number })
       }
       load()
@@ -379,44 +389,73 @@ export default function PatientLedgerPanel({
               </div>
               <DatePicker value={checkForm.due_date} onChange={(v) => setCheckForm({ ...checkForm, due_date: v })} placeholder="تاريخ الاستحقاق" />
 
-              <input
-                ref={checkImageInputRef}
-                type="file"
-                accept="image/*"
-                onChange={(e) => setCheckImage(e.target.files?.[0] ?? null)}
-                className="hidden"
-              />
-              <button
-                type="button"
-                onClick={() => checkImageInputRef.current?.click()}
-                className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-ink/15 px-3 py-2 text-xs text-ink/50 hover:border-accent hover:text-accent"
-              >
-                <FontAwesomeIcon icon={faCamera} />
-                {checkImage ? `تم اختيار: ${checkImage.name}` : 'إرفاق صورة الوجه (اختياري)'}
-              </button>
-              <input
-                ref={checkImage2InputRef}
-                type="file"
-                accept="image/*"
-                onChange={(e) => setCheckImage2(e.target.files?.[0] ?? null)}
-                className="hidden"
-              />
-              <button
-                type="button"
-                onClick={() => checkImage2InputRef.current?.click()}
-                className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-ink/15 px-3 py-2 text-xs text-ink/50 hover:border-accent hover:text-accent"
-              >
-                <FontAwesomeIcon icon={faCamera} />
-                {checkImage2 ? `تم اختيار: ${checkImage2.name}` : 'إرفاق صورة الظهر (اختياري)'}
-              </button>
+              <div className="flex gap-1 rounded-lg border border-ink/10 bg-white p-1">
+                <button
+                  type="button"
+                  onClick={() => setCheckImageSource('device')}
+                  className={`flex-1 rounded-md py-1 text-[11px] font-medium transition-colors ${checkImageSource === 'device' ? 'bg-accent text-white' : 'text-ink/60'}`}
+                >
+                  إرفاق صورة من هالجهاز
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCheckImageSource('telegram')}
+                  className={`flex-1 rounded-md py-1 text-[11px] font-medium transition-colors ${checkImageSource === 'telegram' ? 'bg-accent text-white' : 'text-ink/60'}`}
+                >
+                  طلب صورة عبر تيليغرام
+                </button>
+              </div>
+
+              {checkImageSource === 'device' ? (
+                <>
+                  <input
+                    ref={checkImageInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => setCheckImage(e.target.files?.[0] ?? null)}
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => checkImageInputRef.current?.click()}
+                    className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-ink/15 px-3 py-2 text-xs text-ink/50 hover:border-accent hover:text-accent"
+                  >
+                    <FontAwesomeIcon icon={faCamera} />
+                    {checkImage ? `تم اختيار: ${checkImage.name}` : 'إرفاق صورة الوجه (اختياري)'}
+                  </button>
+                  <input
+                    ref={checkImage2InputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => setCheckImage2(e.target.files?.[0] ?? null)}
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => checkImage2InputRef.current?.click()}
+                    className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-ink/15 px-3 py-2 text-xs text-ink/50 hover:border-accent hover:text-accent"
+                  >
+                    <FontAwesomeIcon icon={faCamera} />
+                    {checkImage2 ? `تم اختيار: ${checkImage2.name}` : 'إرفاق صورة الظهر (اختياري)'}
+                  </button>
+                </>
+              ) : (
+                <TelegramCheckTargetPicker
+                  target={telegramTarget}
+                  onTargetChange={setTelegramTarget}
+                  slots={telegramSlots}
+                  onSlotsChange={setTelegramSlots}
+                />
+              )}
+
               <p className="text-[11px] text-ink/40">
-                الشيك ما بيأثر على رصيد الصندوق أو دين المريض إلا لما يتحصّل من صفحة الشيكات. صورة الشيك بترسل إشعار تلغرام فوراً.
+                الشيك ما بيأثر على رصيد الصندوق أو دين المريض إلا لما يتحصّل من صفحة الشيكات.
               </p>
 
               {error && <p className="text-xs text-danger">{error}</p>}
               <button
                 onClick={receiveCheck}
-                disabled={busy}
+                disabled={busy || (checkImageSource === 'telegram' && !telegramTarget)}
                 className="w-full rounded-lg bg-accent py-1.5 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60"
               >
                 {busy ? 'جارِ التسجيل...' : 'استلام الشيك'}

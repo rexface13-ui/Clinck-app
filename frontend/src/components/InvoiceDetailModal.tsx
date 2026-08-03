@@ -9,7 +9,7 @@ import type { Cashbox, Invoice, Note } from '../types'
 import MiniOdontogramPreview from './MiniOdontogramPreview'
 import ToothNotesModal from './ToothNotesModal'
 import DatePicker from './DatePicker'
-import RequestCheckImageButton from './RequestCheckImageButton'
+import RequestCheckImageButton, { TelegramCheckTargetPicker, sendTelegramCheckRequest } from './RequestCheckImageButton'
 
 const STATUS_LABELS: Record<string, string> = {
   unpaid: 'غير مدفوعة',
@@ -76,6 +76,9 @@ export default function InvoiceDetailModal({
   const checkImage2InputRef = useRef<HTMLInputElement>(null)
   const [createdCheck, setCreatedCheck] = useState<{ id: number; check_number: string } | null>(null)
   const [collecting, setCollecting] = useState(false)
+  const [checkImageSource, setCheckImageSource] = useState<'device' | 'telegram'>('device')
+  const [telegramTarget, setTelegramTarget] = useState('')
+  const [telegramSlots, setTelegramSlots] = useState<(1 | 2)[]>([1])
 
   function load() {
     api.get(`/invoices/${invoiceId}`).then((res) => setInvoice(res.data.data))
@@ -161,6 +164,7 @@ export default function InvoiceDetailModal({
 
   async function collectCheck() {
     if (!patientId || !checkNumber || !checkAmount || !checkDueDate) return
+    if (checkImageSource === 'telegram' && !telegramTarget) return
     setCollecting(true)
     setError(null)
     try {
@@ -173,8 +177,8 @@ export default function InvoiceDetailModal({
       data.append('amount', checkAmount)
       data.append('currency', 'ILS')
       data.append('due_date', checkDueDate)
-      if (checkImage) data.append('image', checkImage)
-      if (checkImage2) data.append('image2', checkImage2)
+      if (checkImageSource === 'device' && checkImage) data.append('image', checkImage)
+      if (checkImageSource === 'device' && checkImage2) data.append('image2', checkImage2)
       const res = await api.post('/checks', data, { headers: { 'Content-Type': 'multipart/form-data' } })
       setShowCollect(false)
       setCheckNumber('')
@@ -185,7 +189,13 @@ export default function InvoiceDetailModal({
       setCheckImage2(null)
       if (checkImageInputRef.current) checkImageInputRef.current.value = ''
       if (checkImage2InputRef.current) checkImage2InputRef.current.value = ''
-      if (!checkImage || !checkImage2) {
+      if (checkImageSource === 'telegram') {
+        const message = await sendTelegramCheckRequest(res.data.id, telegramTarget, telegramSlots)
+        if (message) setError(message)
+        setTelegramTarget('')
+        setTelegramSlots([1])
+        setCheckImageSource('device')
+      } else if (!checkImage || !checkImage2) {
         setCreatedCheck({ id: res.data.id, check_number: res.data.check_number })
       }
       onChanged?.()
@@ -433,40 +443,70 @@ export default function InvoiceDetailModal({
                     />
                     <DatePicker value={checkDueDate} onChange={setCheckDueDate} placeholder="تاريخ الاستحقاق" />
                   </div>
-                  <input
-                    ref={checkImageInputRef}
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => setCheckImage(e.target.files?.[0] ?? null)}
-                    className="hidden"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => checkImageInputRef.current?.click()}
-                    className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-ink/15 px-3 py-2 text-xs text-ink/50 hover:border-accent hover:text-accent"
-                  >
-                    <FontAwesomeIcon icon={faCamera} />
-                    {checkImage ? `تم اختيار: ${checkImage.name}` : 'إرفاق صورة الوجه (اختياري)'}
-                  </button>
-                  <input
-                    ref={checkImage2InputRef}
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => setCheckImage2(e.target.files?.[0] ?? null)}
-                    className="hidden"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => checkImage2InputRef.current?.click()}
-                    className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-ink/15 px-3 py-2 text-xs text-ink/50 hover:border-accent hover:text-accent"
-                  >
-                    <FontAwesomeIcon icon={faCamera} />
-                    {checkImage2 ? `تم اختيار: ${checkImage2.name}` : 'إرفاق صورة الظهر (اختياري)'}
-                  </button>
-                  <p className="text-[11px] text-ink/40">الشيك ما بيأثر على الرصيد إلا لما يتحصّل من صفحة الشيكات. صورة الشيك بترسل إشعار تلغرام فوراً.</p>
+
+                  <div className="flex gap-1 rounded-lg border border-ink/10 bg-white p-1">
+                    <button
+                      type="button"
+                      onClick={() => setCheckImageSource('device')}
+                      className={`flex-1 rounded-md py-1 text-[11px] font-medium transition-colors ${checkImageSource === 'device' ? 'bg-accent text-white' : 'text-ink/60'}`}
+                    >
+                      إرفاق صورة من هالجهاز
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCheckImageSource('telegram')}
+                      className={`flex-1 rounded-md py-1 text-[11px] font-medium transition-colors ${checkImageSource === 'telegram' ? 'bg-accent text-white' : 'text-ink/60'}`}
+                    >
+                      طلب صورة عبر تيليغرام
+                    </button>
+                  </div>
+
+                  {checkImageSource === 'device' ? (
+                    <>
+                      <input
+                        ref={checkImageInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => setCheckImage(e.target.files?.[0] ?? null)}
+                        className="hidden"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => checkImageInputRef.current?.click()}
+                        className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-ink/15 px-3 py-2 text-xs text-ink/50 hover:border-accent hover:text-accent"
+                      >
+                        <FontAwesomeIcon icon={faCamera} />
+                        {checkImage ? `تم اختيار: ${checkImage.name}` : 'إرفاق صورة الوجه (اختياري)'}
+                      </button>
+                      <input
+                        ref={checkImage2InputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => setCheckImage2(e.target.files?.[0] ?? null)}
+                        className="hidden"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => checkImage2InputRef.current?.click()}
+                        className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-ink/15 px-3 py-2 text-xs text-ink/50 hover:border-accent hover:text-accent"
+                      >
+                        <FontAwesomeIcon icon={faCamera} />
+                        {checkImage2 ? `تم اختيار: ${checkImage2.name}` : 'إرفاق صورة الظهر (اختياري)'}
+                      </button>
+                    </>
+                  ) : (
+                    <TelegramCheckTargetPicker
+                      target={telegramTarget}
+                      onTargetChange={setTelegramTarget}
+                      slots={telegramSlots}
+                      onSlotsChange={setTelegramSlots}
+                    />
+                  )}
+
+                  <p className="text-[11px] text-ink/40">الشيك ما بيأثر على الرصيد إلا لما يتحصّل من صفحة الشيكات.</p>
                   <button
                     onClick={collectCheck}
-                    disabled={collecting}
+                    disabled={collecting || (checkImageSource === 'telegram' && !telegramTarget)}
                     className="w-full rounded-lg bg-accent py-1.5 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60"
                   >
                     {collecting ? 'جارِ التسجيل...' : 'استلام الشيك'}

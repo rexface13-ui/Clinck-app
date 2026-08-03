@@ -479,7 +479,7 @@ class TelegramPoll extends Command
     {
         $check = CheckModel::find($link->pending_check_id);
         if (! $check) {
-            $link->update(['pending_check_id' => null, 'pending_check_slot' => null]);
+            $link->update(['pending_check_id' => null, 'pending_check_slots' => null]);
             $telegram->sendMessage($chatId, 'الشيك المطلوب صورته ما عاد موجود.');
 
             return;
@@ -494,16 +494,27 @@ class TelegramPoll extends Command
             return;
         }
 
-        $slot = $link->pending_check_slot ?? 1;
+        $queue = $link->pending_check_slots ? explode(',', $link->pending_check_slots) : ['1'];
+        $slot = (int) array_shift($queue);
+
         $tmpPath = tempnam(sys_get_temp_dir(), 'chk');
         file_put_contents($tmpPath, $bytes);
         $uploadedFile = new UploadedFile($tmpPath, 'check.jpg', 'image/jpeg', null, true);
 
         $checkService->attachImage($check, $uploadedFile, $slot);
-        $link->update(['pending_check_id' => null, 'pending_check_slot' => null]);
         @unlink($tmpPath);
 
         $side = $slot === 2 ? 'الظهر' : 'الوجه';
+
+        if (! empty($queue)) {
+            $link->update(['pending_check_slots' => implode(',', $queue)]);
+            $nextSide = ((int) $queue[0]) === 2 ? 'الظهر' : 'الوجه';
+            $telegram->sendMessage($chatId, "تم حفظ صورة {$side} 📎 هلق ابعتلي صورة {$nextSide} كمان.", $keyboard);
+
+            return;
+        }
+
+        $link->update(['pending_check_id' => null, 'pending_check_slots' => null]);
         $telegram->sendMessage($chatId, "تم حفظ صورة {$side} للشيك رقم {$check->check_number} بنجاح، شكراً! 📎", $keyboard);
     }
 
