@@ -357,17 +357,27 @@ class WorkItemService
                 $invoice = $line->invoice;
                 $price = (float) $line->amount_ils;
                 $line->delete();
-                $invoice->decrement('total_amount_ils', $price);
+
+                // total_amount_ils isn't always the sum of invoice lines — a
+                // manual discount (PaymentService::adjustTotal) can have
+                // already shrunk it independently of the lines. Reversing by
+                // the line's full original price would overshoot past what's
+                // actually left (and go negative) whenever a discount was
+                // applied on top of this line. Clamp the actual reversal to
+                // what's still on the invoice, and post that same amount to
+                // the ledger so the two stay consistent.
+                $actualReversal = min($price, (float) $invoice->total_amount_ils);
+                $invoice->update(['total_amount_ils' => max(0, (float) $invoice->total_amount_ils - $actualReversal)]);
 
                 PatientTransaction::create([
                     'patient_id' => $toothStep->workItem->patient_id,
                     'type' => 'adjustment',
                     'reference_type' => 'invoice_line_reversal',
                     'reference_id' => $invoice->id,
-                    'amount' => -$price,
+                    'amount' => -$actualReversal,
                     'currency' => 'ILS',
                     'exchange_rate' => 1,
-                    'amount_ils' => -$price,
+                    'amount_ils' => -$actualReversal,
                     'occurred_at' => now(),
                 ]);
 
