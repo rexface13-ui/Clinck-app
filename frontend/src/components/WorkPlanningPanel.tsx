@@ -424,8 +424,7 @@ export default function WorkPlanningPanel({
     const removedTeeth = editingOriginalTeeth.filter((n) => !selectedTeeth.includes(n))
 
     if (selectedTeeth.length === 0) {
-      setCreateError('لازم يضل سن واحد عالأقل بالشغلة.')
-      return
+      if (!window.confirm('بتشيل كل الأسنان من هالشغلة — هيك رح تلغي الجلسة بالكامل. متأكد؟')) return
     }
 
     if (addedTeeth.length > 0) {

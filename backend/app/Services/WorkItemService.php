@@ -140,9 +140,9 @@ class WorkItemService
     {
         $workItem->loadMissing('teeth', 'toothSteps');
 
-        abort_if($workItem->teeth->count() <= 1, 422, 'ما فيك تشيل آخر سن من الشغلة — إلغي الشغلة كاملة بدل هيك.');
+        $isLastTooth = $workItem->teeth->count() <= 1;
 
-        DB::transaction(function () use ($workItem, $toothNumber) {
+        DB::transaction(function () use ($workItem, $toothNumber, $isLastTooth) {
             $toothSteps = $workItem->toothSteps->where('tooth_number', $toothNumber);
 
             foreach ($toothSteps as $toothStep) {
@@ -155,6 +155,16 @@ class WorkItemService
             WorkItemTooth::where('work_item_id', $workItem->id)->where('tooth_number', $toothNumber)->delete();
 
             $this->recomputeToothFinding($workItem->patient_id, $toothNumber, $workItem->service_id);
+
+            // Removing the session's only remaining tooth used to be a hard
+            // error ("إلغي الشغلة كاملة بدل هيك") that the edit-session form
+            // had no actual way to satisfy — there was no whole-item delete
+            // reachable from there, so the item just got stuck forever at
+            // one tooth, status still 'in_progress', showing up as open work
+            // on that tooth with nothing left to edit. Cancel it instead.
+            if ($isLastTooth) {
+                $workItem->update(['status' => 'cancelled']);
+            }
         });
     }
 

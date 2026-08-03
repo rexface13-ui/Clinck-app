@@ -30,11 +30,14 @@ export default function PatientLedgerPanel({
   patientId,
   refreshSignal,
   autoOpenPayment = false,
+  onChanged,
 }: {
   patientId: number
   refreshSignal?: number
   /** Skip the "pay=1" query-param dance and just open the payment form immediately — used when this panel is embedded in a popup rather than a routed page. */
   autoOpenPayment?: boolean
+  /** Called after any mutating action (payment, discount, check, invoice edit/delete...) so a parent showing its own summary (e.g. the debt banner up top) doesn't need a manual page reload to catch up. */
+  onChanged?: () => void
 }) {
   const { can } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -121,6 +124,7 @@ export default function PatientLedgerPanel({
       setShowForm(false)
       setCashForm({ invoice_id: '', cashbox_id: '', amount: '', method: 'cash', exchange_rate: '1' })
       load()
+      onChanged?.()
     } catch {
       setError('تعذّر تسجيل الدفعة.')
     } finally {
@@ -141,6 +145,7 @@ export default function PatientLedgerPanel({
       setDiscountAmount('')
       setDiscountNote('')
       load()
+      onChanged?.()
     } catch {
       setError('تعذّر تسجيل الخصم.')
     } finally {
@@ -155,6 +160,7 @@ export default function PatientLedgerPanel({
     try {
       await api.delete(`/payments/${paymentId}`)
       load()
+      onChanged?.()
     } catch {
       setError('تعذّر حذف الدفعة.')
     } finally {
@@ -169,6 +175,7 @@ export default function PatientLedgerPanel({
     try {
       await api.delete(`/patient-transactions/${transactionId}`)
       load()
+      onChanged?.()
     } catch {
       setError('تعذّر حذف الحركة.')
     } finally {
@@ -183,6 +190,7 @@ export default function PatientLedgerPanel({
     try {
       await api.delete(`/invoices/${invoiceId}`)
       load()
+      onChanged?.()
     } catch {
       setError('تعذّر إلغاء الفاتورة.')
     } finally {
@@ -198,6 +206,7 @@ export default function PatientLedgerPanel({
       await api.patch(`/invoices/${invoiceId}`, { total_amount_ils: Number(editInvoiceTotal) })
       setEditingInvoiceId(null)
       load()
+      onChanged?.()
     } catch {
       setError('تعذّر تعديل الفاتورة.')
     } finally {
@@ -218,6 +227,7 @@ export default function PatientLedgerPanel({
       })
       setEditingPaymentId(null)
       load()
+      onChanged?.()
     } catch {
       setError('تعذّر تعديل الدفعة.')
     } finally {
@@ -260,6 +270,7 @@ export default function PatientLedgerPanel({
         setCreatedCheck({ id: res.data.id, check_number: res.data.check_number })
       }
       load()
+      onChanged?.()
     } catch {
       setError('تعذّر تسجيل الشيك.')
     } finally {

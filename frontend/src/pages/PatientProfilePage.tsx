@@ -478,7 +478,7 @@ export default function PatientProfilePage() {
                 {
                   key: 'ledger',
                   label: 'الحساب',
-                  content: <PatientLedgerPanel patientId={patient.id} refreshSignal={refreshSignal} />,
+                  content: <PatientLedgerPanel patientId={patient.id} refreshSignal={refreshSignal} onChanged={load} />,
                 },
               ]
             : []),
