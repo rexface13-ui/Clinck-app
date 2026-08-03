@@ -143,7 +143,7 @@ class TelegramPoll extends Command
         }
 
         if ($link && $link->doctor_id) {
-            $this->handleDoctorMessage($chatId, $text, $link, $telegram);
+            $this->handleDoctorMessage($chatId, $text, $photos, $link, $telegram, $checkService);
 
             return;
         }
@@ -266,7 +266,7 @@ class TelegramPoll extends Command
     protected function handleStaffMessage(int $chatId, string $text, ?array $photos, TelegramLink $link, TelegramService $telegram, CheckService $checkService): void
     {
         if ($photos && $link->pending_check_id) {
-            $this->handleCheckPhotoReply($chatId, $photos, $link, $telegram, $checkService);
+            $this->handleCheckPhotoReply($chatId, $photos, $link, $telegram, $checkService, $this->staffKeyboard($link->user));
 
             return;
         }
@@ -475,11 +475,11 @@ class TelegramPoll extends Command
      * largest size Telegram sent, attach it to that specific check, and
      * clear the pending request.
      */
-    protected function handleCheckPhotoReply(int $chatId, array $photos, TelegramLink $link, TelegramService $telegram, CheckService $checkService): void
+    protected function handleCheckPhotoReply(int $chatId, array $photos, TelegramLink $link, TelegramService $telegram, CheckService $checkService, array $keyboard): void
     {
         $check = CheckModel::find($link->pending_check_id);
         if (! $check) {
-            $link->update(['pending_check_id' => null]);
+            $link->update(['pending_check_id' => null, 'pending_check_slot' => null]);
             $telegram->sendMessage($chatId, 'الشيك المطلوب صورته ما عاد موجود.');
 
             return;
@@ -494,15 +494,17 @@ class TelegramPoll extends Command
             return;
         }
 
+        $slot = $link->pending_check_slot ?? 1;
         $tmpPath = tempnam(sys_get_temp_dir(), 'chk');
         file_put_contents($tmpPath, $bytes);
         $uploadedFile = new UploadedFile($tmpPath, 'check.jpg', 'image/jpeg', null, true);
 
-        $checkService->attachImage($check, $uploadedFile);
-        $link->update(['pending_check_id' => null]);
+        $checkService->attachImage($check, $uploadedFile, $slot);
+        $link->update(['pending_check_id' => null, 'pending_check_slot' => null]);
         @unlink($tmpPath);
 
-        $telegram->sendMessage($chatId, "تم حفظ صورة الشيك رقم {$check->check_number} بنجاح، شكراً! 📎", $this->staffKeyboard($link->user));
+        $side = $slot === 2 ? 'الظهر' : 'الوجه';
+        $telegram->sendMessage($chatId, "تم حفظ صورة {$side} للشيك رقم {$check->check_number} بنجاح، شكراً! 📎", $keyboard);
     }
 
     // ---------------------------------------------------------------
@@ -621,7 +623,7 @@ class TelegramPoll extends Command
     // without a User login. Scoped to their own schedule only.
     // ---------------------------------------------------------------
 
-    protected function handleDoctorMessage(int $chatId, string $text, TelegramLink $link, TelegramService $telegram): void
+    protected function handleDoctorMessage(int $chatId, string $text, ?array $photos, TelegramLink $link, TelegramService $telegram, CheckService $checkService): void
     {
         $doctor = $link->doctor;
         if (! $doctor) {
@@ -629,6 +631,12 @@ class TelegramPoll extends Command
         }
 
         $keyboard = [[self::BTN_TODAY, self::BTN_WEEK], [self::BTN_MY_COMMISSION, self::BTN_SEARCH_PATIENT]];
+
+        if ($photos && $link->pending_check_id) {
+            $this->handleCheckPhotoReply($chatId, $photos, $link, $telegram, $checkService, $keyboard);
+
+            return;
+        }
 
         if ($text === self::BTN_TODAY || $text === '/start') {
             $this->handleDoctorAppointments($chatId, $doctor, $link, $telegram, 0, $keyboard);

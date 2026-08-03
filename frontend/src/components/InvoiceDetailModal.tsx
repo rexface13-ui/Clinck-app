@@ -9,6 +9,7 @@ import type { Cashbox, Invoice, Note } from '../types'
 import MiniOdontogramPreview from './MiniOdontogramPreview'
 import ToothNotesModal from './ToothNotesModal'
 import DatePicker from './DatePicker'
+import RequestCheckImageButton from './RequestCheckImageButton'
 
 const STATUS_LABELS: Record<string, string> = {
   unpaid: 'غير مدفوعة',
@@ -73,6 +74,7 @@ export default function InvoiceDetailModal({
   const checkImageInputRef = useRef<HTMLInputElement>(null)
   const [checkImage2, setCheckImage2] = useState<File | null>(null)
   const checkImage2InputRef = useRef<HTMLInputElement>(null)
+  const [createdCheck, setCreatedCheck] = useState<{ id: number; check_number: string } | null>(null)
   const [collecting, setCollecting] = useState(false)
 
   function load() {
@@ -173,7 +175,7 @@ export default function InvoiceDetailModal({
       data.append('due_date', checkDueDate)
       if (checkImage) data.append('image', checkImage)
       if (checkImage2) data.append('image2', checkImage2)
-      await api.post('/checks', data, { headers: { 'Content-Type': 'multipart/form-data' } })
+      const res = await api.post('/checks', data, { headers: { 'Content-Type': 'multipart/form-data' } })
       setShowCollect(false)
       setCheckNumber('')
       setCheckBank('')
@@ -183,6 +185,9 @@ export default function InvoiceDetailModal({
       setCheckImage2(null)
       if (checkImageInputRef.current) checkImageInputRef.current.value = ''
       if (checkImage2InputRef.current) checkImage2InputRef.current.value = ''
+      if (!checkImage || !checkImage2) {
+        setCreatedCheck({ id: res.data.id, check_number: res.data.check_number })
+      }
       onChanged?.()
     } catch {
       setError('تعذّر تسجيل الشيك.')
@@ -468,6 +473,17 @@ export default function InvoiceDetailModal({
                   </button>
                 </>
               )}
+            </div>
+          )}
+
+          {createdCheck && (
+            <div className="space-y-2 rounded-lg bg-background p-3">
+              <p className="text-xs text-ink/70">تم استلام الشيك رقم {createdCheck.check_number}. ناقصك صورة؟</p>
+              <RequestCheckImageButton
+                checkId={createdCheck.id}
+                checkNumber={createdCheck.check_number}
+                onSent={() => setCreatedCheck(null)}
+              />
             </div>
           )}
 

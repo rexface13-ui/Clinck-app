@@ -111,16 +111,24 @@ class CheckController extends Controller
     {
         abort_unless($request->user()->can('checks.manage'), 403);
 
-        $data = $request->validate(['user_id' => ['required', 'exists:users,id']]);
+        $data = $request->validate([
+            'user_id' => ['required_without:doctor_id', 'nullable', 'exists:users,id'],
+            'doctor_id' => ['required_without:user_id', 'nullable', 'exists:doctors,id'],
+            'slot' => ['nullable', 'integer', Rule::in([1, 2])],
+        ]);
 
-        $link = TelegramLink::where('user_id', $data['user_id'])->whereNotNull('linked_at')->first();
-        abort_unless($link, 422, 'هذا الموظف مو مربوط بتيليغرام بعد.');
+        $link = $data['doctor_id'] ?? null
+            ? TelegramLink::where('doctor_id', $data['doctor_id'])->whereNotNull('linked_at')->first()
+            : TelegramLink::where('user_id', $data['user_id'])->whereNotNull('linked_at')->first();
+        abort_unless($link, 422, 'هذا الشخص مو مربوط بتيليغرام بعد.');
 
-        $link->update(['pending_check_id' => $check->id]);
+        $slot = (int) ($data['slot'] ?? 1);
+        $link->update(['pending_check_id' => $check->id, 'pending_check_slot' => $slot]);
 
+        $side = $slot === 2 ? 'ظهر' : 'وجه';
         $telegram->sendMessage(
             (int) $link->telegram_chat_id,
-            "📸 مطلوب صورة للشيك رقم {$check->check_number} ({$check->amount} {$check->currency}) — صوّرها أو اختارها من المعرض وابعتها هون مباشرة.",
+            "📸 مطلوب صورة {$side} الشيك رقم {$check->check_number} ({$check->amount} {$check->currency}) — صوّرها أو اختارها من المعرض وابعتها هون مباشرة.",
         );
 
         return response()->noContent();
