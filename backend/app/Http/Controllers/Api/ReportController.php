@@ -4,12 +4,18 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Appointment;
+use App\Models\Cashbox;
+use App\Models\CashboxTransaction;
+use App\Models\CheckModel;
 use App\Models\Doctor;
 use App\Models\DoctorTransaction;
+use App\Models\Expense;
 use App\Models\InvoiceLine;
 use App\Models\Patient;
 use App\Models\PatientTransaction;
 use App\Models\Payment;
+use App\Models\Supplier;
+use App\Models\SupplierTransaction;
 use App\Models\WorkItem;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -114,12 +120,23 @@ class ReportController extends Controller
                 ->when($data['to'] ?? null, fn ($q, $to) => $q->where('created_at', '<=', $to.' 23:59:59'))
                 ->sum('amount_ils');
 
+            // "Paid" is filtered by settled_at (when the payout actually
+            // happened), not created_at, since a settlement can be recorded
+            // any time after the commission itself was earned.
+            $commissionPaid = DoctorTransaction::where('doctor_id', $doctor->id)
+                ->where('type', 'settlement')
+                ->when($data['from'] ?? null, fn ($q, $from) => $q->where('settled_at', '>=', $from))
+                ->when($data['to'] ?? null, fn ($q, $to) => $q->where('settled_at', '<=', $to.' 23:59:59'))
+                ->sum('amount_ils');
+
             return [
                 'doctor_id' => $doctor->id,
                 'doctor_name' => $doctor->full_name,
                 'sessions_count' => $sessionsCount,
                 'revenue_ils' => (float) $revenue,
                 'commission_ils' => (float) $commission,
+                'commission_paid_ils' => (float) $commissionPaid,
+                'commission_outstanding_ils' => round((float) $commission - (float) $commissionPaid, 2),
             ];
         })->sortByDesc('revenue_ils')->values();
 
@@ -335,5 +352,167 @@ class ReportController extends Controller
         }
 
         return ['patients' => array_values($byPatient)];
+    }
+
+    /**
+     * Per-cashbox live balance + money in/out within the range, plus
+     * expenses broken down by category within the same range. The balance
+     * itself is always "right now" (a cashbox has one real balance); only
+     * the flow and expense figures respect the date filter.
+     */
+    public function cashboxFlow(Request $request)
+    {
+        $this->authorizeView($request);
+
+        $data = $request->validate([
+            'from' => ['nullable', 'date'],
+            'to' => ['nullable', 'date'],
+        ]);
+
+        $cashboxes = Cashbox::orderBy('name')->get();
+
+        $flows = CashboxTransaction::whereIn('cashbox_id', $cashboxes->pluck('id'))
+            ->when($data['from'] ?? null, fn ($q, $from) => $q->where('occurred_at', '>=', $from))
+            ->when($data['to'] ?? null, fn ($q, $to) => $q->where('occurred_at', '<=', $to.' 23:59:59'))
+            ->get(['cashbox_id', 'amount']);
+
+        $cashboxesOut = $cashboxes->map(function (Cashbox $c) use ($flows) {
+            $rows = $flows->where('cashbox_id', $c->id);
+
+            return [
+                'cashbox_id' => $c->id,
+                'name' => $c->name,
+                'currency' => $c->currency,
+                'balance' => (float) $c->balance,
+                'total_in' => round((float) $rows->filter(fn ($r) => $r->amount > 0)->sum('amount'), 2),
+                'total_out' => round((float) $rows->filter(fn ($r) => $r->amount < 0)->sum('amount'), 2),
+            ];
+        })->values();
+
+        $expenseRows = Expense::with('category')
+            ->when($data['from'] ?? null, fn ($q, $from) => $q->where('spent_at', '>=', $from))
+            ->when($data['to'] ?? null, fn ($q, $to) => $q->where('spent_at', '<=', $to.' 23:59:59'))
+            ->get();
+
+        $byCategory = [];
+        foreach ($expenseRows as $expense) {
+            $name = $expense->category?->name ?? 'أخرى';
+            $byCategory[$name] = ($byCategory[$name] ?? 0) + (float) $expense->amount_ils;
+        }
+        arsort($byCategory);
+
+        return [
+            'cashboxes' => $cashboxesOut,
+            'expenses' => [
+                'total_ils' => round(array_sum($byCategory), 2),
+                'by_category' => collect($byCategory)->map(fn ($total, $name) => ['category' => $name, 'total_ils' => round($total, 2)])->values(),
+            ],
+        ];
+    }
+
+    /**
+     * Money owed to suppliers + purchase invoices still outstanding, plus
+     * checks that need attention soon (due within 14 days, or already
+     * overdue/bounced) — the two things a clinic owner actually watches on
+     * the outgoing-money side.
+     */
+    public function suppliersChecks(Request $request)
+    {
+        $this->authorizeView($request);
+
+        $balances = SupplierTransaction::selectRaw('supplier_id, SUM(amount_ils) as total')
+            ->groupBy('supplier_id')
+            ->pluck('total', 'supplier_id');
+
+        $suppliers = Supplier::whereIn('id', $balances->keys())
+            ->get()
+            ->map(fn (Supplier $s) => [
+                'supplier_id' => $s->id,
+                'supplier_name' => $s->name,
+                'outstanding_ils' => round((float) ($balances[$s->id] ?? 0), 2),
+            ])
+            ->filter(fn ($s) => $s['outstanding_ils'] > 0.01)
+            ->sortByDesc('outstanding_ils')
+            ->values();
+
+        $timezone = config('dentaflow.display_timezone');
+        $now = Carbon::now($timezone);
+        $soon = $now->clone()->addDays(14);
+
+        $dueSoon = CheckModel::whereIn('status', ['in_wallet', 'endorsed'])
+            ->whereDate('due_date', '<=', $soon)
+            ->with('party')
+            ->orderBy('due_date')
+            ->get()
+            ->map(fn (CheckModel $c) => [
+                'id' => $c->id,
+                'direction' => $c->direction,
+                'check_number' => $c->check_number,
+                'bank_name' => $c->bank_name,
+                'amount' => (float) $c->amount,
+                'currency' => $c->currency,
+                'due_date' => display_datetime($c->due_date),
+                'is_overdue' => Carbon::parse($c->due_date)->lt($now->startOfDay()),
+                'party_name' => $c->party?->name ?? $c->party?->full_name,
+            ]);
+
+        $bounced = CheckModel::where('status', 'bounced')
+            ->with('party')
+            ->orderByDesc('due_date')
+            ->get()
+            ->map(fn (CheckModel $c) => [
+                'id' => $c->id,
+                'direction' => $c->direction,
+                'check_number' => $c->check_number,
+                'bank_name' => $c->bank_name,
+                'amount' => (float) $c->amount,
+                'currency' => $c->currency,
+                'due_date' => display_datetime($c->due_date),
+                'party_name' => $c->party?->name ?? $c->party?->full_name,
+            ]);
+
+        return [
+            'suppliers' => $suppliers,
+            'suppliers_total_ils' => round($suppliers->sum('outstanding_ils'), 2),
+            'checks_due_soon' => $dueSoon->values(),
+            'checks_bounced' => $bounced->values(),
+        ];
+    }
+
+    /**
+     * Small top-of-page indicator: revenue minus doctor commissions minus
+     * expenses within the range — an approximate net profit, not a strict
+     * accounting P&L (doesn't account for e.g. accrual timing or
+     * uncollected receivables).
+     */
+    public function summary(Request $request)
+    {
+        $this->authorizeView($request);
+
+        $data = $request->validate([
+            'from' => ['nullable', 'date'],
+            'to' => ['nullable', 'date'],
+        ]);
+
+        $revenue = PatientTransaction::where('type', 'charge')
+            ->when($data['from'] ?? null, fn ($q, $from) => $q->where('occurred_at', '>=', $from))
+            ->when($data['to'] ?? null, fn ($q, $to) => $q->where('occurred_at', '<=', $to.' 23:59:59'))
+            ->sum('amount_ils');
+
+        $commissions = DoctorTransaction::where('type', 'commission')
+            ->when($data['from'] ?? null, fn ($q, $from) => $q->where('created_at', '>=', $from))
+            ->when($data['to'] ?? null, fn ($q, $to) => $q->where('created_at', '<=', $to.' 23:59:59'))
+            ->sum('amount_ils');
+
+        $expenses = Expense::when($data['from'] ?? null, fn ($q, $from) => $q->where('spent_at', '>=', $from))
+            ->when($data['to'] ?? null, fn ($q, $to) => $q->where('spent_at', '<=', $to.' 23:59:59'))
+            ->sum('amount_ils');
+
+        return [
+            'revenue_ils' => round((float) $revenue, 2),
+            'commissions_ils' => round((float) $commissions, 2),
+            'expenses_ils' => round((float) $expenses, 2),
+            'net_profit_ils' => round((float) $revenue - (float) $commissions - (float) $expenses, 2),
+        ];
     }
 }

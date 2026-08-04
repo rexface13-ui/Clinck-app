@@ -220,6 +220,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('reports/debts-aging', [ReportController::class, 'debtsAging']);
     Route::get('reports/collections', [ReportController::class, 'collections']);
     Route::get('reports/pending-treatments', [ReportController::class, 'pendingTreatments']);
+    Route::get('reports/cashbox-flow', [ReportController::class, 'cashboxFlow']);
+    Route::get('reports/suppliers-checks', [ReportController::class, 'suppliersChecks']);
+    Route::get('reports/summary', [ReportController::class, 'summary']);
 
     Route::put('settings', [SettingController::class, 'update']);
     Route::put('chart-callout-layout', [\App\Http\Controllers\Api\ToothChartController::class, 'updateCalloutLayout']);

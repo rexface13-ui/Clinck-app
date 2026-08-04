@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
+import { faSackDollar, faHandHoldingDollar, faReceipt, faScaleBalanced, faTriangleExclamation } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import DatePicker from '../components/DatePicker'
-import { Card, PageHeader, Tabs, Modal, Table, Thead, Th, Td, Tr } from '../components/ui'
+import { Card, PageHeader, Tabs, Modal, Table, Thead, Th, Td, Tr, StatCard } from '../components/ui'
 
 /** Shared "from/to" range picker for the reports that support server-side date filtering. Empty values mean "all time". */
 function DateRangeFilter({ from, to, onFrom, onTo }: { from: string; to: string; onFrom: (v: string) => void; onTo: (v: string) => void }) {
@@ -102,16 +104,28 @@ function BarChart({
 }
 
 function RevenueTab() {
+  const [mode, setMode] = useState<'months' | 'service'>('months')
+
   const [monthsCount, setMonthsCount] = useState(6)
   const [months, setMonths] = useState<{ month: string; label: string; total_ils: number }[]>([])
   const [openIndex, setOpenIndex] = useState<number | null>(null)
   const [detail, setDetail] = useState<{ service_name: string; total_ils: number }[] | null>(null)
 
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
+  const [services, setServices] = useState<{ service_name: string; total_ils: number }[]>([])
+
   useEffect(() => {
+    if (mode !== 'months') return
     api.get('/reports/revenue', { params: { months: monthsCount } }).then((res) => setMonths(res.data.months))
     setOpenIndex(null)
     setDetail(null)
-  }, [monthsCount])
+  }, [monthsCount, mode])
+
+  useEffect(() => {
+    if (mode !== 'service') return
+    api.get('/reports/revenue-by-service', { params: { from: from || undefined, to: to || undefined } }).then((res) => setServices(res.data.services))
+  }, [from, to, mode])
 
   function toggleMonth(index: number) {
     if (openIndex === index) {
@@ -133,77 +147,88 @@ function RevenueTab() {
   const diff = last && prev ? last.total_ils - prev.total_ils : null
   const diffPct = last && prev && prev.total_ils > 0 ? Math.round((diff! / prev.total_ils) * 100) : null
 
+  const servicesTotal = services.reduce((s, x) => s + x.total_ils, 0)
+
   return (
     <Card className="p-6">
-      <MonthsFilter months={monthsCount} onChange={setMonthsCount} />
-      <div className="mb-4 flex items-baseline justify-between">
-        <h3 className="text-sm font-semibold text-ink/80">إيرادات آخر {monthsCount} أشهر</h3>
-        {diff !== null && (
-          <span className={`text-sm font-medium ${diff >= 0 ? 'text-success' : 'text-danger'}`}>
-            {diff >= 0 ? '▲' : '▼'} {money(Math.abs(diff))} ₪ {diffPct !== null && `(${diffPct >= 0 ? '+' : ''}${diffPct}%)`} عن الشهر الماضي
-          </span>
-        )}
+      <div className="mb-4 flex gap-2">
+        <button
+          onClick={() => setMode('months')}
+          className={`rounded-lg border px-3 py-1.5 text-xs font-medium ${
+            mode === 'months' ? 'border-accent bg-accent text-white' : 'border-border text-ink/60 hover:bg-background'
+          }`}
+        >
+          حسب الأشهر
+        </button>
+        <button
+          onClick={() => setMode('service')}
+          className={`rounded-lg border px-3 py-1.5 text-xs font-medium ${
+            mode === 'service' ? 'border-accent bg-accent text-white' : 'border-border text-ink/60 hover:bg-background'
+          }`}
+        >
+          حسب الخدمة
+        </button>
       </div>
-      <BarChart
-        bars={months.map((m) => ({ label: m.label, value: m.total_ils }))}
-        formatValue={(n) => `${money(n)} ₪`}
-        onBarClick={toggleMonth}
-        activeIndex={openIndex}
-      />
-      {openIndex !== null && (
-        <div className="mt-4 rounded-xl bg-background p-4">
-          <h4 className="mb-3 text-xs font-semibold text-ink/70">تفاصيل إيرادات {months[openIndex].label} حسب الخدمة</h4>
-          {!detail ? (
-            <p className="text-xs text-muted">جارِ التحميل...</p>
-          ) : detail.length === 0 ? (
-            <p className="text-xs text-muted">لا توجد إيرادات هالشهر.</p>
+
+      {mode === 'months' ? (
+        <>
+          <MonthsFilter months={monthsCount} onChange={setMonthsCount} />
+          <div className="mb-4 flex items-baseline justify-between">
+            <h3 className="text-sm font-semibold text-ink/80">إيرادات آخر {monthsCount} أشهر</h3>
+            {diff !== null && (
+              <span className={`text-sm font-medium ${diff >= 0 ? 'text-success' : 'text-danger'}`}>
+                {diff >= 0 ? '▲' : '▼'} {money(Math.abs(diff))} ₪ {diffPct !== null && `(${diffPct >= 0 ? '+' : ''}${diffPct}%)`} عن الشهر الماضي
+              </span>
+            )}
+          </div>
+          <BarChart
+            bars={months.map((m) => ({ label: m.label, value: m.total_ils }))}
+            formatValue={(n) => `${money(n)} ₪`}
+            onBarClick={toggleMonth}
+            activeIndex={openIndex}
+          />
+          {openIndex !== null && (
+            <div className="mt-4 rounded-xl bg-background p-4">
+              <h4 className="mb-3 text-xs font-semibold text-ink/70">تفاصيل إيرادات {months[openIndex].label} حسب الخدمة</h4>
+              {!detail ? (
+                <p className="text-xs text-muted">جارِ التحميل...</p>
+              ) : detail.length === 0 ? (
+                <p className="text-xs text-muted">لا توجد إيرادات هالشهر.</p>
+              ) : (
+                <div className="space-y-2">
+                  {detail.map((s) => (
+                    <div key={s.service_name} className="flex items-center justify-between text-xs">
+                      <span className="text-ink/80">{s.service_name}</span>
+                      <span className="font-medium text-ink">{money(s.total_ils)} ₪</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          <DateRangeFilter from={from} to={to} onFrom={setFrom} onTo={setTo} />
+          <h3 className="mb-4 text-sm font-semibold text-ink/80">الإيرادات حسب الخدمة {from || to ? '' : '(كل الوقت)'}</h3>
+          {services.length === 0 ? (
+            <p className="text-sm text-muted">لا توجد بيانات بعد.</p>
           ) : (
-            <div className="space-y-2">
-              {detail.map((s) => (
-                <div key={s.service_name} className="flex items-center justify-between text-xs">
-                  <span className="text-ink/80">{s.service_name}</span>
-                  <span className="font-medium text-ink">{money(s.total_ils)} ₪</span>
+            <div className="space-y-3">
+              {services.map((s) => (
+                <div key={s.service_name}>
+                  <div className="mb-1 flex justify-between text-sm">
+                    <span className="text-ink/80">{s.service_name}</span>
+                    <span className="text-muted">{money(s.total_ils)} ₪ ({servicesTotal > 0 ? Math.round((s.total_ils / servicesTotal) * 100) : 0}%)</span>
+                  </div>
+                  <div className="h-2 w-full rounded-full bg-background">
+                    <div className="h-2 rounded-full bg-accent" style={{ width: `${servicesTotal > 0 ? (s.total_ils / servicesTotal) * 100 : 0}%` }} />
+                  </div>
                 </div>
               ))}
             </div>
           )}
-        </div>
-      )}
-    </Card>
-  )
-}
-
-function RevenueByServiceTab() {
-  const [from, setFrom] = useState('')
-  const [to, setTo] = useState('')
-  const [services, setServices] = useState<{ service_name: string; total_ils: number }[]>([])
-
-  useEffect(() => {
-    api.get('/reports/revenue-by-service', { params: { from: from || undefined, to: to || undefined } }).then((res) => setServices(res.data.services))
-  }, [from, to])
-
-  const total = services.reduce((s, x) => s + x.total_ils, 0)
-
-  return (
-    <Card className="p-6">
-      <DateRangeFilter from={from} to={to} onFrom={setFrom} onTo={setTo} />
-      <h3 className="mb-4 text-sm font-semibold text-ink/80">الإيرادات حسب الخدمة {from || to ? '' : '(كل الوقت)'}</h3>
-      {services.length === 0 ? (
-        <p className="text-sm text-muted">لا توجد بيانات بعد.</p>
-      ) : (
-        <div className="space-y-3">
-          {services.map((s) => (
-            <div key={s.service_name}>
-              <div className="mb-1 flex justify-between text-sm">
-                <span className="text-ink/80">{s.service_name}</span>
-                <span className="text-muted">{money(s.total_ils)} ₪ ({total > 0 ? Math.round((s.total_ils / total) * 100) : 0}%)</span>
-              </div>
-              <div className="h-2 w-full rounded-full bg-background">
-                <div className="h-2 rounded-full bg-accent" style={{ width: `${total > 0 ? (s.total_ils / total) * 100 : 0}%` }} />
-              </div>
-            </div>
-          ))}
-        </div>
+        </>
       )}
     </Card>
   )
@@ -213,7 +238,9 @@ function DoctorProductivityTab() {
   const navigate = useNavigate()
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
-  const [doctors, setDoctors] = useState<{ doctor_id: number; doctor_name: string; sessions_count: number; revenue_ils: number; commission_ils: number }[]>([])
+  const [doctors, setDoctors] = useState<
+    { doctor_id: number; doctor_name: string; sessions_count: number; revenue_ils: number; commission_ils: number; commission_paid_ils: number; commission_outstanding_ils: number }[]
+  >([])
 
   useEffect(() => {
     api.get('/reports/doctor-productivity', { params: { from: from || undefined, to: to || undefined } }).then((res) => setDoctors(res.data.doctors))
@@ -235,6 +262,8 @@ function DoctorProductivityTab() {
                 <th className="p-2 font-medium">عدد الجلسات</th>
                 <th className="p-2 font-medium">الإيراد</th>
                 <th className="p-2 font-medium">العمولة</th>
+                <th className="p-2 font-medium">مدفوعة</th>
+                <th className="p-2 font-medium">مستحقة</th>
               </tr>
             </thead>
             <tbody>
@@ -248,6 +277,10 @@ function DoctorProductivityTab() {
                   <td className="p-2 text-muted">{d.sessions_count}</td>
                   <td className="p-2 text-ink">{money(d.revenue_ils)} ₪</td>
                   <td className="p-2 text-muted">{money(d.commission_ils)} ₪</td>
+                  <td className="p-2 text-muted">{money(d.commission_paid_ils)} ₪</td>
+                  <td className={`p-2 font-medium ${d.commission_outstanding_ils > 0.01 ? 'text-danger' : 'text-ink/70'}`}>
+                    {money(d.commission_outstanding_ils)} ₪
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -494,16 +527,248 @@ function PendingTreatmentsTab() {
   )
 }
 
+interface CashboxFlowRow {
+  cashbox_id: number
+  name: string
+  currency: string
+  balance: number
+  total_in: number
+  total_out: number
+}
+
+function CashAndExpensesTab() {
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
+  const [cashboxes, setCashboxes] = useState<CashboxFlowRow[]>([])
+  const [expenses, setExpenses] = useState<{ total_ils: number; by_category: { category: string; total_ils: number }[] }>({
+    total_ils: 0,
+    by_category: [],
+  })
+
+  useEffect(() => {
+    api.get('/reports/cashbox-flow', { params: { from: from || undefined, to: to || undefined } }).then((res) => {
+      setCashboxes(res.data.cashboxes)
+      setExpenses(res.data.expenses)
+    })
+  }, [from, to])
+
+  return (
+    <div className="space-y-4">
+      <Card className="p-6">
+        <DateRangeFilter from={from} to={to} onFrom={setFrom} onTo={setTo} />
+        <h3 className="mb-1 text-sm font-semibold text-ink/80">الصناديق</h3>
+        <p className="mb-4 text-xs text-muted">الرصيد الحالي دايماً "الآن"، أما الوارد والصادر فحسب الفترة المحددة فوق.</p>
+        {cashboxes.length === 0 ? (
+          <p className="text-sm text-muted">لا توجد صناديق.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border text-right text-muted">
+                  <th className="p-2 font-medium">الصندوق</th>
+                  <th className="p-2 font-medium">الرصيد الحالي</th>
+                  <th className="p-2 font-medium">وارد بالفترة</th>
+                  <th className="p-2 font-medium">صادر بالفترة</th>
+                </tr>
+              </thead>
+              <tbody>
+                {cashboxes.map((c) => (
+                  <tr key={c.cashbox_id} className="border-b border-border/60 last:border-0">
+                    <td className="p-2 text-ink">{c.name} <span className="text-xs text-muted">({c.currency})</span></td>
+                    <td className="p-2 font-medium text-ink">{money(c.balance)} {c.currency === 'ILS' ? '₪' : c.currency}</td>
+                    <td className="p-2 text-success">{money(c.total_in)} {c.currency === 'ILS' ? '₪' : c.currency}</td>
+                    <td className="p-2 text-danger">{money(Math.abs(c.total_out))} {c.currency === 'ILS' ? '₪' : c.currency}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      <Card className="p-6">
+        <div className="mb-4 flex items-baseline justify-between">
+          <h3 className="text-sm font-semibold text-ink/80">المصاريف حسب الفئة {from || to ? '' : '(كل الوقت)'}</h3>
+          <span className="text-sm font-medium text-danger">{money(expenses.total_ils)} ₪</span>
+        </div>
+        {expenses.by_category.length === 0 ? (
+          <p className="text-sm text-muted">لا توجد مصاريف مسجّلة بهالفترة.</p>
+        ) : (
+          <div className="space-y-3">
+            {expenses.by_category.map((e) => (
+              <div key={e.category}>
+                <div className="mb-1 flex justify-between text-sm">
+                  <span className="text-ink/80">{e.category}</span>
+                  <span className="text-muted">
+                    {money(e.total_ils)} ₪ ({expenses.total_ils > 0 ? Math.round((e.total_ils / expenses.total_ils) * 100) : 0}%)
+                  </span>
+                </div>
+                <div className="h-2 w-full rounded-full bg-background">
+                  <div className="h-2 rounded-full bg-danger" style={{ width: `${expenses.total_ils > 0 ? (e.total_ils / expenses.total_ils) * 100 : 0}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+    </div>
+  )
+}
+
+interface CheckRow {
+  id: number
+  direction: string
+  check_number: string | null
+  bank_name: string | null
+  amount: number
+  currency: string
+  due_date: string
+  is_overdue?: boolean
+  party_name: string | null
+}
+
+function SuppliersAndChecksTab() {
+  const [suppliers, setSuppliers] = useState<{ supplier_id: number; supplier_name: string; outstanding_ils: number }[]>([])
+  const [suppliersTotal, setSuppliersTotal] = useState(0)
+  const [dueSoon, setDueSoon] = useState<CheckRow[]>([])
+  const [bounced, setBounced] = useState<CheckRow[]>([])
+
+  useEffect(() => {
+    api.get('/reports/suppliers-checks').then((res) => {
+      setSuppliers(res.data.suppliers)
+      setSuppliersTotal(res.data.suppliers_total_ils)
+      setDueSoon(res.data.checks_due_soon)
+      setBounced(res.data.checks_bounced)
+    })
+  }, [])
+
+  return (
+    <div className="space-y-4">
+      <Card className="p-6">
+        <div className="mb-4 flex items-baseline justify-between">
+          <h3 className="text-sm font-semibold text-ink/80">ديون الموردين</h3>
+          <span className="text-sm font-medium text-danger">{money(suppliersTotal)} ₪</span>
+        </div>
+        {suppliers.length === 0 ? (
+          <p className="text-sm text-muted">ما في ديون على موردين حالياً.</p>
+        ) : (
+          <Table>
+            <Thead>
+              <Th>المورد</Th>
+              <Th>المبلغ المستحق</Th>
+            </Thead>
+            <tbody>
+              {suppliers.map((s) => (
+                <Tr key={s.supplier_id}>
+                  <Td>{s.supplier_name}</Td>
+                  <Td className="font-medium text-danger">{money(s.outstanding_ils)} ₪</Td>
+                </Tr>
+              ))}
+            </tbody>
+          </Table>
+        )}
+      </Card>
+
+      <Card className="p-6">
+        <h3 className="mb-1 text-sm font-semibold text-ink/80">شيكات مستحقة خلال 14 يوم</h3>
+        <p className="mb-4 text-xs text-muted">واردة وصادرة، لسا ما اتقبضت/ما انصرفت.</p>
+        {dueSoon.length === 0 ? (
+          <p className="text-sm text-muted">ما في شيكات مستحقة قريباً.</p>
+        ) : (
+          <Table>
+            <Thead>
+              <Th>الجهة</Th>
+              <Th>الاتجاه</Th>
+              <Th>رقم الشيك</Th>
+              <Th>البنك</Th>
+              <Th>المبلغ</Th>
+              <Th>الاستحقاق</Th>
+            </Thead>
+            <tbody>
+              {dueSoon.map((c) => (
+                <Tr key={c.id}>
+                  <Td>{c.party_name ?? '—'}</Td>
+                  <Td className="text-muted">{c.direction === 'incoming' ? 'واردة' : 'صادرة'}</Td>
+                  <Td className="text-muted">{c.check_number ?? '—'}</Td>
+                  <Td className="text-muted">{c.bank_name ?? '—'}</Td>
+                  <Td className="font-medium text-ink">{money(c.amount)} {c.currency === 'ILS' ? '₪' : c.currency}</Td>
+                  <Td className={c.is_overdue ? 'font-medium text-danger' : 'text-muted'}>{c.due_date}{c.is_overdue ? ' (متأخر)' : ''}</Td>
+                </Tr>
+              ))}
+            </tbody>
+          </Table>
+        )}
+      </Card>
+
+      {bounced.length > 0 && (
+        <Card className="p-6">
+          <h3 className="mb-4 flex items-center gap-2 text-sm font-semibold text-danger">
+            <FontAwesomeIcon icon={faTriangleExclamation} /> شيكات مرتجعة
+          </h3>
+          <Table>
+            <Thead>
+              <Th>الجهة</Th>
+              <Th>الاتجاه</Th>
+              <Th>رقم الشيك</Th>
+              <Th>البنك</Th>
+              <Th>المبلغ</Th>
+            </Thead>
+            <tbody>
+              {bounced.map((c) => (
+                <Tr key={c.id}>
+                  <Td>{c.party_name ?? '—'}</Td>
+                  <Td className="text-muted">{c.direction === 'incoming' ? 'واردة' : 'صادرة'}</Td>
+                  <Td className="text-muted">{c.check_number ?? '—'}</Td>
+                  <Td className="text-muted">{c.bank_name ?? '—'}</Td>
+                  <Td className="font-medium text-danger">{money(c.amount)} {c.currency === 'ILS' ? '₪' : c.currency}</Td>
+                </Tr>
+              ))}
+            </tbody>
+          </Table>
+        </Card>
+      )}
+    </div>
+  )
+}
+
+function SummaryStrip() {
+  const [summary, setSummary] = useState<{ revenue_ils: number; commissions_ils: number; expenses_ils: number; net_profit_ils: number } | null>(null)
+
+  useEffect(() => {
+    const from = new Date()
+    from.setDate(1)
+    api.get('/reports/summary', { params: { from: from.toISOString().slice(0, 10) } }).then((res) => setSummary(res.data))
+  }, [])
+
+  if (!summary) return null
+
+  return (
+    <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <StatCard icon={faSackDollar} label="إيرادات هالشهر" value={`${money(summary.revenue_ils)} ₪`} />
+      <StatCard icon={faHandHoldingDollar} label="عمولات هالشهر" value={`${money(summary.commissions_ils)} ₪`} />
+      <StatCard icon={faReceipt} label="مصاريف هالشهر" value={`${money(summary.expenses_ils)} ₪`} />
+      <StatCard
+        icon={faScaleBalanced}
+        label="صافي الربح التقريبي"
+        value={`${money(summary.net_profit_ils)} ₪`}
+        tone={summary.net_profit_ils < 0 ? 'danger' : 'accent'}
+      />
+    </div>
+  )
+}
+
 export default function ReportsPage() {
   return (
     <div>
       <PageHeader title="التقارير" subtitle="نظرة شاملة على أداء العيادة المالي والسريري" />
+      <SummaryStrip />
       <Tabs
         defaultTab="revenue"
         tabs={[
-          { key: 'revenue', label: 'إيرادات الشهر', content: <RevenueTab /> },
-          { key: 'by-service', label: 'حسب الخدمة', content: <RevenueByServiceTab /> },
+          { key: 'revenue', label: 'الإيرادات', content: <RevenueTab /> },
           { key: 'doctors', label: 'إنتاجية الأطباء', content: <DoctorProductivityTab /> },
+          { key: 'cash-expenses', label: 'الصندوق والمصاريف', content: <CashAndExpensesTab /> },
+          { key: 'suppliers-checks', label: 'الموردين والشيكات', content: <SuppliersAndChecksTab /> },
           { key: 'patients', label: 'مرضى جدد/عائدين', content: <PatientsTab /> },
           { key: 'no-show', label: 'نسبة الغياب', content: <NoShowTab /> },
           { key: 'debts', label: 'أعمار الديون', content: <DebtsAgingTab /> },
