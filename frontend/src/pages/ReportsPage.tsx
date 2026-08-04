@@ -53,6 +53,55 @@ function MonthsFilter({ months, onChange }: { months: number; onChange: (n: numb
   )
 }
 
+type Granularity = 'daily' | 'weekly' | 'monthly'
+
+const GRANULARITY_LABELS: Record<Granularity, string> = { daily: 'يومي', weekly: 'أسبوعي', monthly: 'شهري' }
+const GRANULARITY_COUNT_OPTIONS: Record<Granularity, number[]> = { daily: [7, 14, 30], weekly: [4, 8, 12], monthly: [3, 6, 12] }
+
+/** Shared يومي/أسبوعي/شهري toggle + a count-of-periods sub-filter, for every report that buckets by period (revenue, sessions...). */
+function GranularityFilter({
+  granularity,
+  onGranularity,
+  count,
+  onCount,
+}: {
+  granularity: Granularity
+  onGranularity: (g: Granularity) => void
+  count: number
+  onCount: (n: number) => void
+}) {
+  return (
+    <div className="mb-4 flex flex-wrap items-center gap-3">
+      <div className="flex gap-2">
+        {(['daily', 'weekly', 'monthly'] as Granularity[]).map((g) => (
+          <button
+            key={g}
+            onClick={() => onGranularity(g)}
+            className={`rounded-lg border px-3 py-1.5 text-xs font-medium ${
+              granularity === g ? 'border-accent bg-accent text-white' : 'border-border text-ink/60 hover:bg-background'
+            }`}
+          >
+            {GRANULARITY_LABELS[g]}
+          </button>
+        ))}
+      </div>
+      <div className="flex gap-1.5">
+        {GRANULARITY_COUNT_OPTIONS[granularity].map((n) => (
+          <button
+            key={n}
+            onClick={() => onCount(n)}
+            className={`rounded-lg border px-2.5 py-1 text-[11px] ${
+              count === n ? 'border-accent text-accent' : 'border-border text-muted hover:bg-background'
+            }`}
+          >
+            آخر {n} {granularity === 'daily' ? 'يوم' : granularity === 'weekly' ? 'أسابيع' : 'أشهر'}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function money(n: number) {
   return new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(n)
 }
@@ -103,47 +152,119 @@ function BarChart({
   )
 }
 
-function RevenueTab() {
-  const [mode, setMode] = useState<'months' | 'service'>('months')
+interface RevenuePeriod {
+  key: string
+  label: string
+  from: string
+  to: string
+  total_ils: number
+}
 
-  const [monthsCount, setMonthsCount] = useState(6)
-  const [months, setMonths] = useState<{ month: string; label: string; total_ils: number }[]>([])
+/** The click-to-drill panel under a revenue bar — what it shows depends on the bar's granularity: a full day's invoices/expenses, a week's per-day breakdown, or a month's revenue-by-service split. */
+function RevenueDrilldown({ period, granularity }: { period: RevenuePeriod; granularity: Granularity }) {
+  const [dayDetail, setDayDetail] = useState<DayDetail | null>(null)
+  const [weekDays, setWeekDays] = useState<{ date: string; label: string; revenue_ils: number; expenses_ils: number; net_ils: number }[] | null>(null)
+  const [services, setServices] = useState<{ service_name: string; total_ils: number }[] | null>(null)
+
+  useEffect(() => {
+    setDayDetail(null)
+    setWeekDays(null)
+    setServices(null)
+    if (granularity === 'daily') {
+      api.get('/reports/daily-detail', { params: { date: period.key } }).then((res) => setDayDetail(res.data))
+    } else if (granularity === 'weekly') {
+      api.get('/reports/weekly-detail', { params: { date: period.key } }).then((res) => setWeekDays(res.data.days))
+    } else {
+      api.get('/reports/revenue-by-service', { params: { from: period.from, to: period.to } }).then((res) => setServices(res.data.services))
+    }
+  }, [period.key, granularity])
+
+  if (granularity === 'daily') {
+    return <div className="mt-4">{dayDetail ? <DayDetailCard detail={dayDetail} /> : <p className="text-xs text-muted">جارِ التحميل...</p>}</div>
+  }
+
+  if (granularity === 'weekly') {
+    return (
+      <div className="mt-4 rounded-xl bg-background p-4">
+        <h4 className="mb-3 text-xs font-semibold text-ink/70">تفاصيل أسبوع {period.label} يوم بيوم</h4>
+        {!weekDays ? (
+          <p className="text-xs text-muted">جارِ التحميل...</p>
+        ) : (
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-border/60 text-right text-muted">
+                <th className="p-1.5 font-medium">اليوم</th>
+                <th className="p-1.5 font-medium">فواتير</th>
+                <th className="p-1.5 font-medium">مصاريف</th>
+                <th className="p-1.5 font-medium">صافي</th>
+              </tr>
+            </thead>
+            <tbody>
+              {weekDays.map((d) => (
+                <tr key={d.date} className="border-b border-border/40 last:border-0">
+                  <td className="p-1.5 text-ink">{d.label}</td>
+                  <td className="p-1.5 text-ink">{money(d.revenue_ils)} ₪</td>
+                  <td className="p-1.5 text-danger">{money(d.expenses_ils)} ₪</td>
+                  <td className={`p-1.5 font-medium ${d.net_ils >= 0 ? 'text-ink/70' : 'text-danger'}`}>{money(d.net_ils)} ₪</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-4 rounded-xl bg-background p-4">
+      <h4 className="mb-3 text-xs font-semibold text-ink/70">تفاصيل إيرادات {period.label} حسب الخدمة</h4>
+      {!services ? (
+        <p className="text-xs text-muted">جارِ التحميل...</p>
+      ) : services.length === 0 ? (
+        <p className="text-xs text-muted">لا توجد إيرادات بهالفترة.</p>
+      ) : (
+        <div className="space-y-2">
+          {services.map((s) => (
+            <div key={s.service_name} className="flex items-center justify-between text-xs">
+              <span className="text-ink/80">{s.service_name}</span>
+              <span className="font-medium text-ink">{money(s.total_ils)} ₪</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function RevenueTab() {
+  const [mode, setMode] = useState<'period' | 'service'>('period')
+
+  const [granularity, setGranularity] = useState<Granularity>('monthly')
+  const [count, setCount] = useState(6)
+  const [periods, setPeriods] = useState<RevenuePeriod[]>([])
   const [openIndex, setOpenIndex] = useState<number | null>(null)
-  const [detail, setDetail] = useState<{ service_name: string; total_ils: number }[] | null>(null)
 
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [services, setServices] = useState<{ service_name: string; total_ils: number }[]>([])
 
   useEffect(() => {
-    if (mode !== 'months') return
-    api.get('/reports/revenue', { params: { months: monthsCount } }).then((res) => setMonths(res.data.months))
+    if (mode !== 'period') return
+    api.get('/reports/revenue', { params: { granularity, count } }).then((res) => setPeriods(res.data.periods))
     setOpenIndex(null)
-    setDetail(null)
-  }, [monthsCount, mode])
+  }, [granularity, count, mode])
+
+  useEffect(() => {
+    setCount(granularity === 'daily' ? 14 : granularity === 'weekly' ? 8 : 6)
+  }, [granularity])
 
   useEffect(() => {
     if (mode !== 'service') return
     api.get('/reports/revenue-by-service', { params: { from: from || undefined, to: to || undefined } }).then((res) => setServices(res.data.services))
   }, [from, to, mode])
 
-  function toggleMonth(index: number) {
-    if (openIndex === index) {
-      setOpenIndex(null)
-      setDetail(null)
-      return
-    }
-    setOpenIndex(index)
-    setDetail(null)
-    const m = months[index]
-    const [y, mo] = m.month.split('-').map(Number)
-    const from = `${m.month}-01`
-    const to = new Date(y, mo, 0).toISOString().slice(0, 10)
-    api.get('/reports/revenue-by-service', { params: { from, to } }).then((res) => setDetail(res.data.services))
-  }
-
-  const last = months[months.length - 1]
-  const prev = months[months.length - 2]
+  const last = periods[periods.length - 1]
+  const prev = periods[periods.length - 2]
   const diff = last && prev ? last.total_ils - prev.total_ils : null
   const diffPct = last && prev && prev.total_ils > 0 ? Math.round((diff! / prev.total_ils) * 100) : null
 
@@ -153,12 +274,12 @@ function RevenueTab() {
     <Card className="p-6">
       <div className="mb-4 flex gap-2">
         <button
-          onClick={() => setMode('months')}
+          onClick={() => setMode('period')}
           className={`rounded-lg border px-3 py-1.5 text-xs font-medium ${
-            mode === 'months' ? 'border-accent bg-accent text-white' : 'border-border text-ink/60 hover:bg-background'
+            mode === 'period' ? 'border-accent bg-accent text-white' : 'border-border text-ink/60 hover:bg-background'
           }`}
         >
-          حسب الأشهر
+          حسب الفترة
         </button>
         <button
           onClick={() => setMode('service')}
@@ -170,42 +291,24 @@ function RevenueTab() {
         </button>
       </div>
 
-      {mode === 'months' ? (
+      {mode === 'period' ? (
         <>
-          <MonthsFilter months={monthsCount} onChange={setMonthsCount} />
+          <GranularityFilter granularity={granularity} onGranularity={setGranularity} count={count} onCount={setCount} />
           <div className="mb-4 flex items-baseline justify-between">
-            <h3 className="text-sm font-semibold text-ink/80">إيرادات آخر {monthsCount} أشهر</h3>
+            <h3 className="text-sm font-semibold text-ink/80">إيرادات آخر {count} {granularity === 'daily' ? 'يوم' : granularity === 'weekly' ? 'أسابيع' : 'أشهر'}</h3>
             {diff !== null && (
               <span className={`text-sm font-medium ${diff >= 0 ? 'text-success' : 'text-danger'}`}>
-                {diff >= 0 ? '▲' : '▼'} {money(Math.abs(diff))} ₪ {diffPct !== null && `(${diffPct >= 0 ? '+' : ''}${diffPct}%)`} عن الشهر الماضي
+                {diff >= 0 ? '▲' : '▼'} {money(Math.abs(diff))} ₪ {diffPct !== null && `(${diffPct >= 0 ? '+' : ''}${diffPct}%)`} عن الفترة السابقة
               </span>
             )}
           </div>
           <BarChart
-            bars={months.map((m) => ({ label: m.label, value: m.total_ils }))}
+            bars={periods.map((p) => ({ label: p.label, value: p.total_ils }))}
             formatValue={(n) => `${money(n)} ₪`}
-            onBarClick={toggleMonth}
+            onBarClick={(i) => setOpenIndex(openIndex === i ? null : i)}
             activeIndex={openIndex}
           />
-          {openIndex !== null && (
-            <div className="mt-4 rounded-xl bg-background p-4">
-              <h4 className="mb-3 text-xs font-semibold text-ink/70">تفاصيل إيرادات {months[openIndex].label} حسب الخدمة</h4>
-              {!detail ? (
-                <p className="text-xs text-muted">جارِ التحميل...</p>
-              ) : detail.length === 0 ? (
-                <p className="text-xs text-muted">لا توجد إيرادات هالشهر.</p>
-              ) : (
-                <div className="space-y-2">
-                  {detail.map((s) => (
-                    <div key={s.service_name} className="flex items-center justify-between text-xs">
-                      <span className="text-ink/80">{s.service_name}</span>
-                      <span className="font-medium text-ink">{money(s.total_ils)} ₪</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+          {openIndex !== null && periods[openIndex] && <RevenueDrilldown period={periods[openIndex]} granularity={granularity} />}
         </>
       ) : (
         <>
@@ -234,6 +337,14 @@ function RevenueTab() {
   )
 }
 
+interface SessionsPeriod {
+  key: string
+  label: string
+  from: string
+  to: string
+  sessions_count: number
+}
+
 function DoctorProductivityTab() {
   const navigate = useNavigate()
   const [from, setFrom] = useState('')
@@ -242,12 +353,47 @@ function DoctorProductivityTab() {
     { doctor_id: number; doctor_name: string; sessions_count: number; revenue_ils: number; commission_ils: number; commission_paid_ils: number; commission_outstanding_ils: number }[]
   >([])
 
+  const [granularity, setGranularity] = useState<Granularity>('monthly')
+  const [count, setCount] = useState(6)
+  const [periods, setPeriods] = useState<SessionsPeriod[]>([])
+  const [activePeriodKey, setActivePeriodKey] = useState<string | null>(null)
+
+  useEffect(() => {
+    api.get('/reports/sessions-by-period', { params: { granularity, count } }).then((res) => setPeriods(res.data.periods))
+  }, [granularity, count])
+
+  useEffect(() => {
+    setCount(granularity === 'daily' ? 14 : granularity === 'weekly' ? 8 : 6)
+    setActivePeriodKey(null)
+  }, [granularity])
+
   useEffect(() => {
     api.get('/reports/doctor-productivity', { params: { from: from || undefined, to: to || undefined } }).then((res) => setDoctors(res.data.doctors))
   }, [from, to])
 
+  function selectPeriod(p: SessionsPeriod) {
+    if (activePeriodKey === p.key) {
+      setActivePeriodKey(null)
+      setFrom('')
+      setTo('')
+      return
+    }
+    setActivePeriodKey(p.key)
+    setFrom(p.from)
+    setTo(p.to)
+  }
+
   return (
     <Card className="p-6">
+      <GranularityFilter granularity={granularity} onGranularity={setGranularity} count={count} onCount={setCount} />
+      <h3 className="mb-4 text-sm font-semibold text-ink/80">عدد الجلسات آخر {count} {granularity === 'daily' ? 'يوم' : granularity === 'weekly' ? 'أسابيع' : 'أشهر'}</h3>
+      <BarChart
+        bars={periods.map((p) => ({ label: p.label, value: p.sessions_count }))}
+        formatValue={(n) => `${n} جلسة`}
+        onBarClick={(i) => periods[i] && selectPeriod(periods[i])}
+        activeIndex={activePeriodKey ? periods.findIndex((p) => p.key === activePeriodKey) : null}
+      />
+      <p className="mb-1 mt-6 text-xs text-muted">اضغط عمود بالرسمة فوق لتفلتر الجدول تحت لنفس الفترة، أو حدد فترة يدوياً.</p>
       <DateRangeFilter from={from} to={to} onFrom={setFrom} onTo={setTo} />
       <h3 className="mb-1 text-sm font-semibold text-ink/80">إنتاجية الأطباء {from || to ? '' : '(كل الوقت)'}</h3>
       <p className="mb-4 text-xs text-muted">اضغط طبيب لتشوف كشف حسابه بالتفصيل.</p>
@@ -811,133 +957,6 @@ function DayDetailCard({ detail }: { detail: DayDetail }) {
   )
 }
 
-function todayIso() {
-  return new Date().toISOString().slice(0, 10)
-}
-
-function DailyWeeklyTab() {
-  const [mode, setMode] = useState<'daily' | 'weekly'>('daily')
-
-  const [date, setDate] = useState(todayIso())
-  const [dayDetail, setDayDetail] = useState<DayDetail | null>(null)
-
-  const [weekAnchor, setWeekAnchor] = useState(todayIso())
-  const [week, setWeek] = useState<{
-    week_start: string
-    week_end: string
-    days: { date: string; label: string; revenue_ils: number; expenses_ils: number; net_ils: number }[]
-    totals: { revenue_ils: number; expenses_ils: number; net_ils: number }
-  } | null>(null)
-  const [openDay, setOpenDay] = useState<DayDetail | null>(null)
-
-  useEffect(() => {
-    if (mode !== 'daily') return
-    setDayDetail(null)
-    api.get('/reports/daily-detail', { params: { date } }).then((res) => setDayDetail(res.data))
-  }, [date, mode])
-
-  useEffect(() => {
-    if (mode !== 'weekly') return
-    setWeek(null)
-    setOpenDay(null)
-    api.get('/reports/weekly-detail', { params: { date: weekAnchor } }).then((res) => setWeek(res.data))
-  }, [weekAnchor, mode])
-
-  function openDayDetail(d: string) {
-    if (openDay?.date === d) {
-      setOpenDay(null)
-      return
-    }
-    setOpenDay(null)
-    api.get('/reports/daily-detail', { params: { date: d } }).then((res) => setOpenDay(res.data))
-  }
-
-  return (
-    <Card className="p-6">
-      <div className="mb-4 flex gap-2">
-        <button
-          onClick={() => setMode('daily')}
-          className={`rounded-lg border px-3 py-1.5 text-xs font-medium ${
-            mode === 'daily' ? 'border-accent bg-accent text-white' : 'border-border text-ink/60 hover:bg-background'
-          }`}
-        >
-          يومي
-        </button>
-        <button
-          onClick={() => setMode('weekly')}
-          className={`rounded-lg border px-3 py-1.5 text-xs font-medium ${
-            mode === 'weekly' ? 'border-accent bg-accent text-white' : 'border-border text-ink/60 hover:bg-background'
-          }`}
-        >
-          أسبوعي (سبت - جمعة)
-        </button>
-      </div>
-
-      {mode === 'daily' ? (
-        <>
-          <div className="mb-4">
-            <label className="mb-1 block text-xs text-muted">اليوم</label>
-            <DatePicker value={date} onChange={setDate} />
-          </div>
-          {!dayDetail ? <p className="text-xs text-muted">جارِ التحميل...</p> : <DayDetailCard detail={dayDetail} />}
-        </>
-      ) : (
-        <>
-          <div className="mb-4">
-            <label className="mb-1 block text-xs text-muted">أي يوم من الأسبوع المطلوب</label>
-            <DatePicker value={weekAnchor} onChange={setWeekAnchor} />
-          </div>
-          {!week ? (
-            <p className="text-xs text-muted">جارِ التحميل...</p>
-          ) : (
-            <>
-              <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-                <h3 className="text-sm font-semibold text-ink/80">
-                  الأسبوع {week.week_start.split('-').reverse().join('/')} → {week.week_end.split('-').reverse().join('/')}
-                </h3>
-                <div className="flex flex-wrap gap-3 text-xs">
-                  <span className="text-ink">فواتير: <b>{money(week.totals.revenue_ils)} ₪</b></span>
-                  <span className="text-danger">مصاريف: <b>{money(week.totals.expenses_ils)} ₪</b></span>
-                  <span className={week.totals.net_ils >= 0 ? 'text-ink' : 'text-danger'}>صافي: <b>{money(week.totals.net_ils)} ₪</b></span>
-                </div>
-              </div>
-
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-border text-right text-muted">
-                      <th className="p-2 font-medium">اليوم</th>
-                      <th className="p-2 font-medium">فواتير</th>
-                      <th className="p-2 font-medium">مصاريف</th>
-                      <th className="p-2 font-medium">صافي</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {week.days.map((d) => (
-                      <tr
-                        key={d.date}
-                        onClick={() => openDayDetail(d.date)}
-                        className="cursor-pointer border-b border-border/60 last:border-0 hover:bg-background"
-                      >
-                        <td className={`p-2 ${openDay?.date === d.date ? 'font-semibold text-accent' : 'text-ink'}`}>{d.label}</td>
-                        <td className="p-2 text-ink">{money(d.revenue_ils)} ₪</td>
-                        <td className="p-2 text-danger">{money(d.expenses_ils)} ₪</td>
-                        <td className={`p-2 font-medium ${d.net_ils >= 0 ? 'text-ink/70' : 'text-danger'}`}>{money(d.net_ils)} ₪</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              {openDay && <div className="mt-4">{<DayDetailCard detail={openDay} />}</div>}
-            </>
-          )}
-        </>
-      )}
-    </Card>
-  )
-}
-
 function SummaryStrip() {
   const [summary, setSummary] = useState<{ revenue_ils: number; commissions_ils: number; expenses_ils: number; net_profit_ils: number } | null>(null)
 
@@ -972,7 +991,6 @@ export default function ReportsPage() {
       <Tabs
         defaultTab="revenue"
         tabs={[
-          { key: 'daily-weekly', label: 'يومي / أسبوعي', content: <DailyWeeklyTab /> },
           { key: 'revenue', label: 'الإيرادات', content: <RevenueTab /> },
           { key: 'doctors', label: 'إنتاجية الأطباء', content: <DoctorProductivityTab /> },
           { key: 'cash-expenses', label: 'الصندوق والمصاريف', content: <CashAndExpensesTab /> },

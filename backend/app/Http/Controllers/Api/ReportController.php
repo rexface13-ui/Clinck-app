@@ -29,36 +29,138 @@ class ReportController extends Controller
     }
 
     /**
-     * Monthly revenue (patient charges) for the last N months, oldest first,
-     * so the frontend can draw a simple bar chart and read the last two
-     * entries for a month-over-month comparison.
+     * Builds N consecutive periods (day/week/month), oldest first, ending at
+     * the current one — the shared time-bucketing used by every "بحسب
+     * الفترة" chart (revenue, sessions...) so a day/week/month toggle means
+     * the same thing everywhere. Weeks run Saturday→Friday (the clinic's own
+     * work week), not the ISO Sunday-start one.
+     */
+    private function periodRanges(string $granularity, int $count, string $timezone): array
+    {
+        $now = Carbon::now($timezone);
+        $periods = [];
+
+        if ($granularity === 'daily') {
+            $start = $now->clone()->subDays($count - 1)->startOfDay();
+            for ($i = 0; $i < $count; $i++) {
+                $day = $start->clone()->addDays($i);
+                $periods[] = ['key' => $day->format('Y-m-d'), 'label' => $day->translatedFormat('D d/m'), 'start' => $day->clone(), 'end' => $day->clone()->endOfDay()];
+            }
+        } elseif ($granularity === 'weekly') {
+            $start = $now->clone()->startOfWeek(Carbon::SATURDAY)->subWeeks($count - 1)->startOfDay();
+            for ($i = 0; $i < $count; $i++) {
+                $weekStart = $start->clone()->addWeeks($i);
+                $weekEnd = $weekStart->clone()->addDays(6)->endOfDay();
+                $periods[] = [
+                    'key' => $weekStart->format('Y-m-d'),
+                    'label' => $weekStart->format('d/m').'-'.$weekEnd->format('d/m'),
+                    'start' => $weekStart,
+                    'end' => $weekEnd,
+                ];
+            }
+        } else {
+            $start = $now->clone()->subMonths($count - 1)->startOfMonth();
+            for ($i = 0; $i < $count; $i++) {
+                $month = $start->clone()->addMonths($i);
+                $periods[] = [
+                    'key' => $month->format('Y-m'),
+                    'label' => $month->translatedFormat('M Y'),
+                    'start' => $month->clone(),
+                    'end' => $month->clone()->endOfMonth(),
+                ];
+            }
+        }
+
+        return $periods;
+    }
+
+    /**
+     * Revenue (patient charges) bucketed into day/week/month periods, oldest
+     * first, so the frontend can draw a bar chart and read the last two
+     * entries for a period-over-period comparison.
      */
     public function revenue(Request $request)
     {
         $this->authorizeView($request);
 
-        $months = (int) $request->input('months', 6);
-        $timezone = config('dentaflow.display_timezone');
-        $start = Carbon::now($timezone)->subMonths($months - 1)->startOfMonth();
+        $data = $request->validate(['granularity' => ['nullable', 'in:daily,weekly,monthly'], 'count' => ['nullable', 'integer', 'min:1', 'max:60']]);
+        $granularity = $data['granularity'] ?? 'monthly';
+        $defaultCount = ['daily' => 14, 'weekly' => 8, 'monthly' => 6][$granularity];
+        $count = $data['count'] ?? (int) $request->input('months', $defaultCount);
 
+        $timezone = config('dentaflow.display_timezone');
+        $periods = $this->periodRanges($granularity, $count, $timezone);
+
+        $rangeStart = $periods[0]['start']->clone()->timezone('UTC');
         $rows = PatientTransaction::where('type', 'charge')
-            ->where('occurred_at', '>=', $start->clone()->timezone('UTC'))
+            ->where('occurred_at', '>=', $rangeStart)
             ->get(['amount_ils', 'occurred_at']);
 
-        $byMonth = [];
-        for ($i = 0; $i < $months; $i++) {
-            $m = $start->clone()->addMonths($i);
-            $byMonth[$m->format('Y-m')] = ['month' => $m->format('Y-m'), 'label' => $m->translatedFormat('M Y'), 'total_ils' => 0.0];
+        foreach ($periods as &$period) {
+            $period['total_ils'] = 0.0;
         }
+        unset($period);
 
         foreach ($rows as $row) {
-            $key = Carbon::parse($row->occurred_at)->timezone($timezone)->format('Y-m');
-            if (isset($byMonth[$key])) {
-                $byMonth[$key]['total_ils'] += (float) $row->amount_ils;
+            $occurredAt = Carbon::parse($row->occurred_at)->timezone($timezone);
+            foreach ($periods as &$period) {
+                if ($occurredAt->between($period['start'], $period['end'])) {
+                    $period['total_ils'] += (float) $row->amount_ils;
+                    break;
+                }
             }
+            unset($period);
         }
 
-        return ['months' => array_values($byMonth)];
+        $out = array_map(fn ($p) => [
+            'key' => $p['key'],
+            'label' => $p['label'],
+            'from' => $p['start']->format('Y-m-d'),
+            'to' => $p['end']->format('Y-m-d'),
+            'total_ils' => round($p['total_ils'], 2),
+        ], $periods);
+
+        return ['granularity' => $granularity, 'periods' => $out, 'months' => $out];
+    }
+
+    /**
+     * Total session count (distinct work items across all active doctors)
+     * bucketed into day/week/month periods — the "جلسات" companion chart to
+     * revenue(), same period semantics. Clicking a bar on the frontend
+     * re-filters the existing per-doctor productivity table to that period's
+     * date range instead of duplicating the breakdown here.
+     */
+    public function sessionsByPeriod(Request $request)
+    {
+        $this->authorizeView($request);
+
+        $data = $request->validate(['granularity' => ['nullable', 'in:daily,weekly,monthly'], 'count' => ['nullable', 'integer', 'min:1', 'max:60']]);
+        $granularity = $data['granularity'] ?? 'monthly';
+        $defaultCount = ['daily' => 14, 'weekly' => 8, 'monthly' => 6][$granularity];
+        $count = $data['count'] ?? $defaultCount;
+
+        $timezone = config('dentaflow.display_timezone');
+        $periods = $this->periodRanges($granularity, $count, $timezone);
+
+        $out = [];
+        foreach ($periods as $period) {
+            $sessionsCount = InvoiceLine::whereHas('workItemToothStep.workItem')
+                ->where('invoice_lines.created_at', '>=', $period['start']->clone()->timezone('UTC'))
+                ->where('invoice_lines.created_at', '<=', $period['end']->clone()->timezone('UTC'))
+                ->join('work_item_tooth_steps', 'invoice_lines.work_item_tooth_step_id', '=', 'work_item_tooth_steps.id')
+                ->distinct('work_item_tooth_steps.work_item_id')
+                ->count('work_item_tooth_steps.work_item_id');
+
+            $out[] = [
+                'key' => $period['key'],
+                'label' => $period['label'],
+                'from' => $period['start']->format('Y-m-d'),
+                'to' => $period['end']->format('Y-m-d'),
+                'sessions_count' => $sessionsCount,
+            ];
+        }
+
+        return ['granularity' => $granularity, 'periods' => $out];
     }
 
     /** Revenue by service (from invoice lines) within a date range. */
