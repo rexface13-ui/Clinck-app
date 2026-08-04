@@ -4,6 +4,7 @@ namespace Tests\Feature\Billing;
 
 use App\Models\PatientTransaction;
 use App\Models\Payment;
+use App\Services\CheckService;
 use App\Services\WorkItemService;
 use Tests\TestCase;
 
@@ -68,9 +69,47 @@ class CollectedAmountTest extends TestCase
 
     public function test_raising_the_collected_amount_collects_only_the_difference(): void
     {
-        [$patient, $workItem] = $this->checkoutPaidInFull(200);
+        $patient = $this->makePatient();
+        $doctor = $this->makeDoctor();
+        $workItem = $this->completeWork($this->makeWorkItem($patient, $doctor, $this->makeService(price: 200), [11]));
+
+        // Patient paid 120 of 200 on the day.
+        app(WorkItemService::class)->checkout(
+            patient: $patient,
+            workItemIds: [$workItem->id],
+            doctorId: $doctor->id,
+            payCashboxId: $this->cashbox->id,
+            payMethod: 'cash',
+            payAmount: 120,
+        );
 
         $cashboxBefore = (float) $this->cashbox->fresh()->balance;
+
+        app(WorkItemService::class)->updateCollectedAmount(
+            workItem: $workItem->fresh(),
+            newAmount: 200,
+            cashboxId: $this->cashbox->id,
+            method: 'cash',
+        );
+
+        $this->assertSame(
+            round($cashboxBefore + 80, 2),
+            round((float) $this->cashbox->fresh()->balance, 2),
+            'Raising 120 to 200 should take 80, not 200.',
+        );
+        $this->assertSame(200.0, $workItem->fresh()->actualCollectedIls());
+    }
+
+    /**
+     * The displayed figure is capped at what the session cost, so accepting a
+     * bigger number would not survive a reload — it would read back capped,
+     * get "corrected" again, and charge the difference every time.
+     */
+    public function test_collecting_more_than_the_session_cost_is_refused(): void
+    {
+        [, $workItem] = $this->checkoutPaidInFull(200);
+
+        $this->expectExceptionMessage('ما بصير يزيد عن قيمة الجلسة');
 
         app(WorkItemService::class)->updateCollectedAmount(
             workItem: $workItem,
@@ -78,13 +117,6 @@ class CollectedAmountTest extends TestCase
             cashboxId: $this->cashbox->id,
             method: 'cash',
         );
-
-        $this->assertSame(
-            round($cashboxBefore + 50, 2),
-            round((float) $this->cashbox->fresh()->balance, 2),
-            'Raising 200 to 250 should take 50, not 250.',
-        );
-        $this->assertSame(250.0, $workItem->fresh()->actualCollectedIls());
     }
 
     public function test_lowering_the_collected_amount_refunds_the_difference(): void
@@ -157,6 +189,49 @@ class CollectedAmountTest extends TestCase
         $this->assertSame(50.0, $a->fresh()->actualCollectedIls());
         $this->assertSame(150.0, $b->fresh()->actualCollectedIls());
         $this->assertSame(200.0, $a->fresh()->actualCollectedIls() + $b->fresh()->actualCollectedIls());
+    }
+
+    /**
+     * A session the patient covered by check has no payment row against it.
+     * Reading collected straight off the payments table reported 0, which is
+     * the same double-charge trap through a different door.
+     */
+    public function test_a_session_paid_by_check_reports_what_the_check_covered(): void
+    {
+        $patient = $this->makePatient();
+        $doctor = $this->makeDoctor();
+        $workItem = $this->completeWork($this->makeWorkItem($patient, $doctor, $this->makeService(price: 200), [11]));
+
+        app(WorkItemService::class)->checkout(
+            patient: $patient,
+            workItemIds: [$workItem->id],
+            doctorId: $doctor->id,
+        );
+
+        app(CheckService::class)->receive(
+            direction: 'incoming',
+            partyType: 'patient',
+            partyId: $patient->id,
+            checkNumber: '901',
+            bankName: 'بنك',
+            amount: 200,
+            currency: 'ILS',
+            dueDate: now()->addMonth()->toDateString(),
+        );
+
+        $this->assertSame(200.0, $workItem->fresh()->actualCollectedIls());
+
+        // And re-saving that figure must still be a no-op, not a second charge.
+        $cashboxBefore = (float) $this->cashbox->fresh()->balance;
+
+        app(WorkItemService::class)->updateCollectedAmount(
+            workItem: $workItem->fresh(),
+            newAmount: 200,
+            cashboxId: $this->cashbox->id,
+            method: 'cash',
+        );
+
+        $this->assertSame($cashboxBefore, (float) $this->cashbox->fresh()->balance);
     }
 
     public function test_an_unpaid_session_reports_nothing_collected(): void

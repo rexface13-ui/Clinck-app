@@ -89,9 +89,10 @@ class CheckService
                     'occurred_at' => now(),
                 ]);
 
-                if ($invoice) {
-                    $this->payments->refreshInvoiceStatus($invoice->fresh());
-                }
+                // A check settles the patient's bills whether or not one was
+                // named — one check routinely covers several visits, and it
+                // can only ever carry a single invoice_id.
+                $this->payments->refreshPatientInvoiceStatuses($partyId);
             }
 
             return $check->fresh('events');
@@ -277,10 +278,10 @@ class CheckService
                 ]);
             }
 
-            // A bounced check no longer settles anything, so the invoice it
-            // was applied to has to go back to owing.
-            if ($check->invoice) {
-                $this->payments->refreshInvoiceStatus($check->invoice->fresh());
+            // A bounced check no longer settles anything, so every bill it was
+            // covering goes back to owing — not just one named invoice.
+            if ($check->direction === 'incoming' && $check->party_type === 'patient') {
+                $this->payments->refreshPatientInvoiceStatuses((int) $check->party_id);
             }
 
             return $check->fresh('events');

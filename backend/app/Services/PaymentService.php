@@ -73,9 +73,10 @@ class PaymentService
                 'occurred_at' => now(),
             ]);
 
-            if ($invoice) {
-                $this->refreshInvoiceStatus($invoice);
-            }
+            // Always, even with no invoice named — money taken "بدون ربط
+            // بفاتورة معيّنة" still settles the patient's oldest bills, and
+            // skipping the recompute left them all reading as owing.
+            $this->refreshPatientInvoiceStatuses($patient);
 
             return $payment->fresh(['cashbox', 'invoice']);
         });
@@ -141,9 +142,10 @@ class PaymentService
                 'occurred_at' => now(),
             ]);
 
-            if ($invoice) {
-                $this->refreshInvoiceStatus($invoice);
-            }
+            // Always, even with no invoice named — money taken "بدون ربط
+            // بفاتورة معيّنة" still settles the patient's oldest bills, and
+            // skipping the recompute left them all reading as owing.
+            $this->refreshPatientInvoiceStatuses($patient);
 
             return $payment->fresh(['cashbox', 'invoice']);
         });
@@ -393,35 +395,112 @@ class PaymentService
     }
 
     /**
-     * Re-derives an invoice's paid status from everything that actually
-     * settled it: cash/card/transfer payments, plus any patient check applied
-     * to it. A check counts from the moment it's in hand (not when it clears)
-     * — that's the same point CheckService::receive() credits the patient's
-     * ledger, and bounce() puts both back. Leaving checks out was why a
-     * patient could owe nothing and still have invoices reading "غير مدفوعة".
+     * Re-derives the paid status of every invoice belonging to this invoice's
+     * patient. Kept on the single-invoice signature because that's how all
+     * thirteen call sites read, but one invoice can never be judged alone —
+     * see refreshPatientInvoiceStatuses().
      */
     public function refreshInvoiceStatus(Invoice $invoice): void
     {
-        $paidIls = (float) Payment::where('invoice_id', $invoice->id)->sum('amount_ils');
+        $this->refreshPatientInvoiceStatuses($invoice->patient_id);
+    }
 
-        $paidIls += (float) CheckModel::where('invoice_id', $invoice->id)
-            ->where('direction', 'incoming')
+    /**
+     * Works out what each of a patient's invoices has actually been paid, by
+     * allocating the money received the way an account really settles.
+     *
+     * Money handed over against a named invoice stays on that invoice.
+     * Everything else — a lump sum with no invoice picked, a check covering
+     * several visits at once — spreads across the patient's invoices
+     * oldest-first, and an overpayment on one spills onto the next.
+     *
+     * Judging each invoice only by the money directly tagged to it was why a
+     * patient could owe nothing while four of their invoices still read
+     * "غير مدفوعة": the check that settled them was one payment against four
+     * bills and could only ever be tagged to one. The same blind spot hit any
+     * cash taken without picking an invoice, which the collection form
+     * explicitly allows ("بدون ربط بفاتورة معيّنة").
+     *
+     * Refunds are stored as negative payments, so they net themselves out.
+     */
+    public function refreshPatientInvoiceStatuses(Patient|int $patient): void
+    {
+        $patientId = $patient instanceof Patient ? $patient->id : $patient;
+
+        $invoices = Invoice::where('patient_id', $patientId)
+            ->orderBy('issued_at')
+            ->orderBy('id')
+            ->get();
+
+        if ($invoices->isEmpty()) {
+            return;
+        }
+
+        $payments = Payment::where('patient_id', $patientId)->get(['invoice_id', 'amount_ils']);
+        $checks = CheckModel::where('direction', 'incoming')
             ->where('party_type', 'patient')
+            ->where('party_id', $patientId)
             ->where('status', '!=', 'bounced')
-            ->sum('amount');
+            ->get(['invoice_id', 'amount']);
 
-        $total = (float) $invoice->total_amount_ils;
+        $taggedToInvoice = [];
+        $unallocated = 0.0;
 
-        $status = match (true) {
-            // A zero-total invoice (everything on it was discounted or
-            // reversed away) has nothing left owing — it's settled, not
-            // "unpaid" forever.
-            $total <= 0 => 'paid',
-            $paidIls <= 0 => 'unpaid',
-            $paidIls < $total => 'partial',
-            default => 'paid',
-        };
+        foreach ($payments as $payment) {
+            $payment->invoice_id
+                ? $taggedToInvoice[$payment->invoice_id] = ($taggedToInvoice[$payment->invoice_id] ?? 0) + (float) $payment->amount_ils
+                : $unallocated += (float) $payment->amount_ils;
+        }
 
-        $invoice->update(['status' => $status]);
+        foreach ($checks as $check) {
+            $check->invoice_id
+                ? $taggedToInvoice[$check->invoice_id] = ($taggedToInvoice[$check->invoice_id] ?? 0) + (float) $check->amount
+                : $unallocated += (float) $check->amount;
+        }
+
+        // A discount given on the account as a whole ("خصم عام") is money the
+        // patient no longer owes, so it settles bills exactly like cash. Only
+        // the untied kind: an invoice discount already came off that invoice's
+        // own total, and counting it here would relieve the debt twice.
+        // Stored negative, hence the flip.
+        $unallocated += -(float) PatientTransaction::where('patient_id', $patientId)
+            ->where('type', 'adjustment')
+            ->where('reference_type', 'patient_discount')
+            ->sum('amount_ils');
+
+        foreach ($invoices as $invoice) {
+            $total = (float) $invoice->total_amount_ils;
+            $credited = (float) ($taggedToInvoice[$invoice->id] ?? 0);
+
+            // Paying more than one invoice was worth doesn't strand the extra
+            // on it — the surplus goes to whatever is still owing.
+            if ($credited > $total) {
+                $unallocated += $credited - $total;
+                $credited = $total;
+            }
+
+            if ($credited < $total && $unallocated > 0) {
+                $take = min($unallocated, $total - $credited);
+                $credited += $take;
+                $unallocated -= $take;
+            }
+
+            $status = match (true) {
+                // Nothing left owing — everything on it was discounted or
+                // reversed away. Settled, not "unpaid" forever.
+                $total <= 0 => 'paid',
+                $credited <= 0.001 => 'unpaid',
+                $credited + 0.01 < $total => 'partial',
+                default => 'paid',
+            };
+
+            $credited = round(max(0, $credited), 2);
+
+            // Stored alongside the status, never derived separately, so
+            // "المتبقي" can't contradict the badge next to it.
+            if ($invoice->status !== $status || (float) $invoice->settled_amount_ils !== $credited) {
+                $invoice->update(['status' => $status, 'settled_amount_ils' => $credited]);
+            }
+        }
     }
 }

@@ -13,13 +13,14 @@ class Invoice extends Model
 
     protected $fillable = [
         'clinic_id', 'patient_id', 'invoice_number',
-        'status', 'total_amount_ils', 'issued_at',
+        'status', 'total_amount_ils', 'settled_amount_ils', 'issued_at',
     ];
 
     protected function casts(): array
     {
         return [
             'total_amount_ils' => 'decimal:2',
+            'settled_amount_ils' => 'decimal:2',
             'issued_at' => 'datetime',
         ];
     }

@@ -75,6 +75,18 @@ class WorkItem extends Model
      * each invoice's payments are split across the sessions on it in proportion
      * to what each session actually contributed to that invoice's lines.
      */
+    /** What this session was actually billed — the sum of its invoice lines. */
+    public function billedAmountIls(): float
+    {
+        $this->loadMissing('toothSteps.invoiceLine');
+
+        return round((float) $this->toothSteps
+            ->map(fn ($toothStep) => $toothStep->invoiceLine)
+            ->filter()
+            ->unique('id')
+            ->sum('amount_ils'), 2);
+    }
+
     public function actualCollectedIls(): float
     {
         $this->loadMissing('toothSteps.invoiceLine.invoice.payments', 'toothSteps.invoiceLine.invoice.lines');
@@ -93,7 +105,12 @@ class WorkItem extends Model
                 continue;
             }
 
-            $paid = (float) $invoice->payments->sum('amount_ils');
+            // The settled figure, not the payments on this invoice — a session
+            // paid by check (or by a lump sum with no invoice picked) has no
+            // payment row against it and would otherwise report 0 collected,
+            // walking straight back into the double-charge this method exists
+            // to prevent.
+            $paid = (float) $invoice->settled_amount_ils;
             $invoiceLinesTotal = (float) $invoice->lines->sum('amount_ils');
 
             if ($paid <= 0 || $invoiceLinesTotal <= 0) {

@@ -83,7 +83,9 @@ class DoctorCommissionController extends Controller
                     'invoice_number' => $invoice?->invoice_number,
                     'invoice_status' => $invoice?->status,
                     'invoice_total_ils' => $invoice ? (float) $invoice->total_amount_ils : null,
-                    'invoice_paid_ils' => $invoice ? (float) $invoice->payments->sum('amount_ils') : null,
+                    // Settled, not just the payments tagged to it — otherwise a
+                    // visit the patient covered by check reads as unpaid here.
+                    'invoice_paid_ils' => $invoice ? (float) $invoice->settled_amount_ils : null,
                 ];
             }),
             'payouts' => $payouts->map(fn (DoctorTransaction $t) => [

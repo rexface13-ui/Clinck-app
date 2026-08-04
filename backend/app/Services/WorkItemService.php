@@ -242,6 +242,18 @@ class WorkItemService
         // column — checkout() never populated that column, so it read 0 even
         // for a fully-paid session, and re-typing the true figure was charged
         // to the patient all over again.
+        // The figure shown here is capped at what the session cost, so letting
+        // someone type more than that wouldn't survive a reload — they'd see
+        // the capped number next time, "correct" it again, and be charged the
+        // difference over and over. A genuine overpayment is a credit on the
+        // account, not a property of one session.
+        $billed = $workItem->billedAmountIls();
+        abort_if(
+            $billed > 0 && $newAmount > $billed + 0.01,
+            422,
+            'المبلغ المحصّل ما بصير يزيد عن قيمة الجلسة ('.number_format($billed, 2).' ₪). لو المريض دفع أكتر، سجّلها دفعة عامة من كشف الحساب.',
+        );
+
         $delta = round($newAmount - $workItem->actualCollectedIls(), 2);
 
         if ($delta === 0.0) {

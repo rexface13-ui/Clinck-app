@@ -15,7 +15,11 @@ class InvoiceResource extends JsonResource
             'invoice_number' => $this->invoice_number,
             'status' => $this->status,
             'total_amount_ils' => $this->total_amount_ils,
-            'paid_ils' => $this->whenLoaded('payments', fn () => $this->payments->sum('amount_ils')),
+            // What the patient's money has actually covered on this bill,
+            // written alongside `status` so the two always agree. Summing only
+            // the payments tagged to this invoice made a bill settled by a
+            // shared check show "paid" and "متبقي 160 ₪" at the same time.
+            'paid_ils' => (float) $this->settled_amount_ils,
             'issued_at' => display_date($this->issued_at),
             'lines' => $this->whenLoaded('lines', fn () => $this->lines->map(fn ($l) => [
                 'id' => $l->id,
