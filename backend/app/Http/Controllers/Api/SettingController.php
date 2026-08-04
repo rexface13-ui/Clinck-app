@@ -23,6 +23,10 @@ class SettingController extends Controller
         'clinic_hours_start', 'clinic_hours_end',
         'telegram_bot_token', 'telegram_bot_username',
         'daily_report_time',
+        // { "USD": 3.7, "JOD": 5.2 } — how many shekels one unit is worth.
+        // Kept as a setting so the rate is typed once here instead of from
+        // memory on every foreign-currency payment.
+        'exchange_rates',
     ];
 
     public function update(Request $request)
@@ -38,7 +42,11 @@ class SettingController extends Controller
                 continue;
             }
 
-            Setting::updateOrCreate(['key' => $key], ['value' => $value]);
+            // Laravel's ConvertEmptyStringsToNull turns a blank text field into
+            // null on the way in, and settings.value is NOT NULL — so clearing
+            // any optional text setting (the invoice footer note, say) used to
+            // fail the whole save with a 500. Store the blank instead.
+            Setting::updateOrCreate(['key' => $key], ['value' => $value ?? '']);
         }
 
         return ['settings' => Setting::pluck('value', 'key')];

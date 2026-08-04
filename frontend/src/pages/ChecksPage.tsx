@@ -7,7 +7,7 @@ import { useAuth } from '../contexts/AuthContext'
 import DatePicker from '../components/DatePicker'
 import { formatDate } from '../lib/formatDate'
 import { normalizeArabic } from '../lib/arabic'
-import { Card, PageHeader, Badge, Button, Modal, Table, Thead, Th, Td, Tr, EmptyRow, TableSkeleton } from '../components/ui'
+import { Card, PageHeader, Badge, Button, Modal, Table, Thead, Th, Td, Tr, EmptyRow, TableSkeleton, CurrencySelect } from '../components/ui'
 import type { BadgeVariant } from '../components/ui'
 import type { CheckItem, Patient, Supplier, Cashbox } from '../types'
 import RequestCheckImageButton from '../components/RequestCheckImageButton'
@@ -247,11 +247,7 @@ export default function ChecksPage() {
             <input placeholder="اسم البنك" value={form.bank_name} onChange={(e) => setForm({ ...form, bank_name: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
             <div className="flex gap-2">
               <input type="number" placeholder="المبلغ" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} className="flex-1 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
-              <select value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })} className="rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
-                <option value="ILS">ILS</option>
-                <option value="USD">USD</option>
-                <option value="JOD">JOD</option>
-              </select>
+              <CurrencySelect value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })} className="rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
             </div>
             <DatePicker value={form.due_date} onChange={(v) => setForm({ ...form, due_date: v })} placeholder="تاريخ الاستحقاق" />
 

@@ -6,7 +6,7 @@ import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import { formatDate } from '../lib/formatDate'
 import DatePicker from '../components/DatePicker'
-import { Card, PageHeader, Badge, Button, Modal, Table, Thead, Th, Td, Tr, EmptyRow, SearchableSelect, Input } from '../components/ui'
+import { Card, PageHeader, Badge, Button, Modal, Table, Thead, Th, Td, Tr, EmptyRow, SearchableSelect, Input, CurrencySelect } from '../components/ui'
 import type { BadgeVariant } from '../components/ui'
 import type { Branch, Cashbox, Item, PurchaseInvoice, StockMovement, Supplier } from '../types'
 
@@ -442,11 +442,7 @@ export default function PurchaseInvoicesPage() {
                                     </div>
                                     <div>
                                       <label className="mb-1 block text-xs text-muted">العملة</label>
-                                      <select value={lineForm.currency} onChange={(e) => setLineForm({ ...lineForm, currency: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
-                                        <option value="ILS">ILS</option>
-                                        <option value="USD">USD</option>
-                                        <option value="JOD">JOD</option>
-                                      </select>
+                                      <CurrencySelect value={lineForm.currency} onChange={(e) => setLineForm({ ...lineForm, currency: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
                                     </div>
                                     {selectedItem?.type === 'tracked' && (
                                       <>

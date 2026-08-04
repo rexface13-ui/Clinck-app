@@ -3,7 +3,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faCamera, faPaperPlane, faCheck } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import DatePicker from './DatePicker'
-import { Modal, Button, SearchableSelect } from './ui'
+import { Modal, Button, SearchableSelect, CurrencySelect } from './ui'
 import type { CheckItem } from '../types'
 
 interface Props {
@@ -198,15 +198,9 @@ export default function ReceiveCheckModal({ partyType, partyId, direction = 'inc
             onChange={(e) => setForm({ ...form, amount: e.target.value })}
             className="flex-1 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
           />
-          <select
-            value={form.currency}
+          <CurrencySelect value={form.currency}
             onChange={(e) => setForm({ ...form, currency: e.target.value })}
-            className="rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
-          >
-            <option value="ILS">ILS</option>
-            <option value="USD">USD</option>
-            <option value="JOD">JOD</option>
-          </select>
+            className="rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
         </div>
         <DatePicker value={form.due_date} onChange={(v) => setForm({ ...form, due_date: v })} placeholder="تاريخ الاستحقاق" />
 

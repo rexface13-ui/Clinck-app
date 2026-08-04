@@ -4,7 +4,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faPlus, faBoxesStacked, faPen, faMagnifyingGlass, faTrash, faClockRotateLeft } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
-import { Card, PageHeader, Button, Modal, Table, Thead, Th, Td, Tr, EmptyRow, TableSkeleton } from '../components/ui'
+import { Card, PageHeader, Button, Modal, Table, Thead, Th, Td, Tr, EmptyRow, TableSkeleton, CurrencySelect } from '../components/ui'
 import { normalizeArabic } from '../lib/arabic'
 import type { Item, ItemCategory, ItemPriceHistoryRow } from '../types'
 
@@ -173,11 +173,7 @@ export default function ItemsPage() {
                 onChange={(e) => setForm({ ...form, default_price: e.target.value })}
                 className="flex-1 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
               />
-              <select value={form.default_currency} onChange={(e) => setForm({ ...form, default_currency: e.target.value })} className="rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
-                <option value="ILS">ILS</option>
-                <option value="USD">USD</option>
-                <option value="JOD">JOD</option>
-              </select>
+              <CurrencySelect value={form.default_currency} onChange={(e) => setForm({ ...form, default_currency: e.target.value })} className="rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
             </div>
             <p className="text-xs text-muted">هذا السعر بيتعبى تلقائياً أول ما تختار هالصنف بفاتورة شراء (إذا ما في سعر أحدث مسجّل لنفس المورد).</p>
             <Button onClick={submitItem} loading={busy} className="w-full justify-center">

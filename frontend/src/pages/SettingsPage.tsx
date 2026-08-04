@@ -3,7 +3,8 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faPaperPlane, faLink, faLinkSlash, faBuilding, faImage, faTrash, faSliders, faBell, faFileLines, faCloudArrowUp, faArrowsRotate } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
-import { Card, PageHeader, Button, Input } from '../components/ui'
+import { Card, PageHeader, Button, Input, CurrencySelect } from '../components/ui'
+import { CURRENCIES, BASE_CURRENCY } from '../lib/currencies'
 
 interface TelegramLinkStatus {
   linked: boolean
@@ -116,6 +117,8 @@ function GeneralSettingsCard() {
   })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  // Shekels per one unit of each foreign currency, keyed by currency code.
+  const [rates, setRates] = useState<Record<string, string>>({})
 
   useEffect(() => {
     if (!data) return
@@ -126,13 +129,22 @@ function GeneralSettingsCard() {
       clinic_hours_start: (data.settings.clinic_hours_start as string) ?? '10:00',
       clinic_hours_end: (data.settings.clinic_hours_end as string) ?? '22:00',
     })
+
+    const saved = (data.settings.exchange_rates ?? {}) as Record<string, number>
+    setRates(Object.fromEntries(CURRENCIES.filter((c) => c.code !== BASE_CURRENCY).map((c) => [c.code, saved[c.code] ? String(saved[c.code]) : ''])))
   }, [data])
 
   async function save() {
     setSaving(true)
     setSaved(false)
     try {
-      await api.put('/settings', { values: { ...form, default_appointment_duration: Number(form.default_appointment_duration) } })
+      // Blank means "no rate set" — don't store a 0 that would silently
+      // convert every foreign payment to nothing.
+      const exchange_rates = Object.fromEntries(
+        Object.entries(rates).filter(([, value]) => Number(value) > 0).map(([code, value]) => [code, Number(value)]),
+      )
+
+      await api.put('/settings', { values: { ...form, exchange_rates, default_appointment_duration: Number(form.default_appointment_duration) } })
       await refresh()
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
@@ -165,15 +177,32 @@ function GeneralSettingsCard() {
         </div>
         <div>
           <label className="mb-1 block text-sm text-muted">العملة الافتراضية</label>
-          <select
-            value={form.base_currency}
+          <CurrencySelect value={form.base_currency}
             onChange={(e) => setForm({ ...form, base_currency: e.target.value })}
-            className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none"
-          >
-            <option value="ILS">شيكل (ILS)</option>
-            <option value="USD">دولار (USD)</option>
-            <option value="JOD">دينار (JOD)</option>
-          </select>
+            className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none" showNames />
+        </div>
+        <div>
+          <label className="mb-1 block text-sm text-muted">أسعار الصرف</label>
+          <p className="mb-2 text-xs text-muted">
+            كم شيكل بتساوي وحدة وحدة من كل عملة. بتتعبّى لحالها وقت التحصيل، فما بتحتاج تكتبها كل مرة. اتركها فاضية لو ما بتستعمل العملة.
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            {CURRENCIES.filter((c) => c.code !== BASE_CURRENCY).map((currency) => (
+              <div key={currency.code} className="flex items-center gap-2">
+                <span className="w-28 shrink-0 text-xs text-ink/70">1 {currency.name} =</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  placeholder="—"
+                  value={rates[currency.code] ?? ''}
+                  onChange={(e) => setRates({ ...rates, [currency.code]: e.target.value })}
+                  className="w-24 rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
+                />
+                <span className="text-xs text-muted">₪</span>
+              </div>
+            ))}
+          </div>
         </div>
         <Input
           label="ملاحظة تذييل الطباعة (اختياري)"

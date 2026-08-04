@@ -5,7 +5,7 @@ import { faPlus, faCamera, faPercent, faTrash, faPen, faCheck } from '@fortaweso
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import DatePicker from './DatePicker'
-import { Card, Table, Thead, Th, Td, Tr, EmptyRow, Badge, SearchableSelect } from './ui'
+import { Card, Table, Thead, Th, Td, Tr, EmptyRow, Badge, SearchableSelect, CurrencySelect } from './ui'
 import type { BadgeVariant } from './ui'
 import type { Cashbox, Invoice, Ledger } from '../types'
 import RequestCheckImageButton, { TelegramCheckTargetPicker, sendTelegramCheckRequest } from './RequestCheckImageButton'
@@ -39,7 +39,8 @@ export default function PatientLedgerPanel({
   /** Called after any mutating action (payment, discount, check, invoice edit/delete...) so a parent showing its own summary (e.g. the debt banner up top) doesn't need a manual page reload to catch up. */
   onChanged?: () => void
 }) {
-  const { can } = useAuth()
+  const { can, data: bootstrap } = useAuth()
+  const settings = bootstrap?.settings
   const [searchParams, setSearchParams] = useSearchParams()
   const canCollectCash = can('billing.manage')
   const canCollectCheck = can('checks.manage')
@@ -106,6 +107,18 @@ export default function PatientLedgerPanel({
   }, [])
 
   const selectedCashbox = cashboxes.find((c) => c.id === Number(cashForm.cashbox_id))
+
+  // The rate the clinic saved for this cashbox's currency, if any.
+  const exchangeRates = (settings?.exchange_rates ?? {}) as Record<string, number>
+  const savedRate = selectedCashbox && selectedCashbox.currency !== 'ILS'
+    ? (Number(exchangeRates[selectedCashbox.currency]) || null)
+    : null
+
+  // Prefill the rate whenever the chosen cashbox's currency has one saved, so
+  // the common case needs no typing at all.
+  useEffect(() => {
+    if (savedRate) setCashForm((f) => ({ ...f, exchange_rate: String(savedRate) }))
+  }, [savedRate])
   const unpaidInvoices = invoices.filter((i) => i.status !== 'paid' && i.status !== 'void')
 
   async function collectPayment() {
@@ -429,20 +442,35 @@ export default function PatientLedgerPanel({
                 </select>
               </div>
               {selectedCashbox && selectedCashbox.currency !== 'ILS' && (
-                <div className="flex items-center gap-2">
-                  <span className="shrink-0 text-xs text-ink/60">سعر الصرف (1 {selectedCashbox.currency} = ? ₪)</span>
-                  <input
-                    type="number"
-                    step="0.01"
-                    placeholder="سعر الصرف"
-                    value={cashForm.exchange_rate}
-                    onChange={(e) => setCashForm({ ...cashForm, exchange_rate: e.target.value })}
-                    className="w-24 rounded-lg border border-ink/10 px-2 py-1.5 text-sm"
-                  />
-                  {cashForm.amount && (
-                    <span className="text-xs text-muted">
-                      = {(Number(cashForm.amount) * (Number(cashForm.exchange_rate) || 0)).toFixed(2)} ₪
-                    </span>
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="shrink-0 text-xs text-ink/60">سعر الصرف (1 {selectedCashbox.currency} = ? ₪)</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="سعر الصرف"
+                      value={cashForm.exchange_rate}
+                      onChange={(e) => setCashForm({ ...cashForm, exchange_rate: e.target.value })}
+                      className="w-24 rounded-lg border border-ink/10 px-2 py-1.5 text-sm"
+                    />
+                    {cashForm.amount && (
+                      <span className="text-xs text-muted">
+                        = {(Number(cashForm.amount) * (Number(cashForm.exchange_rate) || 0)).toFixed(2)} ₪
+                      </span>
+                    )}
+                  </div>
+                  {/* Typing the rate from memory on every payment is how a
+                      decimal slip turns a 100$ payment into 3,700₪ or 37₪.
+                      Warn when there's no saved rate to fall back on. */}
+                  {savedRate === null && (
+                    <p className="text-[11px] text-warning">
+                      ما في سعر صرف محفوظ لـ {selectedCashbox.currency} — احفظه من الإعدادات عشان يتعبّى لحاله.
+                    </p>
+                  )}
+                  {savedRate !== null && Number(cashForm.exchange_rate) !== savedRate && (
+                    <p className="text-[11px] text-warning">
+                      السعر المحفوظ {savedRate} — إنت حاطط {cashForm.exchange_rate || '—'}.
+                    </p>
                   )}
                 </div>
               )}
@@ -494,15 +522,9 @@ export default function PatientLedgerPanel({
                   onChange={(e) => setCheckForm({ ...checkForm, amount: e.target.value })}
                   className="flex-1 rounded-lg border border-ink/10 px-2 py-1.5 text-sm"
                 />
-                <select
-                  value={checkForm.currency}
+                <CurrencySelect value={checkForm.currency}
                   onChange={(e) => setCheckForm({ ...checkForm, currency: e.target.value })}
-                  className="rounded-lg border border-ink/10 px-2 py-1.5 text-sm"
-                >
-                  <option value="ILS">ILS</option>
-                  <option value="USD">USD</option>
-                  <option value="JOD">JOD</option>
-                </select>
+                  className="rounded-lg border border-ink/10 px-2 py-1.5 text-sm" />
               </div>
               <DatePicker value={checkForm.due_date} onChange={(v) => setCheckForm({ ...checkForm, due_date: v })} placeholder="تاريخ الاستحقاق" />
 

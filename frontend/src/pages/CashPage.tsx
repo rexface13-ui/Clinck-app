@@ -5,7 +5,7 @@ import { faPlus, faWallet, faPen, faTrash, faMagnifyingGlass, faXmark } from '@f
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import DatePicker from '../components/DatePicker'
-import { Card, PageHeader, Button, Modal, Table, Thead, Th, Td, Tr, EmptyRow, TableSkeleton, CardSkeleton, SearchableSelect, Badge } from '../components/ui'
+import { Card, PageHeader, Button, Modal, Table, Thead, Th, Td, Tr, EmptyRow, TableSkeleton, CardSkeleton, SearchableSelect, Badge, CurrencySelect } from '../components/ui'
 import type { Branch, Cashbox, CashEntry, ExpenseCategory, IncomeCategory } from '../types'
 
 type Tab = 'expenses' | 'incomes'
@@ -218,15 +218,9 @@ export default function CashPage() {
               onChange={(e) => setCashboxForm({ ...cashboxForm, name: e.target.value })}
               className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
             />
-            <select
-              value={cashboxForm.currency}
+            <CurrencySelect value={cashboxForm.currency}
               onChange={(e) => setCashboxForm({ ...cashboxForm, currency: e.target.value })}
-              className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
-            >
-              <option value="ILS">ILS — شيكل</option>
-              <option value="USD">USD — دولار</option>
-              <option value="JOD">JOD — دينار</option>
-            </select>
+              className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" showNames />
             <select
               value={cashboxForm.branch_id}
               onChange={(e) => setCashboxForm({ ...cashboxForm, branch_id: e.target.value })}

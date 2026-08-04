@@ -122,6 +122,10 @@ class ClinicSeeder extends Seeder
                 'tooth_numbering' => 'fdi',
                 'inventory_enabled' => false,
                 'insurance_enabled' => false,
+                // Shekels per one unit of each foreign currency. Starts empty
+                // so nothing is silently converted at a made-up rate — the
+                // clinic fills these in from the settings page.
+                'exchange_rates' => (object) [],
             ];
 
             foreach ($defaults as $key => $value) {
