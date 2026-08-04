@@ -731,6 +731,213 @@ function SuppliersAndChecksTab() {
   )
 }
 
+interface DayDetail {
+  date: string
+  label: string
+  revenue_ils: number
+  expenses_ils: number
+  collected_ils: number
+  net_ils: number
+  invoices: { id: number; invoice_number: string; patient_id: number; patient_name: string | null; status: string; total_ils: number; time: string }[]
+  expenses: { id: number; category: string; amount_ils: number; description: string | null; time: string }[]
+}
+
+const INVOICE_STATUS_LABELS: Record<string, string> = { paid: 'مدفوعة', partial: 'مدفوعة جزئياً', unpaid: 'غير مدفوعة' }
+
+function DayDetailCard({ detail }: { detail: DayDetail }) {
+  return (
+    <div className="rounded-xl bg-background p-4">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h4 className="text-sm font-semibold text-ink/80">{detail.label}</h4>
+        <div className="flex flex-wrap gap-3 text-xs">
+          <span className="text-ink">فواتير: <b>{money(detail.revenue_ils)} ₪</b></span>
+          <span className="text-success">محصّل: <b>{money(detail.collected_ils)} ₪</b></span>
+          <span className="text-danger">مصاريف: <b>{money(detail.expenses_ils)} ₪</b></span>
+          <span className={detail.net_ils >= 0 ? 'text-ink' : 'text-danger'}>صافي: <b>{money(detail.net_ils)} ₪</b></span>
+        </div>
+      </div>
+
+      {detail.invoices.length === 0 && detail.expenses.length === 0 ? (
+        <p className="text-xs text-muted">لا توجد فواتير ولا مصاريف بهالتاريخ.</p>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <p className="mb-2 text-xs font-semibold text-ink/60">الفواتير</p>
+            {detail.invoices.length === 0 ? (
+              <p className="text-xs text-muted">لا توجد فواتير.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {detail.invoices.map((inv) => (
+                  <Link
+                    key={inv.id}
+                    to={`/patients/${inv.patient_id}`}
+                    className="flex items-center justify-between rounded-lg bg-surface px-2.5 py-1.5 text-xs hover:bg-accent-soft"
+                  >
+                    <span className="text-ink/80">
+                      {inv.invoice_number} — {inv.patient_name ?? '—'}
+                      <span className="text-muted"> ({inv.time})</span>
+                    </span>
+                    <span className="flex items-center gap-2">
+                      <span className="text-muted">{INVOICE_STATUS_LABELS[inv.status] ?? inv.status}</span>
+                      <span className="font-medium text-ink">{money(inv.total_ils)} ₪</span>
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </div>
+          <div>
+            <p className="mb-2 text-xs font-semibold text-ink/60">المصاريف</p>
+            {detail.expenses.length === 0 ? (
+              <p className="text-xs text-muted">لا توجد مصاريف.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {detail.expenses.map((e) => (
+                  <div key={e.id} className="flex items-center justify-between rounded-lg bg-surface px-2.5 py-1.5 text-xs">
+                    <span className="text-ink/80">
+                      {e.category}
+                      {e.description ? ` — ${e.description}` : ''}
+                      <span className="text-muted"> ({e.time})</span>
+                    </span>
+                    <span className="font-medium text-danger">{money(e.amount_ils)} ₪</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function todayIso() {
+  return new Date().toISOString().slice(0, 10)
+}
+
+function DailyWeeklyTab() {
+  const [mode, setMode] = useState<'daily' | 'weekly'>('daily')
+
+  const [date, setDate] = useState(todayIso())
+  const [dayDetail, setDayDetail] = useState<DayDetail | null>(null)
+
+  const [weekAnchor, setWeekAnchor] = useState(todayIso())
+  const [week, setWeek] = useState<{
+    week_start: string
+    week_end: string
+    days: { date: string; label: string; revenue_ils: number; expenses_ils: number; net_ils: number }[]
+    totals: { revenue_ils: number; expenses_ils: number; net_ils: number }
+  } | null>(null)
+  const [openDay, setOpenDay] = useState<DayDetail | null>(null)
+
+  useEffect(() => {
+    if (mode !== 'daily') return
+    setDayDetail(null)
+    api.get('/reports/daily-detail', { params: { date } }).then((res) => setDayDetail(res.data))
+  }, [date, mode])
+
+  useEffect(() => {
+    if (mode !== 'weekly') return
+    setWeek(null)
+    setOpenDay(null)
+    api.get('/reports/weekly-detail', { params: { date: weekAnchor } }).then((res) => setWeek(res.data))
+  }, [weekAnchor, mode])
+
+  function openDayDetail(d: string) {
+    if (openDay?.date === d) {
+      setOpenDay(null)
+      return
+    }
+    setOpenDay(null)
+    api.get('/reports/daily-detail', { params: { date: d } }).then((res) => setOpenDay(res.data))
+  }
+
+  return (
+    <Card className="p-6">
+      <div className="mb-4 flex gap-2">
+        <button
+          onClick={() => setMode('daily')}
+          className={`rounded-lg border px-3 py-1.5 text-xs font-medium ${
+            mode === 'daily' ? 'border-accent bg-accent text-white' : 'border-border text-ink/60 hover:bg-background'
+          }`}
+        >
+          يومي
+        </button>
+        <button
+          onClick={() => setMode('weekly')}
+          className={`rounded-lg border px-3 py-1.5 text-xs font-medium ${
+            mode === 'weekly' ? 'border-accent bg-accent text-white' : 'border-border text-ink/60 hover:bg-background'
+          }`}
+        >
+          أسبوعي (سبت - جمعة)
+        </button>
+      </div>
+
+      {mode === 'daily' ? (
+        <>
+          <div className="mb-4">
+            <label className="mb-1 block text-xs text-muted">اليوم</label>
+            <DatePicker value={date} onChange={setDate} />
+          </div>
+          {!dayDetail ? <p className="text-xs text-muted">جارِ التحميل...</p> : <DayDetailCard detail={dayDetail} />}
+        </>
+      ) : (
+        <>
+          <div className="mb-4">
+            <label className="mb-1 block text-xs text-muted">أي يوم من الأسبوع المطلوب</label>
+            <DatePicker value={weekAnchor} onChange={setWeekAnchor} />
+          </div>
+          {!week ? (
+            <p className="text-xs text-muted">جارِ التحميل...</p>
+          ) : (
+            <>
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold text-ink/80">
+                  الأسبوع {week.week_start.split('-').reverse().join('/')} → {week.week_end.split('-').reverse().join('/')}
+                </h3>
+                <div className="flex flex-wrap gap-3 text-xs">
+                  <span className="text-ink">فواتير: <b>{money(week.totals.revenue_ils)} ₪</b></span>
+                  <span className="text-danger">مصاريف: <b>{money(week.totals.expenses_ils)} ₪</b></span>
+                  <span className={week.totals.net_ils >= 0 ? 'text-ink' : 'text-danger'}>صافي: <b>{money(week.totals.net_ils)} ₪</b></span>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border text-right text-muted">
+                      <th className="p-2 font-medium">اليوم</th>
+                      <th className="p-2 font-medium">فواتير</th>
+                      <th className="p-2 font-medium">مصاريف</th>
+                      <th className="p-2 font-medium">صافي</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {week.days.map((d) => (
+                      <tr
+                        key={d.date}
+                        onClick={() => openDayDetail(d.date)}
+                        className="cursor-pointer border-b border-border/60 last:border-0 hover:bg-background"
+                      >
+                        <td className={`p-2 ${openDay?.date === d.date ? 'font-semibold text-accent' : 'text-ink'}`}>{d.label}</td>
+                        <td className="p-2 text-ink">{money(d.revenue_ils)} ₪</td>
+                        <td className="p-2 text-danger">{money(d.expenses_ils)} ₪</td>
+                        <td className={`p-2 font-medium ${d.net_ils >= 0 ? 'text-ink/70' : 'text-danger'}`}>{money(d.net_ils)} ₪</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {openDay && <div className="mt-4">{<DayDetailCard detail={openDay} />}</div>}
+            </>
+          )}
+        </>
+      )}
+    </Card>
+  )
+}
+
 function SummaryStrip() {
   const [summary, setSummary] = useState<{ revenue_ils: number; commissions_ils: number; expenses_ils: number; net_profit_ils: number } | null>(null)
 
@@ -765,6 +972,7 @@ export default function ReportsPage() {
       <Tabs
         defaultTab="revenue"
         tabs={[
+          { key: 'daily-weekly', label: 'يومي / أسبوعي', content: <DailyWeeklyTab /> },
           { key: 'revenue', label: 'الإيرادات', content: <RevenueTab /> },
           { key: 'doctors', label: 'إنتاجية الأطباء', content: <DoctorProductivityTab /> },
           { key: 'cash-expenses', label: 'الصندوق والمصاريف', content: <CashAndExpensesTab /> },

@@ -10,6 +10,7 @@ use App\Models\CheckModel;
 use App\Models\Doctor;
 use App\Models\DoctorTransaction;
 use App\Models\Expense;
+use App\Models\Invoice;
 use App\Models\InvoiceLine;
 use App\Models\Patient;
 use App\Models\PatientTransaction;
@@ -513,6 +514,109 @@ class ReportController extends Controller
             'commissions_ils' => round((float) $commissions, 2),
             'expenses_ils' => round((float) $expenses, 2),
             'net_profit_ils' => round((float) $revenue - (float) $commissions - (float) $expenses, 2),
+        ];
+    }
+
+    /**
+     * Full detail for one calendar day: every invoice issued that day and
+     * every expense spent that day, plus what was actually collected in
+     * cash/card/transfer — issued vs collected can differ (an invoice can
+     * be billed today and paid later, or paid off an older invoice today).
+     */
+    public function dailyDetail(Request $request)
+    {
+        $this->authorizeView($request);
+
+        $data = $request->validate(['date' => ['required', 'date']]);
+
+        $timezone = config('dentaflow.display_timezone');
+        $day = Carbon::parse($data['date'], $timezone)->startOfDay();
+        [$dayStartUtc, $dayEndUtc] = [$day->clone()->timezone('UTC'), $day->clone()->endOfDay()->timezone('UTC')];
+
+        $invoices = Invoice::with('patient')
+            ->whereBetween('issued_at', [$dayStartUtc, $dayEndUtc])
+            ->orderBy('issued_at')
+            ->get();
+
+        $expenses = Expense::with('category')
+            ->whereBetween('spent_at', [$dayStartUtc, $dayEndUtc])
+            ->orderBy('spent_at')
+            ->get();
+
+        $payments = Payment::whereBetween('paid_at', [$dayStartUtc, $dayEndUtc])->get(['amount_ils', 'method']);
+
+        return [
+            'date' => $day->format('Y-m-d'),
+            'label' => $day->translatedFormat('l d/m/Y'),
+            'revenue_ils' => round((float) $invoices->sum('total_amount_ils'), 2),
+            'expenses_ils' => round((float) $expenses->sum('amount_ils'), 2),
+            'collected_ils' => round((float) $payments->sum('amount_ils'), 2),
+            'net_ils' => round((float) $invoices->sum('total_amount_ils') - (float) $expenses->sum('amount_ils'), 2),
+            'invoices' => $invoices->map(fn (Invoice $i) => [
+                'id' => $i->id,
+                'invoice_number' => $i->invoice_number,
+                'patient_id' => $i->patient_id,
+                'patient_name' => $i->patient?->full_name,
+                'status' => $i->status,
+                'total_ils' => (float) $i->total_amount_ils,
+                'time' => Carbon::parse($i->issued_at)->timezone($timezone)->format('H:i'),
+            ])->values(),
+            'expenses' => $expenses->map(fn ($e) => [
+                'id' => $e->id,
+                'category' => $e->category?->name ?? 'أخرى',
+                'amount_ils' => (float) $e->amount_ils,
+                'description' => $e->description,
+                'time' => Carbon::parse($e->spent_at)->timezone($timezone)->format('H:i'),
+            ])->values(),
+        ];
+    }
+
+    /**
+     * A calendar week Saturday→Friday (the clinic's own work week, not the
+     * ISO/Sunday-start one) — per-day revenue/expenses/net, so the owner can
+     * spot which day carried the week and drill into any single day via
+     * dailyDetail for the invoice/expense line items.
+     */
+    public function weeklyDetail(Request $request)
+    {
+        $this->authorizeView($request);
+
+        $data = $request->validate(['date' => ['nullable', 'date']]);
+
+        $timezone = config('dentaflow.display_timezone');
+        $anchor = isset($data['date']) ? Carbon::parse($data['date'], $timezone) : Carbon::now($timezone);
+        $weekStart = $anchor->clone()->startOfWeek(Carbon::SATURDAY)->startOfDay();
+        $weekEnd = $weekStart->clone()->addDays(6)->endOfDay();
+
+        $invoices = Invoice::whereBetween('issued_at', [$weekStart->clone()->timezone('UTC'), $weekEnd->clone()->timezone('UTC')])
+            ->get(['total_amount_ils', 'issued_at']);
+        $expenses = Expense::whereBetween('spent_at', [$weekStart->clone()->timezone('UTC'), $weekEnd->clone()->timezone('UTC')])
+            ->get(['amount_ils', 'spent_at']);
+
+        $days = [];
+        for ($i = 0; $i < 7; $i++) {
+            $d = $weekStart->clone()->addDays($i);
+            $dayRevenue = $invoices->filter(fn ($inv) => Carbon::parse($inv->issued_at)->timezone($timezone)->isSameDay($d))->sum('total_amount_ils');
+            $dayExpenses = $expenses->filter(fn ($e) => Carbon::parse($e->spent_at)->timezone($timezone)->isSameDay($d))->sum('amount_ils');
+
+            $days[] = [
+                'date' => $d->format('Y-m-d'),
+                'label' => $d->translatedFormat('D d/m'),
+                'revenue_ils' => round((float) $dayRevenue, 2),
+                'expenses_ils' => round((float) $dayExpenses, 2),
+                'net_ils' => round((float) $dayRevenue - (float) $dayExpenses, 2),
+            ];
+        }
+
+        return [
+            'week_start' => $weekStart->format('Y-m-d'),
+            'week_end' => $weekEnd->format('Y-m-d'),
+            'days' => $days,
+            'totals' => [
+                'revenue_ils' => round((float) $invoices->sum('total_amount_ils'), 2),
+                'expenses_ils' => round((float) $expenses->sum('amount_ils'), 2),
+                'net_ils' => round((float) $invoices->sum('total_amount_ils') - (float) $expenses->sum('amount_ils'), 2),
+            ],
         ];
     }
 }
