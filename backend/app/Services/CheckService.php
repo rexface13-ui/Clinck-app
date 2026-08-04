@@ -6,6 +6,7 @@ use App\Models\Cashbox;
 use App\Models\CashboxTransaction;
 use App\Models\CheckEvent;
 use App\Models\CheckModel;
+use App\Models\Invoice;
 use App\Models\Patient;
 use App\Models\PatientTransaction;
 use App\Models\Supplier;
@@ -17,7 +18,7 @@ use Illuminate\Support\Facades\Storage;
 
 class CheckService
 {
-    public function __construct(protected TelegramService $telegram)
+    public function __construct(protected TelegramService $telegram, protected PaymentService $payments)
     {
     }
 
@@ -32,8 +33,18 @@ class CheckService
         string $dueDate,
         ?UploadedFile $image = null,
         ?UploadedFile $image2 = null,
+        ?int $invoiceId = null,
     ): CheckModel {
-        $check = DB::transaction(function () use ($direction, $partyType, $partyId, $checkNumber, $bankName, $amount, $currency, $dueDate, $image, $image2) {
+        // Applying a check to an invoice is what lets that invoice ever read
+        // as settled; only meaningful for a patient's incoming check, and only
+        // against that same patient's own invoice.
+        $invoice = null;
+        if ($invoiceId && $direction === 'incoming' && $partyType === 'patient') {
+            $invoice = Invoice::findOrFail($invoiceId);
+            abort_if($invoice->patient_id !== $partyId, 422, 'الفاتورة لا تخص هذا المريض.');
+        }
+
+        $check = DB::transaction(function () use ($direction, $partyType, $partyId, $checkNumber, $bankName, $amount, $currency, $dueDate, $image, $image2, $invoice) {
             $imagePath = $image?->store('checks', 'local');
             $imagePath2 = $image2?->store('checks', 'local');
 
@@ -48,6 +59,7 @@ class CheckService
                 'due_date' => $dueDate,
                 'image_path' => $imagePath,
                 'image_path_2' => $imagePath2,
+                'invoice_id' => $invoice?->id,
                 'status' => 'in_wallet',
                 'received_at' => now(),
             ]);
@@ -76,6 +88,10 @@ class CheckService
                     'amount_ils' => $amount,
                     'occurred_at' => now(),
                 ]);
+
+                if ($invoice) {
+                    $this->payments->refreshInvoiceStatus($invoice->fresh());
+                }
             }
 
             return $check->fresh('events');
@@ -259,6 +275,12 @@ class CheckService
                     'amount_ils' => $check->amount,
                     'occurred_at' => now(),
                 ]);
+            }
+
+            // A bounced check no longer settles anything, so the invoice it
+            // was applied to has to go back to owing.
+            if ($check->invoice) {
+                $this->payments->refreshInvoiceStatus($check->invoice->fresh());
             }
 
             return $check->fresh('events');

@@ -76,7 +76,9 @@ class DoctorCommissionController extends Controller
                     'service_name' => $finding?->service?->name,
                     'finding_type' => $finding?->finding_type,
                     'finding_status' => $finding?->status,
-                    'note' => $finding?->note,
+                    // A reversal entry has no finding left to describe it, so
+                    // fall back to the reason recorded on the entry itself.
+                    'note' => $finding?->note ?? $t->notes,
                     'recorded_at' => display_datetime($finding?->recorded_at),
                     'invoice_number' => $invoice?->invoice_number,
                     'invoice_status' => $invoice?->status,

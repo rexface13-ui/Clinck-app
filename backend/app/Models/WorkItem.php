@@ -57,4 +57,52 @@ class WorkItem extends Model
     {
         return $this->teeth->pluck('tooth_number')->map(fn ($n) => (int) $n)->all();
     }
+
+    /**
+     * What was actually collected against this session, derived from the real
+     * payments on the invoice(s) its work was billed into.
+     *
+     * Deliberately NOT read from the `collected_amount_ils` column: checkout()
+     * never wrote that column, so it read 0 for every session the patient had
+     * already paid for. The edit-session form seeded its "المبلغ المحصّل" input
+     * from it, so "correcting" 0 back to the true figure was treated as a brand
+     * new collection and charged the patient a second time. Deriving it here
+     * means the figure can never drift out of sync with the money, no matter
+     * which screen the payment was entered, edited, or deleted from.
+     *
+     * One checkout can bill several sessions onto a single invoice, and one
+     * session's steps can end up spread across several invoices over time, so
+     * each invoice's payments are split across the sessions on it in proportion
+     * to what each session actually contributed to that invoice's lines.
+     */
+    public function actualCollectedIls(): float
+    {
+        $this->loadMissing('toothSteps.invoiceLine.invoice.payments', 'toothSteps.invoiceLine.invoice.lines');
+
+        $lines = $this->toothSteps
+            ->map(fn ($toothStep) => $toothStep->invoiceLine)
+            ->filter()
+            ->unique('id');
+
+        $collected = 0.0;
+
+        foreach ($lines->groupBy('invoice_id') as $group) {
+            $invoice = $group->first()->invoice;
+
+            if (! $invoice) {
+                continue;
+            }
+
+            $paid = (float) $invoice->payments->sum('amount_ils');
+            $invoiceLinesTotal = (float) $invoice->lines->sum('amount_ils');
+
+            if ($paid <= 0 || $invoiceLinesTotal <= 0) {
+                continue;
+            }
+
+            $collected += $paid * ((float) $group->sum('amount_ils') / $invoiceLinesTotal);
+        }
+
+        return round($collected, 2);
+    }
 }

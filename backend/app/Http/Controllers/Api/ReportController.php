@@ -92,7 +92,12 @@ class ReportController extends Controller
         $periods = $this->periodRanges($granularity, $count, $timezone);
 
         $rangeStart = $periods[0]['start']->clone()->timezone('UTC');
-        $rows = PatientTransaction::where('type', 'charge')
+
+        // Charges AND adjustments together — adjustments are the discounts,
+        // reversals and price corrections, all stored negative. Summing only
+        // the charges reported list price as if nothing was ever discounted,
+        // which overstated revenue by the full value of every discount given.
+        $rows = PatientTransaction::whereIn('type', ['charge', 'adjustment'])
             ->where('occurred_at', '>=', $rangeStart)
             ->get(['amount_ils', 'occurred_at']);
 
@@ -173,14 +178,33 @@ class ReportController extends Controller
             'to' => ['nullable', 'date'],
         ]);
 
-        $query = InvoiceLine::with('workItemToothStep.workItem.service')
-            ->when($data['from'] ?? null, fn ($q, $from) => $q->where('created_at', '>=', $from))
-            ->when($data['to'] ?? null, fn ($q, $to) => $q->where('created_at', '<=', $to.' 23:59:59'));
+        $lines = InvoiceLine::with(['workItemToothStep.workItem.service', 'invoice.lines'])
+            ->when($data['from'] ?? null, fn ($q, $from) => $q->where('invoice_lines.created_at', '>=', $from))
+            ->when($data['to'] ?? null, fn ($q, $to) => $q->where('invoice_lines.created_at', '<=', $to.' 23:59:59'))
+            ->get();
+
+        // A line keeps its full list price even after the invoice it sits on
+        // was discounted, so summing lines straight would credit each service
+        // with money the clinic never actually earned. Scale every line by its
+        // invoice's discount ratio so the per-service figures add back up to
+        // real revenue.
+        $discountRatio = [];
+        foreach ($lines as $line) {
+            $invoice = $line->invoice;
+            if (! $invoice || isset($discountRatio[$invoice->id])) {
+                continue;
+            }
+            $listTotal = (float) $invoice->lines->sum('amount_ils');
+            $discountRatio[$invoice->id] = $listTotal > 0
+                ? (float) $invoice->total_amount_ils / $listTotal
+                : 1.0;
+        }
 
         $totals = [];
-        foreach ($query->get() as $line) {
+        foreach ($lines as $line) {
             $name = $line->workItemToothStep?->workItem?->service?->name ?? 'أخرى';
-            $totals[$name] = ($totals[$name] ?? 0) + (float) $line->amount_ils;
+            $ratio = $discountRatio[$line->invoice_id] ?? 1.0;
+            $totals[$name] = ($totals[$name] ?? 0) + round((float) $line->amount_ils * $ratio, 2);
         }
 
         arsort($totals);
@@ -404,6 +428,21 @@ class ReportController extends Controller
             $totals[$row->method] = ($totals[$row->method] ?? 0) + (float) $row->amount_ils;
         }
 
+        // Patient checks never go through the payments table (they mustn't
+        // credit a cashbox before they clear), so counting only payments hid
+        // every shekel collected by check — the "شيك" label existed here but
+        // could never appear. Count them from the checks themselves.
+        $checksTotal = (float) CheckModel::where('direction', 'incoming')
+            ->where('party_type', 'patient')
+            ->where('status', '!=', 'bounced')
+            ->when($data['from'] ?? null, fn ($q, $from) => $q->where('received_at', '>=', $from))
+            ->when($data['to'] ?? null, fn ($q, $to) => $q->where('received_at', '<=', $to.' 23:59:59'))
+            ->sum('amount');
+
+        if ($checksTotal > 0) {
+            $totals['check'] = ($totals['check'] ?? 0) + $checksTotal;
+        }
+
         return [
             'methods' => collect($totals)->map(fn ($total, $method) => [
                 'method' => $method,
@@ -597,7 +636,8 @@ class ReportController extends Controller
             'to' => ['nullable', 'date'],
         ]);
 
-        $revenue = PatientTransaction::where('type', 'charge')
+        // Net of discounts — see revenue() for why adjustments belong here.
+        $revenue = PatientTransaction::whereIn('type', ['charge', 'adjustment'])
             ->when($data['from'] ?? null, fn ($q, $from) => $q->where('occurred_at', '>=', $from))
             ->when($data['to'] ?? null, fn ($q, $to) => $q->where('occurred_at', '<=', $to.' 23:59:59'))
             ->sum('amount_ils');
@@ -647,12 +687,19 @@ class ReportController extends Controller
 
         $payments = Payment::whereBetween('paid_at', [$dayStartUtc, $dayEndUtc])->get(['amount_ils', 'method']);
 
+        // Checks collected that day count as money taken in, same as cash.
+        $checksIn = (float) CheckModel::where('direction', 'incoming')
+            ->where('party_type', 'patient')
+            ->where('status', '!=', 'bounced')
+            ->whereBetween('received_at', [$dayStartUtc, $dayEndUtc])
+            ->sum('amount');
+
         return [
             'date' => $day->format('Y-m-d'),
             'label' => $day->translatedFormat('l d/m/Y'),
             'revenue_ils' => round((float) $invoices->sum('total_amount_ils'), 2),
             'expenses_ils' => round((float) $expenses->sum('amount_ils'), 2),
-            'collected_ils' => round((float) $payments->sum('amount_ils'), 2),
+            'collected_ils' => round((float) $payments->sum('amount_ils') + $checksIn, 2),
             'net_ils' => round((float) $invoices->sum('total_amount_ils') - (float) $expenses->sum('amount_ils'), 2),
             'invoices' => $invoices->map(fn (Invoice $i) => [
                 'id' => $i->id,

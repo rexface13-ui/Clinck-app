@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Models\Concerns\BelongsToClinic;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 
@@ -16,7 +17,7 @@ class CheckModel extends Model
     protected $fillable = [
         'clinic_id', 'direction', 'party_type', 'party_id', 'check_number',
         'bank_name', 'amount', 'currency', 'due_date', 'status', 'image_path', 'image_path_2',
-        'image_requested_at', 'received_at', 'purchase_invoice_id',
+        'image_requested_at', 'received_at', 'purchase_invoice_id', 'invoice_id',
     ];
 
     protected function casts(): array
@@ -32,6 +33,12 @@ class CheckModel extends Model
     public function party(): MorphTo
     {
         return $this->morphTo();
+    }
+
+    /** The patient invoice this check was handed over to settle, when it was applied to one. */
+    public function invoice(): BelongsTo
+    {
+        return $this->belongsTo(Invoice::class);
     }
 
     public function events(): HasMany

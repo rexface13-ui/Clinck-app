@@ -21,7 +21,9 @@ class WorkItemResource extends JsonResource
             'appointment_id' => $this->appointment_id,
             'price_per_tooth' => $this->price_per_tooth,
             'status' => $this->status,
-            'collected_amount_ils' => (float) $this->collected_amount_ils,
+            // Derived from real payments, not the stored counter — see
+            // WorkItem::actualCollectedIls() for why.
+            'collected_amount_ils' => $this->actualCollectedIls(),
             'created_at' => display_datetime($this->created_at),
             'teeth' => $this->whenLoaded('teeth', fn () => $this->teeth->pluck('tooth_number')->map(fn ($n) => (int) $n)->values()),
             'steps' => $this->whenLoaded('steps', fn () => $this->steps->map(fn ($step) => [

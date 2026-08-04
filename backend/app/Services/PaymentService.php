@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Cashbox;
 use App\Models\CashboxTransaction;
+use App\Models\CheckModel;
 use App\Models\Invoice;
 use App\Models\Patient;
 use App\Models\PatientTransaction;
@@ -157,7 +158,6 @@ class PaymentService
      */
     public function adjustTotal(Invoice $invoice, float $newTotal): Invoice
     {
-        abort_if($invoice->status === 'void', 422, 'الفاتورة ملغاة — ما فيك تعدّلها.');
         abort_if($newTotal < 0, 422, 'المبلغ ما فيه يكون سالب.');
 
         $delta = round($newTotal - (float) $invoice->total_amount_ils, 2);
@@ -392,13 +392,33 @@ class PaymentService
         });
     }
 
+    /**
+     * Re-derives an invoice's paid status from everything that actually
+     * settled it: cash/card/transfer payments, plus any patient check applied
+     * to it. A check counts from the moment it's in hand (not when it clears)
+     * — that's the same point CheckService::receive() credits the patient's
+     * ledger, and bounce() puts both back. Leaving checks out was why a
+     * patient could owe nothing and still have invoices reading "غير مدفوعة".
+     */
     public function refreshInvoiceStatus(Invoice $invoice): void
     {
-        $paidIls = Payment::where('invoice_id', $invoice->id)->sum('amount_ils');
+        $paidIls = (float) Payment::where('invoice_id', $invoice->id)->sum('amount_ils');
+
+        $paidIls += (float) CheckModel::where('invoice_id', $invoice->id)
+            ->where('direction', 'incoming')
+            ->where('party_type', 'patient')
+            ->where('status', '!=', 'bounced')
+            ->sum('amount');
+
+        $total = (float) $invoice->total_amount_ils;
 
         $status = match (true) {
+            // A zero-total invoice (everything on it was discounted or
+            // reversed away) has nothing left owing — it's settled, not
+            // "unpaid" forever.
+            $total <= 0 => 'paid',
             $paidIls <= 0 => 'unpaid',
-            $paidIls < $invoice->total_amount_ils => 'partial',
+            $paidIls < $total => 'partial',
             default => 'paid',
         };
 

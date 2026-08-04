@@ -290,6 +290,8 @@ export interface LedgerRow {
   amount: string
   currency: string
   amount_ils: string
+  /** The amount signed the way it moves the balance — payments negative, charges positive. */
+  signed_amount_ils: number
   balance_after_ils: number
   occurred_at: string
 }

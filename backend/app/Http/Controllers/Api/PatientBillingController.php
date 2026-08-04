@@ -7,6 +7,7 @@ use App\Http\Requests\Billing\StorePaymentRequest;
 use App\Http\Resources\InvoiceResource;
 use App\Http\Resources\PaymentResource;
 use App\Models\Cashbox;
+use App\Models\CheckModel;
 use App\Models\Invoice;
 use App\Models\InvoiceLine;
 use App\Models\Patient;
@@ -67,21 +68,34 @@ class PatientBillingController extends Controller
         $transactions = $patient->transactions()->orderBy('occurred_at')->get();
 
         $invoiceIds = $transactions
-            ->filter(fn ($t) => in_array($t->reference_type, ['invoice', 'invoice_discount', 'invoice_line_reprice'], true))
+            ->filter(fn ($t) => in_array($t->reference_type, ['invoice', 'invoice_discount', 'invoice_line_reprice', 'invoice_line_reversal'], true))
             ->pluck('reference_id')
             ->filter()
             ->unique();
         $invoiceNumbers = Invoice::withoutGlobalScopes()->whereIn('id', $invoiceIds)->pluck('invoice_number', 'id');
 
-        $descriptionFor = function ($t) use ($invoiceNumbers) {
+        // Check numbers, so a check settlement doesn't read as a bare "دفعة"
+        // indistinguishable from cash on the very screen used to chase it up.
+        $checkNumbers = CheckModel::whereIn(
+            'id',
+            $transactions->where('reference_type', 'check')->pluck('reference_id')->filter()->unique()
+        )->pluck('check_number', 'id');
+
+        $descriptionFor = function ($t) use ($invoiceNumbers, $checkNumbers) {
             $invoiceNumber = $invoiceNumbers->get($t->reference_id);
+            $checkNumber = $t->reference_type === 'check' ? $checkNumbers->get($t->reference_id) : null;
 
             return match (true) {
                 $t->reference_type === 'invoice' => $invoiceNumber ? "فاتورة {$invoiceNumber}" : 'فاتورة',
                 $t->reference_type === 'invoice_discount' => $invoiceNumber ? "خصم على فاتورة {$invoiceNumber}" : 'خصم على فاتورة',
                 $t->reference_type === 'invoice_line_reprice' => $invoiceNumber ? "تصحيح سعر — فاتورة {$invoiceNumber}" : 'تصحيح سعر',
+                // Used to fall through to null, so undoing billed work showed
+                // up as an unexplained "خصم" the clinic never actually gave.
+                $t->reference_type === 'invoice_line_reversal' => $invoiceNumber ? "إلغاء شغل محسوب — فاتورة {$invoiceNumber}" : 'إلغاء شغل محسوب',
                 $t->reference_type === 'patient_discount' => 'خصم عام على الحساب',
-                $t->type === 'payment' => 'دفعة',
+                $t->reference_type === 'check' && $t->type === 'charge' => $checkNumber ? "شيك مرتجع رقم {$checkNumber}" : 'شيك مرتجع',
+                $t->reference_type === 'check' => $checkNumber ? "دفعة بشيك رقم {$checkNumber}" : 'دفعة بشيك',
+                $t->type === 'payment' => 'دفعة نقدية',
                 $t->type === 'refund' => 'استرجاع',
                 default => null,
             };
@@ -102,6 +116,12 @@ class PatientBillingController extends Controller
                 'amount' => $t->amount,
                 'currency' => $t->currency,
                 'amount_ils' => $t->amount_ils,
+                // The amount as it actually moves the balance: charges and
+                // adjustments carry their own sign, payments are stored
+                // positive but reduce what's owed. Exposed so the UI shows the
+                // same direction the running balance moves instead of
+                // re-deriving the rule (and getting "--150.00" for discounts).
+                'signed_amount_ils' => round($signed, 2),
                 'balance_after_ils' => round($running, 2),
                 'occurred_at' => display_datetime($t->occurred_at),
             ];

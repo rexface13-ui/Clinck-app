@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Appointment;
 use App\Models\Cashbox;
+use App\Models\DoctorTransaction;
 use App\Models\Invoice;
 use App\Models\InvoiceLine;
 use App\Models\Patient;
@@ -236,11 +237,14 @@ class WorkItemService
      */
     public function updateCollectedAmount(WorkItem $workItem, float $newAmount, ?int $cashboxId, ?string $method, float $exchangeRate = 1): WorkItem
     {
-        $delta = round($newAmount - (float) $workItem->collected_amount_ils, 2);
+        // Measured against what was genuinely collected (derived from the
+        // payments themselves), never against the `collected_amount_ils`
+        // column — checkout() never populated that column, so it read 0 even
+        // for a fully-paid session, and re-typing the true figure was charged
+        // to the patient all over again.
+        $delta = round($newAmount - $workItem->actualCollectedIls(), 2);
 
         if ($delta === 0.0) {
-            $workItem->update(['collected_amount_ils' => $newAmount]);
-
             return $workItem->fresh();
         }
 
@@ -315,12 +319,49 @@ class WorkItemService
         $completedCount = $steps->filter(fn ($ts) => $ts->completed_at)->count();
 
         if ($completedCount === 0) {
+            $this->reverseCommissionFor($finding);
             $finding->delete();
 
             return;
         }
 
         $finding->update(['status' => $completedCount === $steps->count() ? 'done' : 'in_progress']);
+    }
+
+    /**
+     * Cancels out the commission a doctor earned for work that has since been
+     * reversed or cancelled.
+     *
+     * The commission row points at the ToothFinding, and that link is
+     * nullOnDelete — so deleting the finding used to leave the commission
+     * standing but detached: the doctor stayed owed for treatment that never
+     * happened, and the amount lost every trace of which patient or tooth it
+     * came from. Posting an explicit negative entry (rather than deleting the
+     * original) nets the doctor back to zero while keeping both sides of the
+     * story on their statement, same as how patient-side reversals work.
+     */
+    protected function reverseCommissionFor(ToothFinding $finding): void
+    {
+        $commissions = DoctorTransaction::where('tooth_finding_id', $finding->id)
+            ->where('type', 'commission')
+            ->get();
+
+        foreach ($commissions as $commission) {
+            if ((float) $commission->amount_ils === 0.0) {
+                continue;
+            }
+
+            DoctorTransaction::create([
+                'clinic_id' => $commission->clinic_id,
+                'doctor_id' => $commission->doctor_id,
+                'tooth_finding_id' => null,
+                'type' => 'commission',
+                'amount_ils' => -(float) $commission->amount_ils,
+                'period_month' => $commission->period_month,
+                'notes' => 'عكس عمولة — الشغل انلغى أو انعكس'
+                    .($finding->tooth_number ? ' (سن '.$finding->tooth_number.')' : ''),
+            ]);
+        }
     }
 
     /** Toggles one tooth's progress on one step, and/or saves its field values. Nothing is billed here — billing happens at checkout(). */
@@ -547,7 +588,7 @@ class WorkItemService
                 'invoice_id' => $invoice?->id,
                 'total_ils' => $invoice ? (float) $invoice->fresh()->total_amount_ils : 0,
                 'appointment_id' => $appointment?->id,
-                'work_items' => $workItems->fresh(['teeth', 'steps.toothSteps', 'steps.serviceStep.fields'])->all(),
+                'work_items' => $workItems->fresh(['teeth', 'steps.toothSteps', 'steps.serviceStep.fields', 'toothSteps.invoiceLine.invoice.payments', 'toothSteps.invoiceLine.invoice.lines'])->all(),
             ];
         });
     }

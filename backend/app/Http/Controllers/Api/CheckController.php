@@ -48,6 +48,7 @@ class CheckController extends Controller
             'due_date' => ['required', 'date'],
             'image' => ['nullable', 'image', 'max:5120'],
             'image2' => ['nullable', 'image', 'max:5120'],
+            'invoice_id' => ['nullable', Rule::exists('invoices', 'id')],
         ]);
 
         return $checkService->receive(
@@ -61,6 +62,7 @@ class CheckController extends Controller
             dueDate: $data['due_date'],
             image: $request->file('image'),
             image2: $request->file('image2'),
+            invoiceId: isset($data['invoice_id']) ? (int) $data['invoice_id'] : null,
         );
     }
 

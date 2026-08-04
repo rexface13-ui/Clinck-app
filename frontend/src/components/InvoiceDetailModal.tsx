@@ -208,6 +208,7 @@ export default function InvoiceDetailModal({
 
   const paid = Number(invoice?.paid_ils ?? 0)
   const total = Number(invoice?.total_amount_ils ?? 0)
+  const linesTotal = (invoice?.lines ?? []).reduce((sum, l) => sum + Number(l.amount_ils), 0)
   const remaining = Math.max(0, total - paid)
 
   return (
@@ -273,6 +274,23 @@ export default function InvoiceDetailModal({
           </Table>
 
           <div className="space-y-1 rounded-lg bg-background p-3 text-sm">
+            {/* A discount only ever moved the invoice total; the lines keep
+                their original prices. Without spelling the gap out, the
+                invoice read as if its own numbers didn't add up. */}
+            {linesTotal > 0 && Math.abs(linesTotal - total) > 0.01 && (
+              <>
+                <div className="flex justify-between">
+                  <span className="text-muted">مجموع البنود</span>
+                  <span className="text-ink">{linesTotal.toFixed(2)} ₪</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted">{linesTotal > total ? 'الخصم' : 'إضافة'}</span>
+                  <span className={linesTotal > total ? 'text-success' : 'text-ink'}>
+                    {(total - linesTotal).toFixed(2)} ₪
+                  </span>
+                </div>
+              </>
+            )}
             <div className="flex justify-between">
               <span className="text-muted">المدفوع</span>
               <span className="text-ink">{paid.toFixed(2)} ₪</span>

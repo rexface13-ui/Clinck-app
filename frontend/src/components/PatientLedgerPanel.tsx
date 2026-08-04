@@ -54,7 +54,7 @@ export default function PatientLedgerPanel({
   const [discountNote, setDiscountNote] = useState('')
 
   const [cashForm, setCashForm] = useState({ invoice_id: '', cashbox_id: '', amount: '', method: 'cash' as 'cash' | 'card' | 'transfer', exchange_rate: '1' })
-  const [checkForm, setCheckForm] = useState({ check_number: '', bank_name: '', amount: '', currency: 'ILS', due_date: '' })
+  const [checkForm, setCheckForm] = useState({ check_number: '', bank_name: '', amount: '', currency: 'ILS', due_date: '', invoice_id: '' })
   const [checkImage, setCheckImage] = useState<File | null>(null)
   const checkImageInputRef = useRef<HTMLInputElement>(null)
   const [checkImage2, setCheckImage2] = useState<File | null>(null)
@@ -270,12 +270,13 @@ export default function PatientLedgerPanel({
       data.append('amount', checkForm.amount)
       data.append('currency', checkForm.currency)
       data.append('due_date', checkForm.due_date)
+      if (checkForm.invoice_id) data.append('invoice_id', checkForm.invoice_id)
       if (checkImageSource === 'device' && checkImage) data.append('image', checkImage)
       if (checkImageSource === 'device' && checkImage2) data.append('image2', checkImage2)
 
       const res = await api.post('/checks', data, { headers: { 'Content-Type': 'multipart/form-data' } })
       setShowForm(false)
-      setCheckForm({ check_number: '', bank_name: '', amount: '', currency: 'ILS', due_date: '' })
+      setCheckForm({ check_number: '', bank_name: '', amount: '', currency: 'ILS', due_date: '', invoice_id: '' })
       setCheckImage(null)
       setCheckImage2(null)
       if (checkImageInputRef.current) checkImageInputRef.current.value = ''
@@ -458,6 +459,21 @@ export default function PatientLedgerPanel({
 
           {tab === 'check' && canCollectCheck && (
             <>
+              {/* Applying the check to an invoice is what actually marks that
+                  invoice paid — without it the patient's balance drops but the
+                  invoice keeps reading "غير مدفوعة". */}
+              <select
+                value={checkForm.invoice_id}
+                onChange={(e) => setCheckForm({ ...checkForm, invoice_id: e.target.value })}
+                className="w-full rounded-lg border border-ink/10 px-2 py-1.5 text-sm"
+              >
+                <option value="">بدون ربط بفاتورة معيّنة</option>
+                {unpaidInvoices.map((inv) => (
+                  <option key={inv.id} value={inv.id}>
+                    {inv.invoice_number} — متبقي {(Number(inv.total_amount_ils) - (inv.paid_ils ?? 0)).toFixed(2)} ₪
+                  </option>
+                ))}
+              </select>
               <input
                 placeholder="رقم الشيك"
                 value={checkForm.check_number}
@@ -603,9 +619,13 @@ export default function PatientLedgerPanel({
                   {t.note && <span className="block text-[11px] text-ink/40">{t.note}</span>}
                 </Td>
                 <Td className={t.type === 'charge' ? 'text-danger' : 'text-success'}>
-                  {t.type === 'charge' ? '+' : '-'}{t.amount_ils} ₪
+                  {/* signed_amount_ils already points the same way the balance
+                      moves. The old code prefixed '-' to anything that wasn't a
+                      charge, which turned an already-negative discount into
+                      "--150.00 ₪". */}
+                  {Number(t.signed_amount_ils) > 0 ? '+' : ''}{Number(t.signed_amount_ils).toFixed(2)} ₪
                 </Td>
-                <Td>{t.balance_after_ils} ₪</Td>
+                <Td>{Number(t.balance_after_ils).toFixed(2)} ₪</Td>
                 <Td className="text-muted">{t.occurred_at}</Td>
                 <Td>
                   {canCollectCash && isEditablePayment && (
