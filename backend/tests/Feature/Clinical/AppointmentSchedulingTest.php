@@ -185,6 +185,62 @@ class AppointmentSchedulingTest extends TestCase
         $this->assertSame($id, $workItem->fresh()->appointment_id);
     }
 
+    /**
+     * The session log is built from what was billed, not from the calendar, so
+     * a session finished with no appointment behind it at all still has to show
+     * up in the patient's history in full.
+     */
+    public function test_a_session_with_no_appointment_still_lands_in_the_session_log(): void
+    {
+        $patient = $this->makePatient();
+        $doctor = $this->makeDoctor();
+        $workItem = $this->completeWork($this->makeWorkItem($patient, $doctor, $this->makeService('حشوة', 150), [11]));
+
+        app(WorkItemService::class)->checkout(
+            patient: $patient,
+            workItemIds: [$workItem->id],
+            doctorId: $doctor->id,
+        );
+
+        $this->assertNull($workItem->fresh()->appointment_id, 'This session was never booked — the log must not depend on that.');
+
+        $visits = $this->actingAs($this->owner)->getJson("/api/patients/{$patient->id}/visits")->assertOk()->json();
+
+        $this->assertCount(1, $visits);
+        $this->assertSame('حشوة', $visits[0]['service_name']);
+        $this->assertSame(11, $visits[0]['tooth_number']);
+        $this->assertSame($doctor->full_name, $visits[0]['doctor_name']);
+        $this->assertEquals(150, $visits[0]['price']);
+        $this->assertNotNull($visits[0]['date']);
+    }
+
+    /** Deleting the visit must not take the session out of the log with it. */
+    public function test_the_session_log_survives_its_visit_being_deleted(): void
+    {
+        $patient = $this->makePatient();
+        $doctor = $this->makeDoctor();
+        $workItem = $this->makeWorkItem($patient, $doctor, $this->makeService('حشوة', 150), [11]);
+
+        $id = $this->book(['patient_id' => $patient->id, 'doctor_id' => $doctor->id])->assertCreated()->json('data.id');
+        $workItem->update(['appointment_id' => $id]);
+        $this->completeWork($workItem);
+
+        app(WorkItemService::class)->checkout(
+            patient: $patient,
+            workItemIds: [$workItem->id],
+            doctorId: $doctor->id,
+        );
+
+        // Unlink the way deleting the visit would, then confirm the log holds.
+        $workItem->fresh()->update(['appointment_id' => null]);
+
+        $visits = $this->actingAs($this->owner)->getJson("/api/patients/{$patient->id}/visits")->assertOk()->json();
+
+        $this->assertCount(1, $visits);
+        $this->assertSame('حشوة', $visits[0]['service_name']);
+        $this->assertEquals(150, $visits[0]['price']);
+    }
+
     public function test_a_status_change_is_written_to_the_visit_timeline(): void
     {
         $id = $this->book()->assertCreated()->json('data.id');
