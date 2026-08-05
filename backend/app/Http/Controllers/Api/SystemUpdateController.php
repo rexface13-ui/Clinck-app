@@ -3,8 +3,11 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Support\ProcessEnv;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Process as LaravelProcess;
 use Symfony\Component\Process\Process;
 
 /**
@@ -76,9 +79,25 @@ class SystemUpdateController extends Controller
             return response()->json(['success' => false, 'log' => $log], 500);
         }
 
+        // Migrations run before anyone has looked at the result, and a repair
+        // migration that corrects old rows has no meaningful way back — its
+        // down() would only put the broken state back. So take a snapshot
+        // first, and refuse to migrate at all if we couldn't: an update that
+        // stops before touching the data is recoverable, one that doesn't
+        // isn't.
+        $backup = $this->runBackup();
+        $log .= $backup['log'];
+        if (! $backup['ok']) {
+            $log .= "\nما قدرنا ناخد نسخة احتياطية قبل تحديث قاعدة البيانات، فوقّفنا التحديث قبل ما نلمس أي بيانات. الكود انسحب بس القاعدة زي ما هي — خد نسخة يدوية من صفحة النسخ الاحتياطي وجرّب كمان مرة.";
+
+            return response()->json(['success' => false, 'log' => $log], 500);
+        }
+
         $migrate = $this->run([$php, 'artisan', 'migrate', '--force'], $backend);
         $log .= $migrate['log'];
         if (! $migrate['ok']) {
+            $log .= "\nفشل تحديث قاعدة البيانات. في نسخة احتياطية انأخذت للتو قبل المحاولة — فيك ترجعلها من صفحة النسخ الاحتياطي.";
+
             return response()->json(['success' => false, 'log' => $log], 500);
         }
 
@@ -88,6 +107,31 @@ class SystemUpdateController extends Controller
     }
 
     /** @param string[] $cmd */
+    /**
+     * The pre-update backup, run exactly the way BackupController runs it.
+     *
+     * Not via run(): spawning php.exe from php.exe while inheriting the full
+     * parent environment dies with "Opcode handlers are unusable due to ASLR"
+     * before backup:create gets a chance to do anything. Laravel's Process
+     * facade with an explicitly narrowed environment (ProcessEnv) is the
+     * combination that actually produces a dump — verified against the real
+     * database, not assumed.
+     */
+    private function runBackup(): array
+    {
+        $tmpDir = storage_path('app'.DIRECTORY_SEPARATOR.'tmp');
+        File::ensureDirectoryExists($tmpDir);
+
+        $result = LaravelProcess::timeout(300)
+            ->path(base_path())
+            ->env(ProcessEnv::withOverrides(['TEMP' => $tmpDir, 'TMP' => $tmpDir]))
+            ->run([PHP_BINARY, 'artisan', 'backup:create']);
+
+        $log = "\$ artisan backup:create\n".$result->output().$result->errorOutput()."\n";
+
+        return ['ok' => str_contains($log, 'Backup created'), 'log' => $log];
+    }
+
     private function run(array $cmd, string $cwd): array
     {
         $process = new Process($cmd, $cwd);
