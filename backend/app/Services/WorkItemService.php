@@ -536,7 +536,13 @@ class WorkItemService
 
                 $workItem->update([
                     'doctor_id' => $doctorId,
-                    'appointment_id' => $appointment?->id,
+                    // Only ever set the link, never clear it. resolveAppointment()
+                    // returns null for a walk-in, and writing that null used to
+                    // wipe the visit a session was already booked under — the
+                    // work vanished from that visit's history, and the guard that
+                    // stops a billed visit being deleted stopped seeing it, so
+                    // the visit could be deleted with its invoice left behind.
+                    ...($appointment ? ['appointment_id' => $appointment->id] : []),
                     'status' => $this->isWorkItemDone($workItem->fresh('toothSteps')) ? 'done' : 'in_progress',
                 ]);
             }
