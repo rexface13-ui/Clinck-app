@@ -10,7 +10,9 @@ use App\Models\WorkItem;
 use App\Models\WorkItemStep;
 use App\Models\WorkItemToothStep;
 use App\Services\WorkItemService;
+use App\Support\Dental\FdiTeeth;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class WorkItemController extends Controller
 {
@@ -53,7 +55,10 @@ class WorkItemController extends Controller
             'doctor_id' => ['required', 'integer', 'exists:doctors,id'],
             'service_id' => ['required', 'integer', 'exists:services,id'],
             'tooth_numbers' => ['required', 'array', 'min:1'],
-            'tooth_numbers.*' => ['integer'],
+            // The dental chart already refuses a number outside the FDI set;
+            // sessions accepted anything, so a typo could open work on a tooth
+            // that doesn't exist and then bill for it.
+            'tooth_numbers.*' => ['integer', Rule::in(FdiTeeth::validNumbers())],
         ]);
 
         $patient = Patient::findOrFail($data['patient_id']);
@@ -92,7 +97,10 @@ class WorkItemController extends Controller
 
         $data = $request->validate([
             'tooth_numbers' => ['required', 'array', 'min:1'],
-            'tooth_numbers.*' => ['integer'],
+            // The dental chart already refuses a number outside the FDI set;
+            // sessions accepted anything, so a typo could open work on a tooth
+            // that doesn't exist and then bill for it.
+            'tooth_numbers.*' => ['integer', Rule::in(FdiTeeth::validNumbers())],
         ]);
 
         $workItem = $service->addTeeth($workItem, $data['tooth_numbers']);

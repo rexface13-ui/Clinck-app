@@ -466,7 +466,18 @@ class WorkItemService
                 if (! $source || $ts->id === $source->id) {
                     continue;
                 }
-                $ts->update(['field_values' => $source->field_values, 'completed_at' => $source->completed_at]);
+
+                // Field values carry no money, so they copy straight across
+                // (including a null, which means "nothing recorded").
+                $ts->update(['field_values' => $source->field_values]);
+
+                // Completion does carry money, so it goes through
+                // updateToothStep. Copying an un-ticked source across the
+                // session used to clear the tick on teeth that were already
+                // invoiced while leaving invoice_line_id in place — the tooth
+                // read as "not done" and the patient stayed charged for it,
+                // the exact thing reverseBilledToothStep() exists to prevent.
+                $this->updateToothStep($ts, $source->completed_at !== null, null);
             }
         });
     }
