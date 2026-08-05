@@ -165,7 +165,12 @@ class WorkItemService
             // on that tooth with nothing left to edit. Cancel it instead.
             if ($isLastTooth) {
                 $workItem->update(['status' => 'cancelled']);
+
+                return;
             }
+
+            // Dropping a pending tooth can be what finishes the session off.
+            $this->refreshWorkItemStatus($workItem);
         });
     }
 
@@ -397,7 +402,32 @@ class WorkItemService
             }
         }
 
+        if ($completed !== null) {
+            $this->refreshWorkItemStatus($toothStep->workItem);
+        }
+
         return $toothStep->fresh();
+    }
+
+    /**
+     * A session is "done" only while every one of its tooth-steps is ticked.
+     * The status used to be worked out at checkout and never again, so
+     * un-ticking a tooth of an old session left it still reading "منجز" — it
+     * stayed off the list of work the patient still owes a visit for, even
+     * though a tooth on it was now pending. Re-ticking had the mirror problem.
+     * A cancelled session stays cancelled; that isn't a progress state.
+     */
+    protected function refreshWorkItemStatus(?WorkItem $workItem): void
+    {
+        if (! $workItem || $workItem->status === 'cancelled') {
+            return;
+        }
+
+        $status = $this->isWorkItemDone($workItem->fresh('toothSteps')) ? 'done' : 'in_progress';
+
+        if ($workItem->status !== $status) {
+            $workItem->update(['status' => $status]);
+        }
     }
 
     /**
