@@ -19,8 +19,10 @@ use App\Services\TelegramService;
 use App\Support\Arabic;
 use App\Support\Tenancy\CurrentClinic;
 use Illuminate\Console\Command;
+use Illuminate\Http\File;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Storage;
 
 class TelegramPoll extends Command
 {
@@ -278,6 +280,12 @@ class TelegramPoll extends Command
     {
         if ($photos && $link->pending_check_id) {
             $this->handleCheckPhotoReply($chatId, $photos, $link, $telegram, $checkService, $this->staffKeyboard($link->user));
+
+            return;
+        }
+
+        if ($photos && $link->pending_patient_id) {
+            $this->handlePatientPhotoReply($chatId, $photos, $link, $telegram, $this->staffKeyboard($link->user));
 
             return;
         }
@@ -645,6 +653,78 @@ class TelegramPoll extends Command
     // without a User login. Scoped to their own schedule only.
     // ---------------------------------------------------------------
 
+    /**
+     * The patient-file counterpart of handleCheckPhotoReply: staff asked for N
+     * photos from a patient's file, and each one they send is filed there until
+     * the count runs out. Counting down rather than waiting for a "done"
+     * message keeps a stray photo sent later from landing in a closed file.
+     */
+    protected function handlePatientPhotoReply(int $chatId, array $photos, TelegramLink $link, TelegramService $telegram, array $keyboard): void
+    {
+        $patient = Patient::find($link->pending_patient_id);
+
+        if (! $patient) {
+            $this->clearPendingPatient($link);
+            $telegram->sendMessage($chatId, 'ملف المريض المطلوب صوره ما عاد موجود.', $keyboard);
+
+            return;
+        }
+
+        $largest = collect($photos)->sortByDesc('file_size')->first();
+        $bytes = $telegram->downloadFile($largest['file_id']);
+
+        if (! $bytes) {
+            $telegram->sendMessage($chatId, 'تعذّر تحميل الصورة، حاول مرة ثانية.', $keyboard);
+
+            return;
+        }
+
+        $remaining = max(0, (int) $link->pending_patient_count - 1);
+        $index = (int) $link->pending_patient_count;
+        $title = $link->pending_patient_title;
+
+        $fileName = 'telegram-'.now()->format('Ymd-His').'-'.$index.'.jpg';
+        $path = Storage::disk('local')->putFileAs("patients/{$patient->id}", new File($this->spool($bytes)), $fileName);
+
+        $patient->attachments()->create([
+            'disk' => 'local',
+            'path' => $path,
+            'original_name' => $fileName,
+            'title' => $title,
+            'mime_type' => 'image/jpeg',
+            'size_bytes' => strlen($bytes),
+            'uploaded_by' => $link->user_id,
+        ]);
+
+        if ($remaining > 0) {
+            $link->update(['pending_patient_count' => $remaining]);
+            $telegram->sendMessage($chatId, "تم الحفظ 📎 باقي {$remaining} صورة.", $keyboard);
+
+            return;
+        }
+
+        $this->clearPendingPatient($link);
+        $telegram->sendMessage($chatId, "تم حفظ الصور بملف {$patient->full_name} بنجاح، شكراً! 📎", $keyboard);
+    }
+
+    protected function clearPendingPatient(TelegramLink $link): void
+    {
+        $link->update([
+            'pending_patient_id' => null,
+            'pending_patient_count' => null,
+            'pending_patient_title' => null,
+        ]);
+    }
+
+    /** Telegram hands back raw bytes; Storage wants something on disk. */
+    protected function spool(string $bytes): string
+    {
+        $tmpPath = tempnam(sys_get_temp_dir(), 'pat');
+        file_put_contents($tmpPath, $bytes);
+
+        return $tmpPath;
+    }
+
     protected function handleDoctorMessage(int $chatId, string $text, ?array $photos, TelegramLink $link, TelegramService $telegram, CheckService $checkService): void
     {
         $doctor = $link->doctor;
@@ -656,6 +736,12 @@ class TelegramPoll extends Command
 
         if ($photos && $link->pending_check_id) {
             $this->handleCheckPhotoReply($chatId, $photos, $link, $telegram, $checkService, $keyboard);
+
+            return;
+        }
+
+        if ($photos && $link->pending_patient_id) {
+            $this->handlePatientPhotoReply($chatId, $photos, $link, $telegram, $keyboard);
 
             return;
         }

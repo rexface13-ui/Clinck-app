@@ -15,7 +15,7 @@ class Attachment extends Model
 
     protected $fillable = [
         'clinic_id', 'attachable_type', 'attachable_id', 'disk',
-        'path', 'original_name', 'mime_type', 'size_bytes', 'uploaded_by',
+        'path', 'original_name', 'title', 'mime_type', 'size_bytes', 'uploaded_by',
     ];
 
     protected function casts(): array

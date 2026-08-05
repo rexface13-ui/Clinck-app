@@ -141,15 +141,11 @@ class AppointmentController extends Controller
     {
         $this->authorize('delete', $appointment);
 
-        // A work item that already billed something under this appointment
-        // can't be silently unwound by deleting the appointment — the charge
-        // stays real either way. Block it instead of leaving an orphaned
-        // invoice with no visible link back to a visit.
-        $hasBilledWork = WorkItem::where('appointment_id', $appointment->id)
-            ->whereHas('toothSteps', fn ($q) => $q->whereNotNull('invoice_line_id'))
-            ->exists();
-        abort_if($hasBilledWork, 422, 'ما فيك تحذف هالموعد — في شغل محسوب عليه. عدّل الفاتورة من ملف المريض أولاً.');
-
+        // Deleting a visit never touches the work or the money. The session log
+        // is built from invoice lines, not from the calendar, so a session keeps
+        // its service, tooth, doctor, price and date in the patient's history
+        // with or without a visit to hang off — the appointment here is a
+        // scheduling note, not the clinical record.
         $appointment->loadMissing(['patient:id,full_name', 'doctor:id,full_name']);
         ActivityLog::record('appointment.deleted', sprintf(
             'حذف موعد %s مع %s بتاريخ %s',

@@ -23,7 +23,7 @@ import AppointmentDetailModal from '../components/AppointmentDetailModal'
 import MedicalHistoryField from '../components/MedicalHistoryField'
 import { Card, Badge, Button, Tabs, Modal, Input } from '../components/ui'
 import { useAuth } from '../contexts/AuthContext'
-import type { PatientProfile, Service, Ledger, Doctor, WorkItem } from '../types'
+import type { PatientProfile, Service, Ledger, Doctor, WorkItem, Attachment } from '../types'
 
 const STATUS_LABELS: Record<string, string> = {
   scheduled: 'مجدول',
@@ -53,6 +53,7 @@ export default function PatientProfilePage() {
   const [editingNoteBody, setEditingNoteBody] = useState('')
   const [uploadingAttachment, setUploadingAttachment] = useState(false)
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
+  const [telegramRequest, setTelegramRequest] = useState<string | null>(null)
   const attachmentInputRef = useRef<HTMLInputElement>(null)
   const [activeTab, setActiveTab] = useState(searchParams.get('tab') === 'work' ? 'work' : 'overview')
   const [doctors, setDoctors] = useState<Doctor[]>([])
@@ -226,19 +227,57 @@ export default function PatientProfilePage() {
     load()
   }
 
-  async function uploadAttachment(file: File) {
+  async function uploadAttachments(files: File[]) {
+    if (files.length === 0) return
     setAttachmentError(null)
     setUploadingAttachment(true)
     try {
       const formData = new FormData()
-      formData.append('file', file)
+      // A whole set — an x-ray series, before/after photos — goes up in one
+      // request, so a half-uploaded batch can't be left behind.
+      files.forEach((file) => formData.append('files[]', file))
       await api.post(`/patients/${id}/attachments`, formData)
       load()
     } catch {
-      setAttachmentError('تعذّر رفع الملف — تحقق من نوع الملف وحجمه (الحد الأقصى 10 ميغابايت).')
+      setAttachmentError(
+        files.length > 1
+          ? 'تعذّر رفع الملفات — تحقق من أنواعها وأحجامها (الحد الأقصى 10 ميغابايت للملف).'
+          : 'تعذّر رفع الملف — تحقق من نوع الملف وحجمه (الحد الأقصى 10 ميغابايت).',
+      )
     } finally {
       setUploadingAttachment(false)
       if (attachmentInputRef.current) attachmentInputRef.current.value = ''
+    }
+  }
+
+  async function renameAttachment(attachment: Attachment) {
+    const title = window.prompt('اسم المرفق:', attachment.title ?? '')
+    if (title === null) return
+    await api.patch(`/patients/${id}/attachments/${attachment.id}`, { title })
+    load()
+  }
+
+  async function requestAttachmentsViaTelegram() {
+    const answer = window.prompt('كم صورة بدك تبعت من تيليغرام؟', '1')
+    if (answer === null) return
+
+    const count = Number(answer)
+    if (!Number.isInteger(count) || count < 1 || count > 10) {
+      setAttachmentError('اكتب رقم بين 1 و 10.')
+      return
+    }
+
+    const title = window.prompt('اسم للصور (اختياري):', '') ?? ''
+
+    setAttachmentError(null)
+    try {
+      await api.post(`/patients/${id}/attachments/request-telegram`, { count, title })
+      setTelegramRequest(`بعتنالك طلب ${count} صورة على تيليغرام — ابعتهم من هناك وبتوصل هون.`)
+    } catch (error) {
+      setAttachmentError(
+        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+          'تعذّر إرسال الطلب على تيليغرام.',
+      )
     }
   }
 
@@ -632,40 +671,51 @@ export default function PatientProfilePage() {
               <FontAwesomeIcon icon={faPaperclip} className="ml-2 text-muted" />
               المرفقات
             </h2>
-            <Button
-              onClick={() => attachmentInputRef.current?.click()}
-              loading={uploadingAttachment}
-              className="px-3 py-1.5"
-            >
-              <FontAwesomeIcon icon={faUpload} />
-              رفع من الكمبيوتر
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                onClick={() => attachmentInputRef.current?.click()}
+                loading={uploadingAttachment}
+                className="px-3 py-1.5"
+              >
+                <FontAwesomeIcon icon={faUpload} />
+                رفع من الكمبيوتر
+              </Button>
+              <Button variant="secondary" onClick={requestAttachmentsViaTelegram} className="px-3 py-1.5">
+                <FontAwesomeIcon icon={faPaperclip} />
+                طلب صور عبر تيليغرام
+              </Button>
+            </div>
             <input
               ref={attachmentInputRef}
               type="file"
+              multiple
               className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0]
-                if (file) uploadAttachment(file)
-              }}
+              onChange={(e) => uploadAttachments(Array.from(e.target.files ?? []))}
             />
           </div>
           {attachmentError && <p className="mb-3 text-sm text-danger">{attachmentError}</p>}
+          {telegramRequest && <p className="mb-3 text-sm text-success">{telegramRequest}</p>}
           {attachments.length === 0 ? (
             <p className="text-sm text-muted">لا توجد مرفقات (أشعة، صور، تقارير...).</p>
           ) : (
             <ul className="space-y-2">
               {attachments.map((a) => (
                 <li key={a.id} className="flex items-center justify-between border-b border-border/70 pb-2 text-sm last:border-0">
-                  <div>
-                    <button onClick={() => viewAttachment(a.download_url)} className="text-accent hover:underline">
-                      {a.original_name}
+                  <div className="min-w-0">
+                    <button onClick={() => viewAttachment(a.download_url)} className="truncate text-accent hover:underline">
+                      {a.display_name}
                     </button>
-                    <p className="text-xs text-muted">
+                    <p className="truncate text-xs text-muted">
+                      {/* Keep the real file name in view once it has been given
+                          a label, so the two can still be told apart. */}
+                      {a.title ? `${a.original_name} · ` : ''}
                       {formatFileSize(a.size_bytes)} · {a.uploaded_by ?? '—'} · {a.created_at}
                     </p>
                   </div>
-                  <div className="flex items-center gap-3">
+                  <div className="flex shrink-0 items-center gap-3">
+                    <button onClick={() => renameAttachment(a)} className="text-muted hover:text-accent" title="تعديل الاسم">
+                      <FontAwesomeIcon icon={faPen} />
+                    </button>
                     <button onClick={() => viewAttachment(a.download_url)} className="text-muted hover:text-accent">
                       <FontAwesomeIcon icon={faDownload} />
                     </button>

@@ -173,6 +173,11 @@ export interface AppointmentTimelineEntry {
 export interface Attachment {
   id: number
   original_name: string
+  /** The clinic's own label for the file, editable; null until one is written. */
+  title: string | null
+  /** What to show in a list: the title when there is one, else the file name. */
+  display_name: string
+  is_image: boolean
   mime_type: string
   size_bytes: number
   uploaded_by: string | null

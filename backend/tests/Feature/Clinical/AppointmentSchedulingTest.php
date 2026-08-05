@@ -3,6 +3,7 @@
 namespace Tests\Feature\Clinical;
 
 use App\Models\Appointment;
+use App\Models\Invoice;
 use App\Models\WorkItem;
 use App\Services\WorkItemService;
 use Tests\TestCase;
@@ -116,10 +117,11 @@ class AppointmentSchedulingTest extends TestCase
     }
 
     /**
-     * The charge stays real whether or not the visit row survives, so deleting
-     * the visit would leave an invoice with no visible link back to a day.
+     * The calendar is a scheduling note here, not the clinical record, so a
+     * visit can always be tidied away — but deleting it must leave the work,
+     * the invoice and the money completely untouched.
      */
-    public function test_a_visit_with_billed_work_cannot_be_deleted(): void
+    public function test_deleting_a_visit_with_billed_work_keeps_the_work_and_the_invoice(): void
     {
         $patient = $this->makePatient();
         $doctor = $this->makeDoctor();
@@ -128,14 +130,21 @@ class AppointmentSchedulingTest extends TestCase
         $workItem = $this->completeWork($this->makeWorkItem($patient, $doctor, $this->makeService(price: 150), [11]));
         $workItem->update(['appointment_id' => $id]);
 
-        app(WorkItemService::class)->checkout(
+        $result = app(WorkItemService::class)->checkout(
             patient: $patient,
             workItemIds: [$workItem->id],
             doctorId: $doctor->id,
         );
 
-        $this->actingAs($this->owner)->deleteJson("/api/appointments/{$id}")->assertStatus(422);
-        $this->assertNotNull(Appointment::find($id));
+        $this->actingAs($this->owner)->deleteJson("/api/appointments/{$id}")->assertNoContent();
+
+        $this->assertNull(Appointment::find($id));
+        $this->assertNotNull(WorkItem::find($workItem->id), 'The session must outlive the visit.');
+        $this->assertEquals(150, Invoice::findOrFail($result['invoice_id'])->total_amount_ils);
+
+        $visits = $this->actingAs($this->owner)->getJson("/api/patients/{$patient->id}/visits")->assertOk()->json();
+        $this->assertCount(1, $visits);
+        $this->assertEquals(150, $visits[0]['price']);
     }
 
     /** Unbilled work just loses the link — the progress recorded on it stays. */

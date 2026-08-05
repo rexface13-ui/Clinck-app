@@ -87,7 +87,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::patch('patients/{patient}/notes/{note}', [PatientNoteController::class, 'update']);
     Route::delete('patients/{patient}/notes/{note}', [PatientNoteController::class, 'destroy']);
     Route::post('patients/{patient}/attachments', [PatientAttachmentController::class, 'store']);
+    Route::patch('patients/{patient}/attachments/{attachment}', [PatientAttachmentController::class, 'update']);
     Route::delete('patients/{patient}/attachments/{attachment}', [PatientAttachmentController::class, 'destroy']);
+    Route::post('patients/{patient}/attachments/request-telegram', [PatientAttachmentController::class, 'requestViaTelegram']);
     Route::get('attachments/{attachment}/download', [PatientAttachmentController::class, 'download'])->name('attachments.download');
 
     Route::get('patients/{patient}/chart', [ToothChartController::class, 'show']);
