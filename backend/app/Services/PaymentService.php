@@ -423,7 +423,16 @@ class PaymentService
      *
      * Refunds are stored as negative payments, so they net themselves out.
      */
-    public function refreshPatientInvoiceStatuses(Patient|int $patient): void
+    /**
+     * @param  bool  $writeStatus  Pass false to fill in settled_amount_ils without
+     *                             touching `status`. Used when the column is first
+     *                             added: populating a brand-new empty column is
+     *                             part of installing it, whereas rewriting a
+     *                             status that the old code was already
+     *                             maintaining would be repairing data, which is
+     *                             deliberately kept out of automatic updates.
+     */
+    public function refreshPatientInvoiceStatuses(Patient|int $patient, bool $writeStatus = true): void
     {
         $patientId = $patient instanceof Patient ? $patient->id : $patient;
 
@@ -498,8 +507,14 @@ class PaymentService
 
             // Stored alongside the status, never derived separately, so
             // "المتبقي" can't contradict the badge next to it.
+            $changes = ['settled_amount_ils' => $credited];
+
+            if ($writeStatus) {
+                $changes['status'] = $status;
+            }
+
             if ($invoice->status !== $status || (float) $invoice->settled_amount_ils !== $credited) {
-                $invoice->update(['status' => $status, 'settled_amount_ils' => $credited]);
+                $invoice->update($changes);
             }
         }
     }

@@ -4,6 +4,7 @@ namespace Tests\Feature\Billing;
 
 use App\Models\Invoice;
 use App\Services\CheckService;
+use Illuminate\Support\Facades\DB;
 use App\Services\PaymentService;
 use App\Services\WorkItemService;
 use Tests\TestCase;
@@ -238,6 +239,48 @@ class LedgerSummaryTest extends TestCase
             $ledger['transactions'][0]['balance_after_ils'],
             $ledger['totals']['outstanding_ils'],
         );
+    }
+
+    /**
+     * The upgrade path: settled_amount_ils is a column that didn't exist
+     * before, and `paid_ils` reads straight off it. If adding the column
+     * doesn't also fill it, every invoice in the clinic shows "مدفوعة" next to
+     * "المدفوع 0.00 ₪" from the moment the update finishes — so the backfill
+     * is part of the schema change, not something to run later.
+     */
+    public function test_a_freshly_added_settled_column_gets_filled_in(): void
+    {
+        $patient = $this->makePatient();
+        $invoice = $this->bill($patient, 300);
+
+        app(PaymentService::class)->collect(
+            patient: $patient,
+            cashbox: $this->cashbox,
+            amount: 300,
+            currency: 'ILS',
+            exchangeRate: 1,
+            method: 'cash',
+            invoice: null,
+        );
+
+        $this->assertEquals(300, $invoice->fresh()->settled_amount_ils);
+
+        // Exactly what an existing clinic's database looks like the instant the
+        // column is created: present, defaulted to 0, never written to.
+        DB::table('invoices')->update(['settled_amount_ils' => 0]);
+
+        (require base_path('database/migrations/2026_08_04_110000_add_settled_amount_to_invoices_table.php'))
+            ->backfill();
+
+        $invoice = $invoice->fresh();
+
+        $this->assertEquals(300, $invoice->settled_amount_ils, 'A paid invoice must not read as unpaid after the upgrade.');
+        $this->assertSame('paid', $invoice->status, 'The backfill fills the new column; it does not rewrite status.');
+
+        $paid = $this->actingAs($this->owner)
+            ->getJson("/api/invoices/{$invoice->id}")->assertOk()->json('data.paid_ils');
+
+        $this->assertEquals(300, $paid);
     }
 
     public function test_an_account_with_nothing_on_it_reports_zeroes(): void
