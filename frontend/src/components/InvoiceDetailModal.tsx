@@ -5,7 +5,7 @@ import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import { Modal, Table, Thead, Th, Td, Tr, Badge, SearchableSelect } from './ui'
 import type { BadgeVariant } from './ui'
-import type { Cashbox, Invoice, Note } from '../types'
+import type { Cashbox, Invoice, InvoiceAdjustment, InvoiceCheck, Note } from '../types'
 import MiniOdontogramPreview from './MiniOdontogramPreview'
 import ToothNotesModal from './ToothNotesModal'
 import DatePicker from './DatePicker'
@@ -75,13 +75,19 @@ export default function InvoiceDetailModal({
   const [checkImage2, setCheckImage2] = useState<File | null>(null)
   const checkImage2InputRef = useRef<HTMLInputElement>(null)
   const [createdCheck, setCreatedCheck] = useState<{ id: number; check_number: string } | null>(null)
+  const [adjustments, setAdjustments] = useState<InvoiceAdjustment[]>([])
+  const [checks, setChecks] = useState<InvoiceCheck[]>([])
   const [collecting, setCollecting] = useState(false)
   const [checkImageSource, setCheckImageSource] = useState<'device' | 'telegram'>('device')
   const [telegramTarget, setTelegramTarget] = useState('')
   const [telegramSlots, setTelegramSlots] = useState<(1 | 2)[]>([1])
 
   function load() {
-    api.get(`/invoices/${invoiceId}`).then((res) => setInvoice(res.data.data))
+    api.get(`/invoices/${invoiceId}`).then((res) => {
+      setInvoice(res.data.data)
+      setAdjustments(res.data.meta?.adjustments ?? [])
+      setChecks(res.data.meta?.checks ?? [])
+    })
   }
 
   useEffect(load, [invoiceId])
@@ -266,12 +272,78 @@ export default function InvoiceDetailModal({
             <tbody>
               {(invoice.lines ?? []).map((l) => (
                 <Tr key={l.id}>
-                  <Td>{l.description}</Td>
+                  <Td>
+                    {l.description}
+                    {/* الشغل اللي وراء السطر — الخدمة والخطوة والأسنان والطبيب.
+                        بدونها "شو بتشمل هالفاتورة" بتحتاج تفتح تبويب تاني. */}
+                    {(l.service_name || l.doctor_name || (l.tooth_numbers?.length ?? 0) > 0) && (
+                      <span className="mt-0.5 block text-[11px] text-ink/40">
+                        {[
+                          l.service_name && l.step_title && l.step_title !== l.service_name
+                            ? `${l.service_name} — ${l.step_title}`
+                            : l.service_name || l.step_title,
+                          l.tooth_numbers?.length
+                            ? l.tooth_numbers.length === 1
+                              ? `سن ${l.tooth_numbers[0]}`
+                              : `${l.tooth_numbers.length} أسنان: ${l.tooth_numbers.join('، ')}`
+                            : null,
+                          l.doctor_name,
+                        ]
+                          .filter(Boolean)
+                          .join(' · ')}
+                      </span>
+                    )}
+                  </Td>
                   <Td className="text-muted">{l.amount_ils} ₪</Td>
                 </Tr>
               ))}
             </tbody>
           </Table>
+
+          {/* كل إشي غيّر إجمالي الفاتورة بعد ما انصدرت — خصم، تصحيح سعر، شغل
+              انلغى. بدونها الإجمالي بيختلف عن مجموع البنود وما في إشي بيفسّر ليش. */}
+          {adjustments.length > 0 && (
+            <div className="rounded-lg border border-border/70 p-3">
+              <p className="mb-2 text-xs font-medium text-ink/60">تعديلات صارت على الفاتورة</p>
+              <ul className="space-y-1.5">
+                {adjustments.map((a) => (
+                  <li key={a.id} className="flex items-start justify-between gap-3 text-xs">
+                    <span className="text-muted">
+                      {a.label}
+                      {a.note && <span className="block text-[11px] text-ink/40">{a.note}</span>}
+                      <span className="block text-[11px] text-ink/40">{a.occurred_at}</span>
+                    </span>
+                    <span className={a.amount_ils < 0 ? 'shrink-0 text-success' : 'shrink-0 text-danger'}>
+                      {a.amount_ils > 0 ? '+' : ''}
+                      {a.amount_ils.toFixed(2)} ₪
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {checks.length > 0 && (
+            <div className="rounded-lg border border-border/70 p-3">
+              <p className="mb-2 text-xs font-medium text-ink/60">شيكات على هالفاتورة</p>
+              <ul className="space-y-1.5">
+                {checks.map((c) => (
+                  <li key={c.id} className="flex items-start justify-between gap-3 text-xs">
+                    <span className="text-muted">
+                      شيك رقم {c.check_number}
+                      <span className="block text-[11px] text-ink/40">
+                        {[c.bank_name, `استحقاق ${c.due_date}`].filter(Boolean).join(' · ')}
+                      </span>
+                    </span>
+                    <span className={c.status === 'bounced' ? 'shrink-0 text-danger' : 'shrink-0 text-ink'}>
+                      {c.amount_ils.toFixed(2)} ₪
+                      {c.status === 'bounced' && <span className="block text-[11px]">مرتجع</span>}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           <div className="space-y-1 rounded-lg bg-background p-3 text-sm">
             {/* A discount only ever moved the invoice total; the lines keep

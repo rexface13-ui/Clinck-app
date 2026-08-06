@@ -258,6 +258,30 @@ export interface InvoiceLine {
   amount: string
   currency: string
   amount_ils: string
+  /** الشغل اللي طلع منه هالسطر — بيظهر بس لما تفتح الفاتورة لحالها. */
+  service_name?: string | null
+  step_title?: string | null
+  doctor_name?: string | null
+  tooth_numbers?: number[]
+}
+
+/** حركة غيّرت إجمالي الفاتورة بعد ما انصدرت: خصم، تصحيح سعر، أو شغل انلغى. */
+export interface InvoiceAdjustment {
+  id: number
+  kind: 'invoice_discount' | 'invoice_line_reprice' | 'invoice_line_reversal'
+  label: string
+  note: string | null
+  amount_ils: number
+  occurred_at: string
+}
+
+export interface InvoiceCheck {
+  id: number
+  check_number: string
+  bank_name: string | null
+  amount_ils: number
+  status: string
+  due_date: string
 }
 
 export interface Invoice {
@@ -301,8 +325,19 @@ export interface LedgerRow {
   occurred_at: string
 }
 
+export interface LedgerTotals {
+  /** What the work came to, gross — before discounts. */
+  charged_ils: number
+  /** What has actually been collected, net of refunds. */
+  collected_ils: number
+  /** Everything taken off: invoice discounts, general discounts, undone work. */
+  discounted_ils: number
+  outstanding_ils: number
+}
+
 export interface Ledger {
   outstanding_ils: number
+  totals?: LedgerTotals
   transactions: LedgerRow[]
 }
 

@@ -9,6 +9,7 @@ import { Card, Table, Thead, Th, Td, Tr, EmptyRow, Badge, SearchableSelect, Curr
 import type { BadgeVariant } from './ui'
 import type { Cashbox, Invoice, Ledger } from '../types'
 import RequestCheckImageButton, { TelegramCheckTargetPicker, sendTelegramCheckRequest } from './RequestCheckImageButton'
+import InvoiceDetailModal from './InvoiceDetailModal'
 
 const TYPE_LABELS: Record<string, string> = {
   charge: 'فاتورة',
@@ -25,6 +26,25 @@ const TYPE_VARIANTS: Record<string, BadgeVariant> = {
 }
 
 type Tab = 'cash' | 'check'
+
+/** حركات الـ reference_id تبعها هو رقم فاتورة فعلاً — مش دفعة ولا شيك. */
+const INVOICE_LINKED_REFS = ['invoice', 'invoice_discount', 'invoice_line_reprice', 'invoice_line_reversal']
+
+const CARD_TONES = {
+  neutral: 'text-ink',
+  success: 'text-success',
+  accent: 'text-accent',
+  danger: 'text-danger',
+} as const
+
+function SummaryCard({ label, value, tone }: { label: string; value: number; tone: keyof typeof CARD_TONES }) {
+  return (
+    <div className="rounded-xl border border-border/70 bg-background px-3 py-2.5">
+      <p className="mb-1 text-[11px] text-muted">{label}</p>
+      <p className={`text-base font-semibold ${CARD_TONES[tone]}`}>{value.toFixed(2)} ₪</p>
+    </div>
+  )
+}
 
 export default function PatientLedgerPanel({
   patientId,
@@ -47,6 +67,7 @@ export default function PatientLedgerPanel({
 
   const [ledger, setLedger] = useState<Ledger | null>(null)
   const [invoices, setInvoices] = useState<Invoice[]>([])
+  const [openInvoiceId, setOpenInvoiceId] = useState<number | null>(null)
   const [cashboxes, setCashboxes] = useState<Cashbox[]>([])
   const [showForm, setShowForm] = useState(() => autoOpenPayment || searchParams.get('pay') === '1')
   const [tab, setTab] = useState<Tab>(canCollectCash ? 'cash' : 'check')
@@ -351,6 +372,22 @@ export default function PatientLedgerPanel({
         </div>
       </div>
 
+      {/* الأربع أرقام اللي بتتقال للمريض على الطاولة: قديش كلّف الشغل، قديش
+          دفع، قديش انخصمله، وقديش ضل عليه. كلهم جايين من نفس الحركات اللي
+          تحت، عشان ما يصير كرت بيقول إشي والجدول بيقول غيره. */}
+      {ledger?.totals && (
+        <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <SummaryCard label="إجمالي الفواتير" value={ledger.totals.charged_ils} tone="neutral" />
+          <SummaryCard label="إجمالي المدفوع" value={ledger.totals.collected_ils} tone="success" />
+          <SummaryCard label="إجمالي الخصومات" value={ledger.totals.discounted_ils} tone="accent" />
+          <SummaryCard
+            label="المتبقي على المريض"
+            value={ledger.totals.outstanding_ils}
+            tone={ledger.totals.outstanding_ils > 0 ? 'danger' : 'success'}
+          />
+        </div>
+      )}
+
       {showDiscountForm && (
         <div className="mb-4 space-y-2 rounded-lg bg-background p-3">
           <p className="text-xs text-ink/50">خصم على كامل حساب المريض (مو مرتبط بفاتورة معيّنة) — بيقلل الرصيد المستحق مباشرة.</p>
@@ -637,7 +674,18 @@ export default function PatientLedgerPanel({
                   <Badge variant={TYPE_VARIANTS[t.type]}>{TYPE_LABELS[t.type]}</Badge>
                 </Td>
                 <Td className="text-muted">
-                  {t.description}
+                  {/* أي حركة مربوطة بفاتورة بتفتحها — "كيف طلعت هالفاتورة"
+                      لازم يكون على بُعد ضغطة من السطر نفسه، مش بحث بتبويب تاني. */}
+                  {t.reference_id && INVOICE_LINKED_REFS.includes(t.reference_type ?? '') ? (
+                    <button
+                      onClick={() => setOpenInvoiceId(t.reference_id)}
+                      className="text-right text-accent hover:underline"
+                    >
+                      {t.description}
+                    </button>
+                  ) : (
+                    t.description
+                  )}
                   {t.note && <span className="block text-[11px] text-ink/40">{t.note}</span>}
                 </Td>
                 <Td className={t.type === 'charge' ? 'text-danger' : 'text-success'}>
@@ -805,6 +853,18 @@ export default function PatientLedgerPanel({
           )}
         </tbody>
       </Table>
+
+      {openInvoiceId && (
+        <InvoiceDetailModal
+          invoiceId={openInvoiceId}
+          patientId={patientId}
+          onClose={() => setOpenInvoiceId(null)}
+          onChanged={() => {
+            load()
+            onChanged?.()
+          }}
+        />
+      )}
     </Card>
   )
 }

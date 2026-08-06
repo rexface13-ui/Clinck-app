@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Models\WorkItemToothStep;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -21,13 +22,32 @@ class InvoiceResource extends JsonResource
             // shared check show "paid" and "متبقي 160 ₪" at the same time.
             'paid_ils' => (float) $this->settled_amount_ils,
             'issued_at' => display_date($this->issued_at),
-            'lines' => $this->whenLoaded('lines', fn () => $this->lines->map(fn ($l) => [
-                'id' => $l->id,
-                'description' => $l->description,
-                'amount' => $l->amount,
-                'currency' => $l->currency,
-                'amount_ils' => $l->amount_ils,
-            ])),
+            'lines' => $this->whenLoaded('lines', fn () => $this->lines->map(function ($l) {
+                $workItem = $l->workItemToothStep?->workItem;
+
+                return [
+                    'id' => $l->id,
+                    'description' => $l->description,
+                    'amount' => $l->amount,
+                    'currency' => $l->currency,
+                    'amount_ils' => $l->amount_ils,
+                    // Which session this charge came out of, so "شو بتشمل
+                    // هالفاتورة" is answerable from the invoice itself rather
+                    // than by cross-referencing the work-planning tab.
+                    'service_name' => $workItem?->service?->name,
+                    'step_title' => $l->workItemToothStep?->step?->title,
+                    'doctor_name' => $workItem?->doctor?->full_name,
+                    // A flat-fee line covers several teeth at once, so list
+                    // every tooth tagged to this line, not just one.
+                    'tooth_numbers' => $l->relationLoaded('workItemToothStep') && $l->workItemToothStep
+                        ? WorkItemToothStep::where('invoice_line_id', $l->id)
+                            ->pluck('tooth_number')
+                            ->map(fn ($n) => (int) $n)
+                            ->values()
+                            ->all()
+                        : [],
+                ];
+            })),
         ];
     }
 }

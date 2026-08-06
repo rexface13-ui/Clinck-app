@@ -38,7 +38,53 @@ class PatientBillingController extends Controller
     {
         $this->requireBillingView($request);
 
-        return new InvoiceResource($invoice->load(['lines', 'payments']));
+        $invoice->load([
+            'lines.workItemToothStep.workItem.service',
+            'lines.workItemToothStep.workItem.doctor',
+            'lines.workItemToothStep.step',
+            'payments',
+        ]);
+
+        return (new InvoiceResource($invoice))->additional([
+            'meta' => [
+                // Everything that moved this invoice's total after it was
+                // issued — a general "خصم" on the bill, a step repriced, work
+                // undone. Without these the invoice shows a total that doesn't
+                // match its own lines and nothing on screen says why.
+                'adjustments' => PatientTransaction::where('patient_id', $invoice->patient_id)
+                    ->where('reference_id', $invoice->id)
+                    ->whereIn('reference_type', ['invoice_discount', 'invoice_line_reprice', 'invoice_line_reversal'])
+                    ->orderBy('occurred_at')
+                    ->get()
+                    ->map(fn ($t) => [
+                        'id' => $t->id,
+                        'kind' => $t->reference_type,
+                        'label' => match ($t->reference_type) {
+                            'invoice_discount' => 'خصم على الفاتورة',
+                            'invoice_line_reprice' => 'تصحيح سعر',
+                            default => 'إلغاء شغل محسوب',
+                        },
+                        'note' => $t->note,
+                        'amount_ils' => round((float) $t->amount_ils, 2),
+                        'occurred_at' => display_datetime($t->occurred_at),
+                    ]),
+                // Checks settle invoices too, so a bill paid by check would
+                // otherwise look untouched next to its own "مدفوعة" badge.
+                'checks' => CheckModel::where('direction', 'incoming')
+                    ->where('party_type', 'patient')
+                    ->where('party_id', $invoice->patient_id)
+                    ->where('invoice_id', $invoice->id)
+                    ->get()
+                    ->map(fn ($c) => [
+                        'id' => $c->id,
+                        'check_number' => $c->check_number,
+                        'bank_name' => $c->bank_name,
+                        'amount_ils' => round((float) $c->amount, 2),
+                        'status' => $c->status,
+                        'due_date' => display_date($c->due_date),
+                    ]),
+            ],
+        ]);
     }
 
     public function adjustInvoice(Request $request, Invoice $invoice, PaymentService $paymentService)
@@ -127,8 +173,42 @@ class PatientBillingController extends Controller
             ];
         });
 
+        // The four headline figures, derived from the same rows the table
+        // shows so a card can never disagree with what's listed under it.
+        //
+        // "Charged" is gross — what the work came to before anything was taken
+        // off — because a card reading "الفواتير" next to a separate discounts
+        // card has to be the number the discount comes off, or the three don't
+        // add up on screen. Discounts are the negative adjustments (an invoice
+        // discount, a general account discount, or work that was undone);
+        // charges from a bounced check are not a bill for treatment, so they
+        // stay out of the invoices figure and simply raise what's owed again.
+        $charged = 0.0;
+        $collected = 0.0;
+        $discounted = 0.0;
+
+        foreach ($transactions as $t) {
+            $amount = (float) $t->amount_ils;
+
+            if ($t->type === 'charge' && $t->reference_type !== 'check') {
+                $charged += $amount;
+            } elseif ($t->type === 'adjustment') {
+                $amount < 0 ? $discounted += -$amount : $charged += $amount;
+            } elseif (in_array($t->type, ['payment', 'refund'], true)) {
+                // A refund is stored already-negative, so both sides just add:
+                // subtracting it would hand the money back twice on screen.
+                $collected += $amount;
+            }
+        }
+
         return [
             'outstanding_ils' => round($running, 2),
+            'totals' => [
+                'charged_ils' => round($charged, 2),
+                'collected_ils' => round($collected, 2),
+                'discounted_ils' => round($discounted, 2),
+                'outstanding_ils' => round($running, 2),
+            ],
             'transactions' => $rows->reverse()->values(),
         ];
     }
