@@ -5,6 +5,7 @@ $ROOT    = Split-Path -Parent $PSScriptRoot
 $BACKEND = Join-Path $ROOT "backend"
 $PHP     = Join-Path $ROOT "php83\php.exe"
 $BACKUPS = Join-Path $BACKEND "storage\app\backups"
+$REPAIRS = "database/migrations/repairs"
 
 function Pause-Exit([string]$msg = "اضغط Enter للإغلاق") {
     try { Read-Host $msg | Out-Null } catch { Start-Sleep -Seconds 3 }
@@ -12,8 +13,11 @@ function Pause-Exit([string]$msg = "اضغط Enter للإغلاق") {
 
 Write-Host ""
 Write-Host "============================================"
-Write-Host "  تحديث قاعدة البيانات"
+Write-Host "  إصلاح البيانات القديمة"
 Write-Host "============================================"
+Write-Host ""
+Write-Host "هاد الملف بيطبّق إصلاحات على بيانات موجودة أصلاً — مش تحديث عادي."
+Write-Host "تحديث هيكل قاعدة البيانات بينطبق لحاله مع التحديث، وما إله علاقة فيه."
 Write-Host ""
 
 if (-not (Test-Path $PHP)) {
@@ -26,7 +30,7 @@ Set-Location $BACKEND
 
 # 1) شو اللي رح ينطبق — قبل ما نلمس إشي
 Write-Host "=== [1/4] شو رح ينطبق ===" -ForegroundColor Cyan
-$pending = & $PHP artisan migrate:status --pending 2>&1 | Out-String
+$pending = & $PHP artisan migrate:status --pending --path=$REPAIRS 2>&1 | Out-String
 
 if ($LASTEXITCODE -ne 0) {
     Write-Host $pending
@@ -38,7 +42,7 @@ if ($LASTEXITCODE -ne 0) {
 # artisan بترجّع exit code صفر بالحالتين، وكلمة "pending" موجودة بجملة
 # "No pending migrations." كمان — فالتمييز بيصير بهالجملة بالذات، مش بالكلمة.
 if ($pending -match "No pending migrations") {
-    Write-Host "[OK] قاعدة البيانات محدّثة أصلاً — ما في إشي ينطبق." -ForegroundColor Green
+    Write-Host "[OK] ما في إصلاحات معلّقة — بياناتك محدّثة." -ForegroundColor Green
     Write-Host ""
     Pause-Exit
     exit 0
@@ -46,7 +50,7 @@ if ($pending -match "No pending migrations") {
 
 Write-Host $pending
 
-Write-Host "[!] هاي التعديلات بتتطبق على بيانات العيادة الحقيقية." -ForegroundColor Yellow
+Write-Host "[!] هاي الإصلاحات بتعدّل بيانات العيادة الحقيقية، وما إلها رجعة." -ForegroundColor Yellow
 Write-Host "    تأكد إنه النظام موقّف (سكّر نوافذ Backend/Frontend) قبل ما تكمّل." -ForegroundColor Yellow
 Write-Host ""
 $answer = Read-Host "اكتب: نعم — للمتابعة، أو أي إشي تاني للإلغاء"
@@ -59,7 +63,6 @@ if ($answer -ne "نعم") {
 }
 
 # 2) نسخة احتياطية — وإذا فشلت ما بنكمّل
-# التعديلات اللي بتصلّح بيانات قديمة ما إلها رجعة، فلازم يكون في نقطة رجوع.
 Write-Host ""
 Write-Host "=== [2/4] نسخة احتياطية قبل التعديل ===" -ForegroundColor Cyan
 
@@ -80,12 +83,12 @@ Write-Host "[OK] النسخة: $($latest.Name)" -ForegroundColor Green
 
 # 3) التطبيق
 Write-Host ""
-Write-Host "=== [3/4] تطبيق التعديلات ===" -ForegroundColor Cyan
-& $PHP artisan migrate --force
+Write-Host "=== [3/4] تطبيق الإصلاحات ===" -ForegroundColor Cyan
+& $PHP artisan migrate --force --path=$REPAIRS
 
 if ($LASTEXITCODE -ne 0) {
     Write-Host ""
-    Write-Host "[ERROR] فشل تحديث قاعدة البيانات." -ForegroundColor Red
+    Write-Host "[ERROR] فشل تطبيق الإصلاحات." -ForegroundColor Red
     Write-Host "        في نسخة احتياطية انأخذت قبل شوي: $($latest.Name)" -ForegroundColor Yellow
     Write-Host "        فيك ترجعلها من صفحة النسخ الاحتياطي بالنظام." -ForegroundColor Yellow
     Pause-Exit
@@ -95,11 +98,11 @@ if ($LASTEXITCODE -ne 0) {
 # 4) تأكيد إنه ما ضل إشي معلّق
 Write-Host ""
 Write-Host "=== [4/4] تأكيد ===" -ForegroundColor Cyan
-$stillPending = & $PHP artisan migrate:status --pending 2>&1 | Out-String
+$stillPending = & $PHP artisan migrate:status --pending --path=$REPAIRS 2>&1 | Out-String
 
 if ($stillPending -notmatch "No pending migrations") {
     Write-Host $stillPending
-    Write-Host "[!] لسا في تعديلات ما انطبقت — شغّل الملف كمان مرة." -ForegroundColor Yellow
+    Write-Host "[!] لسا في إصلاحات ما انطبقت — شغّل الملف كمان مرة." -ForegroundColor Yellow
     Pause-Exit
     exit 1
 }
@@ -108,7 +111,7 @@ Write-Host "[OK] ما ضل إشي معلّق." -ForegroundColor Green
 
 Write-Host ""
 Write-Host "============================================" -ForegroundColor Green
-Write-Host "  تم تحديث قاعدة البيانات بنجاح!" -ForegroundColor Green
+Write-Host "  تمت الإصلاحات بنجاح!" -ForegroundColor Green
 Write-Host "  شغّل start.bat لتشغيل النظام" -ForegroundColor Green
 Write-Host "============================================" -ForegroundColor Green
 Write-Host ""

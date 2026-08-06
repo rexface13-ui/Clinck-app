@@ -16,7 +16,9 @@ class StrandedChargeRepairTest extends TestCase
 {
     private function runRepair(): void
     {
-        (require base_path('database/migrations/2026_08_05_110000_settle_tooth_steps_billed_but_reading_not_done.php'))->up();
+        // Repairs live outside the auto-run path so an update can never apply
+        // them unattended — see installer/migrate.ps1.
+        (require base_path('database/migrations/repairs/2026_08_05_110000_settle_tooth_steps_billed_but_reading_not_done.php'))->up();
     }
 
     private function billedSession(bool $pricePerTooth = true): array

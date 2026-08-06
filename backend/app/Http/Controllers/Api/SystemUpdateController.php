@@ -8,13 +8,13 @@ use Illuminate\Support\Facades\Log;
 use Symfony\Component\Process\Process;
 
 /**
- * The in-app twin of installer/update.ps1 — git pull + composer install,
- * triggered from the Settings page instead of a .bat file so a non-technical
- * clinic owner doesn't need to find/run a script. Deliberately owner-only
- * (see routes/api.php) since this pulls and executes arbitrary code from the
- * configured repo.
+ * The in-app twin of installer/update.ps1 — git pull, composer install, and
+ * the schema migrations, triggered from the Settings page instead of a .bat
+ * file so a non-technical clinic owner doesn't need to find/run a script.
+ * Deliberately owner-only (see routes/api.php) since this pulls and executes
+ * arbitrary code from the configured repo.
  *
- * It stops short of the database on purpose: migrations are applied by
+ * Data repairs are the one thing it won't do — those are applied by
  * installer/migrate.bat, which asks first and backs up first. See the comment
  * in update() for why.
  */
@@ -80,34 +80,39 @@ class SystemUpdateController extends Controller
             return response()->json(['success' => false, 'log' => $log], 500);
         }
 
-        // This button deliberately stops at the code. Pulling code is undone by
-        // pulling an older version; changing data is not — a repair migration
-        // that corrects old rows has no meaningful way back, since its down()
-        // would only put the broken state back. So the database is left alone
-        // and migrate.bat applies it instead: it shows what is about to run,
-        // asks out loud, takes a backup, and refuses to continue without one.
-        // Nobody should be able to reshape a clinic's data by clicking a button
-        // and walking away.
+        // Schema migrations run here as they always have: they add empty
+        // columns and tables, never touch a row that already exists, and the
+        // new code doesn't work without them.
+        $migrate = $this->run([$php, 'artisan', 'migrate', '--force'], $backend);
+        $log .= $migrate['log'];
+        if (! $migrate['ok']) {
+            return response()->json(['success' => false, 'log' => $log], 500);
+        }
+
+        // Data repairs live in database/migrations/repairs, outside the path
+        // `migrate` looks at, so they never run unattended. They rewrite rows
+        // that already exist and have no meaningful way back — their down()
+        // would only put the broken state back — so they wait for migrate.bat,
+        // which shows what is about to run, asks out loud, and backs up first.
+        //
         // artisan exits 0 whether or not anything is pending, and the word
         // "pending" appears in "No pending migrations." too — so the only
         // reliable signal is that sentence itself.
-        $pending = $this->run([$php, 'artisan', 'migrate:status', '--pending'], $backend);
-        $hasPending = $pending['ok'] && ! str_contains($pending['log'], 'No pending migrations');
+        $repairs = $this->run([$php, 'artisan', 'migrate:status', '--pending', '--path=database/migrations/repairs'], $backend);
+        $needsRepairs = $repairs['ok'] && ! str_contains($repairs['log'], 'No pending migrations');
 
-        $log .= "\nتم تحديث الكود. قاعدة البيانات ما انلمست.\n";
-
-        if ($hasPending) {
-            $log .= $pending['log'];
-            $log .= "\n⚠️ في تحديثات لقاعدة البيانات لسا ما انطبقت.\n"
-                .'سكّر النظام وشغّل installer\\migrate.bat لتطبيقها — بياخد نسخة احتياطية قبل ما يبدأ. '
-                ."النظام ممكن ما يشتغل صح قبل ما تطبّقها.";
+        if ($needsRepairs) {
+            $log .= $repairs['log'];
+            $log .= "\n⚠️ في إصلاحات لبيانات قديمة لسا ما انطبقت.\n"
+                .'سكّر النظام وشغّل installer\\migrate.bat لتطبيقها — بيفرجيك شو رح يصير وبياخد نسخة احتياطية أول. '
+                .'النظام بيشتغل عادي بدونها، بس أرقام قديمة ممكن تضل غلط.';
         } else {
-            $log .= "\nما في تحديثات لقاعدة البيانات — سكّر النظام وشغّل start.bat.";
+            $log .= "\nتم التحديث بنجاح — سكّر النظام وشغّل start.bat.";
         }
 
         return response()->json([
             'success' => true,
-            'needs_migration' => $hasPending,
+            'needs_repairs' => $needsRepairs,
             'log' => $log,
         ]);
     }
