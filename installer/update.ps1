@@ -96,20 +96,33 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Host "[OK] تم" -ForegroundColor Green
 
+# قاعدة البيانات ما بتنلمس هون عن قصد. تحديث الكود بيرجع بسحب نسخة قديمة،
+# أما تعديل البيانات فما إله رجعة — فصار بملف لحاله (migrate.bat) بيتشغّل
+# لما تكون واقف قدام الجهاز ومستعد تشوف النتيجة.
 Write-Host ""
-Write-Host "=== [3/3] تحديث قاعدة البيانات ===" -ForegroundColor Cyan
-& $PHP artisan migrate --force
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "[!] فشل تحديث قاعدة البيانات" -ForegroundColor Red
-    Pause-Exit
-    exit 1
-}
-Write-Host "[OK] تم" -ForegroundColor Green
+Write-Host "=== [3/3] فحص قاعدة البيانات ===" -ForegroundColor Cyan
+$pending = & $PHP artisan migrate:status --pending 2>&1 | Out-String
+# مش بالـ exit code (بترجع صفر بالحالتين) ولا بكلمة "Pending" لحالها (موجودة
+# كمان بجملة "No pending migrations.") — التمييز بالجملة نفسها.
+$hasPending = $pending -notmatch "No pending migrations"
+
+Write-Host "[OK] الكود تحدّث. قاعدة البيانات ما انلمست." -ForegroundColor Green
 
 Write-Host ""
 Write-Host "============================================" -ForegroundColor Green
-Write-Host "  تم التحديث بنجاح!" -ForegroundColor Green
-Write-Host "  شغّل start.bat لتشغيل النظام" -ForegroundColor Green
+Write-Host "  تم تحديث الكود بنجاح!" -ForegroundColor Green
 Write-Host "============================================" -ForegroundColor Green
+
+if ($hasPending) {
+    Write-Host ""
+    Write-Host "[!] في تحديثات لقاعدة البيانات لسا ما انطبقت:" -ForegroundColor Yellow
+    Write-Host $pending
+    Write-Host "    شغّل migrate.bat لتطبيقها (بياخد نسخة احتياطية أول)." -ForegroundColor Yellow
+    Write-Host "    النظام ممكن ما يشتغل صح قبل ما تطبّقها." -ForegroundColor Yellow
+} else {
+    Write-Host ""
+    Write-Host "  ما في تحديثات لقاعدة البيانات — شغّل start.bat." -ForegroundColor Green
+}
+
 Write-Host ""
 Pause-Exit

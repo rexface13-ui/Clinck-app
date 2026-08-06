@@ -424,17 +424,20 @@ function SystemUpdateCard() {
   const [busy, setBusy] = useState(false)
   const [log, setLog] = useState<string | null>(null)
   const [success, setSuccess] = useState<boolean | null>(null)
+  const [needsMigration, setNeedsMigration] = useState(false)
 
   if (!can('settings.manage')) return null
 
   async function runUpdate() {
-    if (!window.confirm('رح يسحب آخر نسخة من النظام ويطبّقها — تأكد إنه ما في حدا شغال على النظام هلق. متابعة؟')) return
+    if (!window.confirm('رح يسحب آخر نسخة من الكود — تأكد إنه ما في حدا شغال على النظام هلق. متابعة؟')) return
     setBusy(true)
     setSuccess(null)
     setLog(null)
+    setNeedsMigration(false)
     try {
-      const res = await api.post<{ success: boolean; log: string }>('/system/update')
+      const res = await api.post<{ success: boolean; needs_migration?: boolean; log: string }>('/system/update')
       setSuccess(res.data.success)
+      setNeedsMigration(Boolean(res.data.needs_migration))
       setLog(res.data.log)
     } catch (err) {
       const data = (err as { response?: { data?: { log?: string } } })?.response?.data
@@ -452,16 +455,28 @@ function SystemUpdateCard() {
         تحديث النظام
       </h2>
       <p className="mb-4 text-sm text-muted">
-        بيسحب آخر نسخة من النظام وبيطبّقها — سكّر أي نافذة تانية شغالة على النظام قبل ما تضغط، وما حدا لازم يكون عم يستخدمه هلق.
+        بيسحب آخر نسخة من الكود بس — <strong className="text-ink">ما بيلمس قاعدة البيانات</strong>. سكّر أي نافذة تانية شغالة على
+        النظام قبل ما تضغط، وما حدا لازم يكون عم يستخدمه هلق.
       </p>
       <Button onClick={runUpdate} loading={busy}>
         <FontAwesomeIcon icon={faArrowsRotate} />
-        تحديث النظام الآن
+        تحديث الكود الآن
       </Button>
       {log && (
         <div className={`mt-4 rounded-lg p-3 text-xs ${success ? 'bg-success-soft text-success' : 'bg-danger-soft text-danger'}`}>
-          <p className="mb-2 font-medium">{success ? 'تم التحديث بنجاح' : 'صار خطأ أثناء التحديث'}</p>
+          <p className="mb-2 font-medium">{success ? 'تم تحديث الكود' : 'صار خطأ أثناء التحديث'}</p>
           <pre className="max-h-64 overflow-auto whitespace-pre-wrap text-[11px] leading-relaxed">{log}</pre>
+        </div>
+      )}
+      {/* تعديلات قاعدة البيانات ما إلها رجعة، فما بتنطبق من هون — بتنطبق من
+          migrate.bat اللي بياخد نسخة احتياطية وبيسأل قبل ما يبلّش. */}
+      {needsMigration && (
+        <div className="mt-4 rounded-lg bg-warning-soft p-3 text-xs text-warning">
+          <p className="mb-1 font-medium">في تحديث لقاعدة البيانات لسا ما انطبق</p>
+          <p className="leading-relaxed">
+            سكّر النظام وشغّل <code className="font-mono">installer\migrate.bat</code> — بياخد نسخة احتياطية وبيسأل قبل ما يبلّش.
+            النظام ممكن ما يشتغل صح قبل ما تطبّقه.
+          </p>
         </div>
       )}
     </Card>

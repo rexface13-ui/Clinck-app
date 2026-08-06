@@ -3,19 +3,20 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Support\ProcessEnv;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Process as LaravelProcess;
 use Symfony\Component\Process\Process;
 
 /**
- * The in-app twin of installer/update.ps1 — same steps (git pull, composer
- * install, migrate), triggered from the Settings page instead of a .bat
- * file so a non-technical clinic owner doesn't need to find/run a script.
- * Deliberately owner-only (see routes/api.php) since this pulls and
- * executes arbitrary code from the configured repo.
+ * The in-app twin of installer/update.ps1 — git pull + composer install,
+ * triggered from the Settings page instead of a .bat file so a non-technical
+ * clinic owner doesn't need to find/run a script. Deliberately owner-only
+ * (see routes/api.php) since this pulls and executes arbitrary code from the
+ * configured repo.
+ *
+ * It stops short of the database on purpose: migrations are applied by
+ * installer/migrate.bat, which asks first and backs up first. See the comment
+ * in update() for why.
  */
 class SystemUpdateController extends Controller
 {
@@ -79,59 +80,39 @@ class SystemUpdateController extends Controller
             return response()->json(['success' => false, 'log' => $log], 500);
         }
 
-        // Migrations run before anyone has looked at the result, and a repair
-        // migration that corrects old rows has no meaningful way back — its
-        // down() would only put the broken state back. So take a snapshot
-        // first, and refuse to migrate at all if we couldn't: an update that
-        // stops before touching the data is recoverable, one that doesn't
-        // isn't.
-        $backup = $this->runBackup();
-        $log .= $backup['log'];
-        if (! $backup['ok']) {
-            $log .= "\nما قدرنا ناخد نسخة احتياطية قبل تحديث قاعدة البيانات، فوقّفنا التحديث قبل ما نلمس أي بيانات. الكود انسحب بس القاعدة زي ما هي — خد نسخة يدوية من صفحة النسخ الاحتياطي وجرّب كمان مرة.";
+        // This button deliberately stops at the code. Pulling code is undone by
+        // pulling an older version; changing data is not — a repair migration
+        // that corrects old rows has no meaningful way back, since its down()
+        // would only put the broken state back. So the database is left alone
+        // and migrate.bat applies it instead: it shows what is about to run,
+        // asks out loud, takes a backup, and refuses to continue without one.
+        // Nobody should be able to reshape a clinic's data by clicking a button
+        // and walking away.
+        // artisan exits 0 whether or not anything is pending, and the word
+        // "pending" appears in "No pending migrations." too — so the only
+        // reliable signal is that sentence itself.
+        $pending = $this->run([$php, 'artisan', 'migrate:status', '--pending'], $backend);
+        $hasPending = $pending['ok'] && ! str_contains($pending['log'], 'No pending migrations');
 
-            return response()->json(['success' => false, 'log' => $log], 500);
+        $log .= "\nتم تحديث الكود. قاعدة البيانات ما انلمست.\n";
+
+        if ($hasPending) {
+            $log .= $pending['log'];
+            $log .= "\n⚠️ في تحديثات لقاعدة البيانات لسا ما انطبقت.\n"
+                .'سكّر النظام وشغّل installer\\migrate.bat لتطبيقها — بياخد نسخة احتياطية قبل ما يبدأ. '
+                ."النظام ممكن ما يشتغل صح قبل ما تطبّقها.";
+        } else {
+            $log .= "\nما في تحديثات لقاعدة البيانات — سكّر النظام وشغّل start.bat.";
         }
 
-        $migrate = $this->run([$php, 'artisan', 'migrate', '--force'], $backend);
-        $log .= $migrate['log'];
-        if (! $migrate['ok']) {
-            $log .= "\nفشل تحديث قاعدة البيانات. في نسخة احتياطية انأخذت للتو قبل المحاولة — فيك ترجعلها من صفحة النسخ الاحتياطي.";
-
-            return response()->json(['success' => false, 'log' => $log], 500);
-        }
-
-        $log .= "\nتم التحديث بنجاح — أعد تشغيل النظام (سكّر نوافذ Backend/Frontend وشغّل start.bat) عشان يطبّق كامل.";
-
-        return response()->json(['success' => true, 'log' => $log]);
+        return response()->json([
+            'success' => true,
+            'needs_migration' => $hasPending,
+            'log' => $log,
+        ]);
     }
 
     /** @param string[] $cmd */
-    /**
-     * The pre-update backup, run exactly the way BackupController runs it.
-     *
-     * Not via run(): spawning php.exe from php.exe while inheriting the full
-     * parent environment dies with "Opcode handlers are unusable due to ASLR"
-     * before backup:create gets a chance to do anything. Laravel's Process
-     * facade with an explicitly narrowed environment (ProcessEnv) is the
-     * combination that actually produces a dump — verified against the real
-     * database, not assumed.
-     */
-    private function runBackup(): array
-    {
-        $tmpDir = storage_path('app'.DIRECTORY_SEPARATOR.'tmp');
-        File::ensureDirectoryExists($tmpDir);
-
-        $result = LaravelProcess::timeout(300)
-            ->path(base_path())
-            ->env(ProcessEnv::withOverrides(['TEMP' => $tmpDir, 'TMP' => $tmpDir]))
-            ->run([PHP_BINARY, 'artisan', 'backup:create']);
-
-        $log = "\$ artisan backup:create\n".$result->output().$result->errorOutput()."\n";
-
-        return ['ok' => str_contains($log, 'Backup created'), 'log' => $log];
-    }
-
     private function run(array $cmd, string $cwd): array
     {
         $process = new Process($cmd, $cwd);
