@@ -39,7 +39,18 @@ class WorkItemController extends Controller
             ->where('patient_id', $data['patient_id'])
             ->orderByDesc('created_at');
 
-        if (! empty($data['status'])) {
+        if (($data['status'] ?? null) === 'open') {
+            // Not a real status — "still needs attention": either not yet
+            // finished (in_progress) or every step got ticked but nothing's
+            // been checked out/billed yet (status flips to 'done' the moment
+            // the last tooth-step is ticked, well before anyone hits "إنهاء
+            // الجلسة"). Filtering by literal status=in_progress alone made a
+            // session vanish from "شغل مفتوح" the instant its last step was
+            // checked off, with no invoice/commission ever recorded — the
+            // work was still real, just invisible to the screen that bills it.
+            $query->where('status', '!=', 'cancelled')
+                ->whereHas('toothSteps', fn ($q) => $q->whereNull('invoice_line_id'));
+        } elseif (! empty($data['status'])) {
             $query->where('status', $data['status']);
         }
 

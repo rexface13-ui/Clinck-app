@@ -195,7 +195,7 @@ export default function WorkPlanningPanel({
    * seem to "vanish" after removing a tooth from an already-billed session.
    */
   function loadWorkItems(keepItemId?: number) {
-    return api.get('/work-items', { params: { patient_id: patientId, status: 'in_progress' } }).then(async (res) => {
+    return api.get('/work-items', { params: { patient_id: patientId, status: 'open' } }).then(async (res) => {
       let items: WorkItem[] = res.data.data
       if (keepItemId && !items.some((x) => x.id === keepItemId)) {
         try {
@@ -900,7 +900,13 @@ export default function WorkPlanningPanel({
           after saving, then vanish on the next real page load once nothing
           re-merges it in. */}
       {(() => {
-        const openItems = workItems.filter((w) => w.status === 'in_progress')
+        // "Open" mirrors the backend's status=open definition — not yet
+        // cancelled, and still has at least one tooth-step nobody's billed
+        // yet. Checking status==='in_progress' alone used to make a session
+        // disappear from here the instant its last step was ticked (status
+        // flips to 'done' right then, well before "إنهاء الجلسة" bills it),
+        // with no invoice/commission ever recorded for it.
+        const openItems = workItems.filter((w) => w.status !== 'cancelled' && w.steps.some((s) => s.tooth_steps.some((ts) => !ts.invoiced)))
         return openItems.length > 0 && (
         <Card className="p-4">
           <h2 className="mb-3 text-sm font-medium text-ink/70">شغل مفتوح</h2>
