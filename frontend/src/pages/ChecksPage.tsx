@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faPlus, faMoneyCheckDollar, faCamera, faImage, faMagnifyingGlass, faPaperPlane, faChevronDown, faChevronLeft } from '@fortawesome/free-solid-svg-icons'
@@ -7,7 +7,7 @@ import { useAuth } from '../contexts/AuthContext'
 import DatePicker from '../components/DatePicker'
 import { formatDate } from '../lib/formatDate'
 import { normalizeArabic } from '../lib/arabic'
-import { Card, PageHeader, Badge, Button, Modal, Table, Thead, Th, Td, Tr, EmptyRow, TableSkeleton, CurrencySelect } from '../components/ui'
+import { Card, PageHeader, Badge, Button, Modal, Table, Thead, Th, Td, Tr, EmptyRow, TableSkeleton, CurrencySelect, SearchableSelect } from '../components/ui'
 import type { BadgeVariant } from '../components/ui'
 import type { CheckItem, Patient, Supplier, Cashbox } from '../types'
 import RequestCheckImageButton from '../components/RequestCheckImageButton'
@@ -89,7 +89,24 @@ export default function ChecksPage() {
   }, [])
 
   const partyType: CheckItem['party_type'] = direction === 'incoming' ? 'patient' : outgoingPartyType
-  const partyOptions = partyType === 'patient' ? patients : suppliers
+
+  // `patients` above is the paginated first page — it's what puts a name on the
+  // rows in the table, so it stays as-is. The picker needs its own list,
+  // because a clinic past 25 patients otherwise cannot record a check against
+  // anyone older: they simply aren't among the options.
+  const [patientResults, setPatientResults] = useState<Patient[]>([])
+
+  const searchPatients = useCallback((query: string) => {
+    api
+      .get('/patients', { params: query ? { search: query } : {} })
+      .then((res) => setPatientResults(res.data.data ?? res.data))
+  }, [])
+
+  const patientPickerOptions = (patientResults.length > 0 ? patientResults : patients).map((p) => ({
+    value: String(p.id),
+    label: p.full_name,
+    sublabel: p.code,
+  }))
 
   function partyName(check: CheckItem): string {
     if (check.party_type === 'patient') return patients.find((p) => p.id === check.party_id)?.full_name ?? `#${check.party_id}`
@@ -237,12 +254,22 @@ export default function ChecksPage() {
                 </button>
               </div>
             )}
-            <select value={form.party_id} onChange={(e) => setForm({ ...form, party_id: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
-              <option value="">{partyType === 'patient' ? 'المريض...' : 'المورد...'}</option>
-              {partyOptions.map((p) => (
-                <option key={p.id} value={p.id}>{'full_name' in p ? p.full_name : p.name}</option>
-              ))}
-            </select>
+            {partyType === 'patient' ? (
+              <SearchableSelect
+                options={patientPickerOptions}
+                value={form.party_id}
+                onChange={(v) => setForm({ ...form, party_id: v })}
+                onSearch={searchPatients}
+                placeholder="ابحث عن مريض بالاسم..."
+              />
+            ) : (
+              <select value={form.party_id} onChange={(e) => setForm({ ...form, party_id: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
+                <option value="">المورد...</option>
+                {suppliers.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            )}
             <input placeholder="رقم الشيك" value={form.check_number} onChange={(e) => setForm({ ...form, check_number: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
             <input placeholder="اسم البنك" value={form.bank_name} onChange={(e) => setForm({ ...form, bank_name: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
             <div className="flex gap-2">

@@ -18,6 +18,15 @@ interface Props {
   /** Shown as "+ إضافة "query" ..." when the search has no matches — lets the caller open a create-new flow instead of leaving a dead end. */
   onCreateNew?: (query: string) => void
   createNewLabel?: string
+  /**
+   * Hand the typed query back so the caller can fetch matches from the server,
+   * for lists too long to hold in the page. Filtering client-side over a
+   * paginated list silently hides everything past the first page — the search
+   * looks like it works and just never finds the older half of the clinic.
+   *
+   * When set, `options` is shown as-is: the server has already filtered it.
+   */
+  onSearch?: (query: string) => void
 }
 
 export default function SearchableSelect({
@@ -28,6 +37,7 @@ export default function SearchableSelect({
   className = '',
   onCreateNew,
   createNewLabel = 'إضافة',
+  onSearch,
 }: Props) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -35,6 +45,26 @@ export default function SearchableSelect({
   const inputRef = useRef<HTMLInputElement>(null)
 
   const selected = options.find((o) => o.value === value)
+
+  // Server-side search replaces `options` as you type, so the chosen one can
+  // drop out of the list — hold on to its label or the field goes blank the
+  // moment you search for something else.
+  const [lastSelectedLabel, setLastSelectedLabel] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (selected) setLastSelectedLabel(selected.label)
+    else if (!value) setLastSelectedLabel(null)
+  }, [selected, value])
+
+  const selectedLabel = selected?.label ?? (value ? lastSelectedLabel : null)
+
+  // Debounced so typing a name is one request, not one per letter.
+  useEffect(() => {
+    if (!onSearch) return
+    const id = setTimeout(() => onSearch(query.trim()), 250)
+
+    return () => clearTimeout(id)
+  }, [query, onSearch])
 
   useEffect(() => {
     function onClickOutside(e: MouseEvent) {
@@ -47,14 +77,16 @@ export default function SearchableSelect({
     return () => document.removeEventListener('mousedown', onClickOutside)
   }, [])
 
-  const filtered = options.filter((o) => {
-    // normalizeArabic collapses ا/أ/إ/آ, ة/ه, etc.; toLowerCase makes an
-    // English query match regardless of how it was capitalized — neither
-    // should force the user to type an exact variant to find something.
-    const q = normalizeArabic(query.trim()).toLowerCase()
-    if (!q) return true
-    return normalizeArabic(o.label).toLowerCase().includes(q) || normalizeArabic(o.sublabel ?? '').toLowerCase().includes(q)
-  })
+  const filtered = onSearch
+    ? options
+    : options.filter((o) => {
+        // normalizeArabic collapses ا/أ/إ/آ, ة/ه, etc.; toLowerCase makes an
+        // English query match regardless of how it was capitalized — neither
+        // should force the user to type an exact variant to find something.
+        const q = normalizeArabic(query.trim()).toLowerCase()
+        if (!q) return true
+        return normalizeArabic(o.label).toLowerCase().includes(q) || normalizeArabic(o.sublabel ?? '').toLowerCase().includes(q)
+      })
 
   function pick(v: string) {
     onChange(v)
@@ -72,7 +104,7 @@ export default function SearchableSelect({
         }}
         className="flex w-full items-center justify-between rounded-lg border border-border px-3 py-2.5 text-start text-sm text-ink hover:border-accent/40 focus:border-accent focus:outline-none"
       >
-        <span className={selected ? '' : 'text-muted'}>{selected ? selected.label : placeholder}</span>
+        <span className={selectedLabel ? '' : 'text-muted'}>{selectedLabel ?? placeholder}</span>
         <FontAwesomeIcon icon={faChevronDown} className="text-xs text-muted" />
       </button>
 

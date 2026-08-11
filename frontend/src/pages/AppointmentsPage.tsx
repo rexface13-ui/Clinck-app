@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faChevronLeft, faChevronRight, faClockRotateLeft, faTriangleExclamation } from '@fortawesome/free-solid-svg-icons'
@@ -176,6 +176,25 @@ export default function AppointmentsPage() {
     api.get('/patients').then((res) => setPatients(res.data.data))
     api.get('/branches').then((res) => setBranches(res.data))
   }, [])
+
+  // /patients is paginated, so the plain call above only ever brings back the
+  // newest 25. Filtering those in the browser looked like a working search that
+  // simply never found anyone older — so the picker asks the server instead.
+  const searchPatients = useCallback((query: string) => {
+    api
+      .get('/patients', { params: query ? { search: query } : {} })
+      .then((res) => setPatients(res.data.data))
+  }, [])
+
+  // A patient arrived at from their own file (?patient_id=) won't be in that
+  // first page either, and the field would sit blank with a name already chosen.
+  useEffect(() => {
+    if (!preselectedPatient) return
+    api.get(`/patients/${preselectedPatient}`).then((res) => {
+      const patient = res.data.data
+      setPatients((current) => (current.some((p) => p.id === patient.id) ? current : [patient, ...current]))
+    })
+  }, [preselectedPatient])
 
   const range = useMemo(() => {
     if (view === 'day') return { from: date, to: date }
@@ -509,7 +528,13 @@ export default function AppointmentsPage() {
 
                 <label className="mb-1 block text-sm text-muted">المريض</label>
                 <div className="mb-3">
-                  <SearchableSelect options={patientOptions} value={bookingPatientId} onChange={setBookingPatientId} placeholder="ابحث عن مريض بالاسم..." />
+                  <SearchableSelect
+                    options={patientOptions}
+                    value={bookingPatientId}
+                    onChange={setBookingPatientId}
+                    onSearch={searchPatients}
+                    placeholder="ابحث عن مريض بالاسم..."
+                  />
                 </div>
 
                 {bookingConflict && (
