@@ -18,10 +18,11 @@ class UpdateAppointmentRequest extends FormRequest
     {
         return [
             'branch_id' => ['sometimes', 'required', Rule::exists('branches', 'id')],
-            'doctor_id' => ['sometimes', 'required', Rule::exists('doctors', 'id')],
+            'doctor_id' => ['sometimes', 'nullable', Rule::exists('doctors', 'id')],
             'starts_at' => ['sometimes', 'required', 'date'],
             'ends_at' => ['sometimes', 'required', 'date', 'after:starts_at'],
             'status' => ['sometimes', 'required', Rule::in(['scheduled', 'confirmed', 'done', 'cancelled', 'no_show'])],
+            'notes' => ['sometimes', 'nullable', 'string'],
         ];
     }
 
@@ -40,7 +41,7 @@ class UpdateAppointmentRequest extends FormRequest
             $endsAt = $this->input('ends_at', $appointment->ends_at);
             $status = $this->input('status', $appointment->status);
 
-            if (in_array($status, ['cancelled', 'no_show'], true)) {
+            if (in_array($status, ['cancelled', 'no_show'], true) || ! $doctorId) {
                 return;
             }
 

@@ -41,6 +41,19 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Report Repo Slug
+    |--------------------------------------------------------------------------
+    |
+    | "owner/repo" for the GitHub Pages link shown after publishing a daily
+    | report (docs/reports/*.html on this same repo, once Pages is enabled
+    | for it — Settings → Pages → branch/docs folder, a one-time manual step).
+    |
+    */
+
+    'report_repo_slug' => env('DENTAFLOW_REPORT_REPO_SLUG', 'rexface13-ui/Clinck-app'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Feature Keys
     |--------------------------------------------------------------------------
     |

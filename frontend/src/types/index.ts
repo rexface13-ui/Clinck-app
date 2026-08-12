@@ -23,6 +23,7 @@ export interface Doctor {
   default_commission_percent: string | null
   monthly_salary: string | null
   is_active: boolean
+  telegram_linked?: boolean
   availability?: DoctorAvailability[]
   service_commissions?: { id: number; service_id: number; service_name: string; commission_percent: string }[]
 }
@@ -41,9 +42,23 @@ export interface ServiceCategory {
   sort_order: number
 }
 
+export interface ServiceStepField {
+  id: number
+  label: string
+  sort_order: number
+}
+
+export interface ServiceStep {
+  id: number
+  title: string
+  price: string
+  sort_order: number
+  fields: ServiceStepField[]
+}
+
 export interface Service {
   id: number
-  service_category_id: number
+  service_category_id: number | null
   name: string
   default_price: string
   default_currency: string
@@ -51,7 +66,13 @@ export interface Service {
   default_interval_days: number | null
   default_commission_percent: string | null
   is_active: boolean
+  marks_teeth_missing: boolean
+  allows_missing_teeth: boolean
+  price_per_tooth: boolean
+  color: string | null
+  spans_teeth: boolean
   branch_prices?: { id: number; branch_id: number; price: string | null; surcharge: string }[]
+  steps?: ServiceStep[]
 }
 
 export interface Patient {
@@ -60,13 +81,30 @@ export interface Patient {
   branch_id: number
   full_name: string
   birth_date: string | null
+  age: number | null
   gender: 'male' | 'female'
   is_child: boolean
   phone: string | null
   guardian_name: string | null
   guardian_phone: string | null
   medical_alerts: string[]
+  medical_notes: string | null
+  telegram_linked?: boolean
   created_at: string
+}
+
+export interface Allergy {
+  id: number
+  name: string
+}
+
+export interface Medication {
+  id: number
+  name: string
+  form: string | null
+  usage_instructions: string | null
+  is_active: boolean
+  allergies: Allergy[]
 }
 
 export interface ToothState {
@@ -80,8 +118,18 @@ export interface ToothFinding {
   surfaces: string | null
   finding_type: string
   status: 'planned' | 'in_progress' | 'done'
+  marks_missing: boolean
+  performed_externally: boolean
+  work_item_tooth_step_id: number | null
+  session_status: 'pending' | 'done' | null
+  session_price: string | null
+  plan_id: number | null
+  invoice_id: number | null
+  step_title: string | null
   service_id: number | null
   service_name: string | null
+  service_color: string | null
+  service_spans_teeth: boolean
   doctor_id: number | null
   doctor_name: string | null
   note: string | null
@@ -93,13 +141,61 @@ export interface Appointment {
   branch_id: number
   patient_id: number
   patient_name: string | null
-  doctor_id: number
+  doctor_id: number | null
   doctor_name: string | null
   starts_at: string
   ends_at: string
   starts_at_display: string
   status: 'scheduled' | 'confirmed' | 'done' | 'cancelled' | 'no_show'
   created_via: 'web' | 'bot'
+  notes?: string | null
+  work_items?: {
+    id: number
+    service_name: string | null
+    service_color: string | null
+    doctor_name: string | null
+    status: string
+    teeth: number[]
+    pending: { tooth_number: number; step_title: string }[]
+  }[]
+  has_pending_work?: boolean
+  follow_up_appointment?: { id: number; starts_at_display: string } | null
+}
+
+export interface AppointmentTimelineEntry {
+  id: number
+  user_name: string
+  action: string
+  description: string
+  created_at: string
+}
+
+export interface Attachment {
+  id: number
+  original_name: string
+  /** The clinic's own label for the file, editable; null until one is written. */
+  title: string | null
+  /** What to show in a list: the title when there is one, else the file name. */
+  display_name: string
+  is_image: boolean
+  mime_type: string
+  size_bytes: number
+  uploaded_by: string | null
+  created_at: string
+  download_url: string
+}
+
+export interface Note {
+  id: number
+  body: string
+  author: string | null
+  created_at: string
+  tooth_number: number | null
+  work_item_id: number | null
+  work_item_tooth_step_id: number | null
+  step_title: string | null
+  session_label: string | null
+  is_important: boolean
 }
 
 export interface PatientProfile {
@@ -107,7 +203,8 @@ export interface PatientProfile {
   tooth_states: ToothState[]
   tooth_findings: ToothFinding[]
   appointments: Appointment[]
-  notes: { id: number; body: string; author: string | null; created_at: string }[]
+  notes: Note[]
+  attachments: Attachment[]
 }
 
 export interface Slot {
@@ -117,35 +214,42 @@ export interface Slot {
   ends_at_display: string
 }
 
-export interface PlanItemSessionRow {
+export interface WorkItemToothStepRow {
   id: number
-  session_number: number
-  status: 'pending' | 'scheduled' | 'done' | 'cancelled'
-  appointment_id: number | null
+  tooth_number: number
+  field_values: Record<string, string>
+  completed: boolean
+  invoiced: boolean
+  invoice_id: number | null
+  /** Only meaningful once invoiced — when this tooth-step was billed, i.e. which prior session it belongs to. */
+  completed_at: string | null
 }
 
-export interface PlanItem {
+export interface WorkItemStepRow {
   id: number
-  service_id: number
-  service_name: string | null
-  tooth_number: number | null
-  surfaces: string | null
-  unit_price: string
-  currency: string
-  sessions_count: number
-  sessions?: PlanItemSessionRow[]
+  title: string
+  price: string
+  sort_order: number
+  fields: ServiceStepField[]
+  tooth_steps: WorkItemToothStepRow[]
 }
 
-export interface TreatmentPlan {
+export interface WorkItem {
   id: number
   patient_id: number
-  doctor_id: number
+  doctor_id: number | null
   doctor_name: string | null
-  status: 'draft' | 'approved' | 'cancelled'
-  approved_at: string | null
-  notes: string | null
-  items: PlanItem[]
+  service_id: number | null
+  service_name: string | null
+  service_color: string | null
+  service_spans_teeth: boolean
+  appointment_id: number | null
+  price_per_tooth: boolean
+  status: 'in_progress' | 'done' | 'cancelled'
+  collected_amount_ils: number
   created_at: string
+  teeth: number[]
+  steps: WorkItemStepRow[]
 }
 
 export interface InvoiceLine {
@@ -154,12 +258,35 @@ export interface InvoiceLine {
   amount: string
   currency: string
   amount_ils: string
+  /** الشغل اللي طلع منه هالسطر — بيظهر بس لما تفتح الفاتورة لحالها. */
+  service_name?: string | null
+  step_title?: string | null
+  doctor_name?: string | null
+  tooth_numbers?: number[]
+}
+
+/** حركة غيّرت إجمالي الفاتورة بعد ما انصدرت: خصم، تصحيح سعر، أو شغل انلغى. */
+export interface InvoiceAdjustment {
+  id: number
+  kind: 'invoice_discount' | 'invoice_line_reprice' | 'invoice_line_reversal'
+  label: string
+  note: string | null
+  amount_ils: number
+  occurred_at: string
+}
+
+export interface InvoiceCheck {
+  id: number
+  check_number: string
+  bank_name: string | null
+  amount_ils: number
+  status: string
+  due_date: string
 }
 
 export interface Invoice {
   id: number
   patient_id: number
-  treatment_plan_id: number | null
   invoice_number: string
   status: 'unpaid' | 'partial' | 'paid' | 'void'
   total_amount_ils: string
@@ -176,25 +303,63 @@ export interface Payment {
   currency: string
   exchange_rate: string
   amount_ils: string
-  method: 'cash' | 'card' | 'transfer' | 'check'
+  method: 'cash' | 'card' | 'transfer'
   paid_at: string
 }
 
 export interface LedgerRow {
   id: number
   type: 'charge' | 'payment' | 'refund' | 'adjustment'
-  reference_type: string
-  reference_id: number
+  reference_type: string | null
+  reference_id: number | null
+  /** "خصم على فاتورة INV-000012", "فاتورة INV-000012"... — which session/invoice this row belongs to, when it's tied to one. */
+  description: string | null
+  /** Free-text note on a general (not invoice-tied) discount. */
+  note: string | null
   amount: string
   currency: string
   amount_ils: string
+  /** The amount signed the way it moves the balance — payments negative, charges positive. */
+  signed_amount_ils: number
   balance_after_ils: number
   occurred_at: string
 }
 
+export interface LedgerTotals {
+  /** What the work came to, gross — before discounts. */
+  charged_ils: number
+  /** What has actually been collected, net of refunds. */
+  collected_ils: number
+  /** Everything taken off: invoice discounts, general discounts, undone work. */
+  discounted_ils: number
+  outstanding_ils: number
+}
+
 export interface Ledger {
   outstanding_ils: number
+  totals?: LedgerTotals
   transactions: LedgerRow[]
+}
+
+export interface Visit {
+  session_id: number | null
+  item_id: number | null
+  plan_id: number | null
+  batch_id: string | null
+  appointment_id: number | null
+  appointment_date: string | null
+  created_at: string
+  date: string
+  service_name: string | null
+  step_title?: string | null
+  tooth_number: number | null
+  tooth_numbers: number[] | null
+  price: string
+  note: string | null
+  doctor_name: string | null
+  is_quick_visit: boolean
+  invoice_id: number
+  invoice_status: 'unpaid' | 'partial' | 'paid' | 'void'
 }
 
 export interface Cashbox {
@@ -218,7 +383,10 @@ export interface IncomeCategory {
 
 export interface CashEntry {
   id: number
+  expense_category_id?: number
+  income_category_id?: number | null
   category: string
+  cashbox_id: number
   cashbox: string
   amount: string
   currency: string
@@ -226,6 +394,10 @@ export interface CashEntry {
   description: string | null
   spent_at?: string
   received_at?: string
+  /** Incomes only — 'income' is a manual entry (editable/deletable here), 'payment' is a patient payment collection (read-only, managed from the patient's ledger). */
+  kind?: 'income' | 'payment'
+  source_id?: number | null
+  editable?: boolean
 }
 
 export interface Supplier {
@@ -233,16 +405,20 @@ export interface Supplier {
   name: string
   phone: string | null
   is_active: boolean
+  outstanding_ils: number
 }
 
 export interface SupplierLedgerRow {
   id: number
-  type: 'purchase' | 'payment' | 'check_endorsed' | 'check_bounced' | 'adjustment'
+  type: 'purchase' | 'payment' | 'check_endorsed' | 'check_bounced' | 'adjustment' | 'discount'
   reference_type: string | null
   reference_id: number | null
   amount_ils: string
+  notes: string | null
+  editable: boolean
   balance_after_ils: number
   occurred_at: string
+  occurred_at_iso: string
 }
 
 export interface SupplierLedger {
@@ -261,8 +437,18 @@ export interface Item {
   name: string
   type: 'direct_expense' | 'simple_stock' | 'tracked'
   unit: string
+  default_price: string | null
+  default_currency: string | null
   is_active: boolean
   category?: { id: number; name: string } | null
+}
+
+export interface ItemPriceHistoryRow {
+  id: number
+  price: string
+  currency: string
+  supplier_name: string | null
+  recorded_at: string
 }
 
 export interface PurchaseInvoiceLine {
@@ -288,7 +474,36 @@ export interface PurchaseInvoice {
   status: 'draft' | 'confirmed'
   total_amount_ils: string
   issued_at: string
+  notes?: string | null
   lines?: PurchaseInvoiceLine[]
+}
+
+export interface LabCase {
+  id: number
+  patient_id: number
+  patient_name: string | null
+  doctor_id: number | null
+  doctor_name: string | null
+  supplier_id: number
+  supplier_name: string | null
+  description: string
+  tooth_numbers: number[] | null
+  sent_at: string
+  expected_return_date: string
+  status: 'sent' | 'ready' | 'received'
+  notes: string | null
+  received_at: string | null
+  is_overdue: boolean
+}
+
+export interface Prescription {
+  id: number
+  patient_id: number
+  doctor_id: number | null
+  doctor_name: string | null
+  medications: string
+  notes: string | null
+  created_at: string
 }
 
 export interface StockMovement {
@@ -321,22 +536,41 @@ export interface CheckItem {
   amount: string
   currency: string
   due_date: string
+  image_path: string | null
+  image_path_2: string | null
   status: 'in_wallet' | 'endorsed' | 'bounced' | 'cleared'
   received_at: string
   events?: CheckEvent[]
 }
 
 export interface CommissionStatement {
-  doctor: { id: number; full_name: string }
+  doctor: { id: number; full_name: string; contract_type: Doctor['contract_type'] }
   month: string
-  total_ils: number
-  settled: boolean
+  commission_total_ils: number
+  salary_due_ils: number
+  total_due_ils: number
+  paid_ils: number
+  remaining_ils: number
   transactions: {
     id: number
-    type: string
     amount_ils: string
     patient_name: string | null
     tooth_number: number | null
-    settled_at: string | null
+    surfaces: string | null
+    service_name: string | null
+    finding_type: string | null
+    finding_status: 'planned' | 'in_progress' | 'done' | null
+    note: string | null
+    recorded_at: string | null
+    invoice_number: string | null
+    invoice_status: 'unpaid' | 'partial' | 'paid' | 'void' | null
+    invoice_total_ils: number | null
+    invoice_paid_ils: number | null
+  }[]
+  payouts: {
+    id: number
+    amount_ils: string
+    notes: string | null
+    paid_at: string | null
   }[]
 }

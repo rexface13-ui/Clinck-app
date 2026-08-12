@@ -93,8 +93,19 @@ class BackupController extends Controller
         $this->requireSettingsManage($request);
 
         $request->validate([
-            'file' => ['required', 'file', 'max:512000'], // 500MB
+            'file' => ['required', 'file', 'max:512000', 'extensions:dump'], // 500MB
         ]);
+
+        // Restoring overwrites everything the clinic has recorded since the
+        // dump was taken, with no undo — so take a snapshot of the live
+        // database first. Restoring the wrong file used to be unrecoverable.
+        $safetyNet = $this->runArtisan(['backup:create']);
+        if (! str_contains($safetyNet->output().$safetyNet->errorOutput(), 'Backup created')) {
+            return response()->json([
+                'message' => 'ما قدرنا ناخد نسخة احتياطية للوضع الحالي قبل الاستعادة، فوقّفنا العملية. جرّب تاخد نسخة يدوياً أول.',
+                'detail' => $safetyNet->output().$safetyNet->errorOutput(),
+            ], 500);
+        }
 
         $upload = $request->file('file');
         $tempName = 'restore_'.Str::random(8).'.dump';

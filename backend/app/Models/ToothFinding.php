@@ -12,12 +12,13 @@ class ToothFinding extends Model
 
     protected $fillable = [
         'clinic_id', 'patient_id', 'tooth_number', 'surfaces', 'finding_type',
-        'status', 'service_id', 'doctor_id', 'note', 'recorded_at',
+        'status', 'marks_missing', 'performed_externally', 'service_id', 'work_item_tooth_step_id',
+        'doctor_id', 'note', 'recorded_at',
     ];
 
     protected function casts(): array
     {
-        return ['recorded_at' => 'datetime'];
+        return ['recorded_at' => 'datetime', 'marks_missing' => 'boolean', 'performed_externally' => 'boolean'];
     }
 
     public function patient(): BelongsTo
@@ -33,5 +34,10 @@ class ToothFinding extends Model
     public function doctor(): BelongsTo
     {
         return $this->belongsTo(Doctor::class);
+    }
+
+    public function workItemToothStep(): BelongsTo
+    {
+        return $this->belongsTo(WorkItemToothStep::class);
     }
 }

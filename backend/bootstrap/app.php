@@ -14,6 +14,11 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->statefulApi();
+        // No 'login' route exists (the SPA handles auth) — without this,
+        // an unauthenticated request that isn't sending Accept: application/json
+        // (e.g. a plain browser navigation to a check-image link) crashes
+        // trying to build a redirect to a route that was never defined.
+        $middleware->redirectGuestsTo(fn () => null);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

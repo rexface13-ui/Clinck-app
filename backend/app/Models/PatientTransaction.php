@@ -12,7 +12,7 @@ class PatientTransaction extends Model
     use BelongsToClinic;
 
     protected $fillable = [
-        'clinic_id', 'patient_id', 'type', 'reference_type', 'reference_id',
+        'clinic_id', 'patient_id', 'type', 'reference_type', 'reference_id', 'note',
         'amount', 'currency', 'exchange_rate', 'amount_ils', 'occurred_at',
     ];
 

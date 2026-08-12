@@ -19,7 +19,7 @@ class StoreAppointmentRequest extends FormRequest
         return [
             'branch_id' => ['required', Rule::exists('branches', 'id')],
             'patient_id' => ['required', Rule::exists('patients', 'id')],
-            'doctor_id' => ['required', Rule::exists('doctors', 'id')],
+            'doctor_id' => ['nullable', Rule::exists('doctors', 'id')],
             'starts_at' => ['required', 'date'],
             'ends_at' => ['required', 'date', 'after:starts_at'],
         ];
@@ -28,7 +28,10 @@ class StoreAppointmentRequest extends FormRequest
     public function withValidator(Validator $validator): void
     {
         $validator->after(function (Validator $validator): void {
-            if ($validator->errors()->isNotEmpty()) {
+            if ($validator->errors()->isNotEmpty() || ! $this->input('doctor_id')) {
+                // No doctor assigned yet — nothing to check for a scheduling
+                // conflict against (the visit itself is still valid, just
+                // unassigned).
                 return;
             }
 

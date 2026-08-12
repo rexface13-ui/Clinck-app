@@ -20,6 +20,8 @@ class StoreToothFindingRequest extends FormRequest
             'surfaces' => ['nullable', 'string', 'regex:/^[MDOIBL]+$/'],
             'finding_type' => ['required', 'string', 'max:100'],
             'status' => ['required', Rule::in(['planned', 'in_progress', 'done'])],
+            'marks_missing' => ['sometimes', 'boolean'],
+            'performed_externally' => ['sometimes', 'boolean'],
             'service_id' => ['nullable', Rule::exists('services', 'id')],
             'doctor_id' => ['nullable', Rule::exists('doctors', 'id')],
             'note' => ['nullable', 'string'],

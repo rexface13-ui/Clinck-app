@@ -14,7 +14,8 @@ class Service extends Model
     protected $fillable = [
         'clinic_id', 'service_category_id', 'name', 'default_price',
         'default_currency', 'default_sessions', 'default_interval_days',
-        'default_commission_percent', 'is_active',
+        'default_commission_percent', 'is_active', 'marks_teeth_missing', 'allows_missing_teeth', 'price_per_tooth',
+        'color', 'spans_teeth',
     ];
 
     protected function casts(): array
@@ -23,12 +24,21 @@ class Service extends Model
             'default_price' => 'decimal:2',
             'default_commission_percent' => 'decimal:2',
             'is_active' => 'boolean',
+            'marks_teeth_missing' => 'boolean',
+            'allows_missing_teeth' => 'boolean',
+            'price_per_tooth' => 'boolean',
+            'spans_teeth' => 'boolean',
         ];
     }
 
     public function category(): BelongsTo
     {
         return $this->belongsTo(ServiceCategory::class, 'service_category_id');
+    }
+
+    public function steps(): HasMany
+    {
+        return $this->hasMany(ServiceStep::class)->orderBy('sort_order');
     }
 
     public function branchPrices(): HasMany

@@ -6,17 +6,31 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Appointment\StoreAppointmentRequest;
 use App\Http\Requests\Appointment\UpdateAppointmentRequest;
 use App\Http\Resources\AppointmentResource;
+use App\Models\ActivityLog;
 use App\Models\Appointment;
+use App\Models\Setting;
+use App\Models\TelegramLink;
+use App\Models\WorkItem;
+use App\Services\TelegramService;
+use App\Support\Arabic;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class AppointmentController extends Controller
 {
+    private const STATUS_LABELS_AR = [
+        'scheduled' => 'مجدول',
+        'confirmed' => 'مؤكد',
+        'done' => 'حضر',
+        'cancelled' => 'ملغى',
+        'no_show' => 'لم يحضر',
+    ];
+
     public function index(Request $request)
     {
         $this->authorize('viewAny', Appointment::class);
 
-        $query = Appointment::with(['patient:id,full_name', 'doctor:id,full_name'])
-            ->orderBy('starts_at');
+        $query = Appointment::with(['patient:id,full_name', 'doctor:id,full_name']);
 
         if ($request->filled('doctor_id')) {
             $query->where('doctor_id', $request->input('doctor_id'));
@@ -34,10 +48,19 @@ class AppointmentController extends Controller
             $query->where('starts_at', '<=', $request->input('to'));
         }
 
-        return AppointmentResource::collection($query->get());
+        if ($request->filled('status')) {
+            $query->where('status', $request->input('status'));
+        }
+
+        if ($request->filled('search')) {
+            $search = Arabic::normalize($request->input('search'));
+            $query->whereHas('patient', fn ($p) => $p->whereRaw(Arabic::normalizeSql('full_name').' ilike ?', ["%{$search}%"]));
+        }
+
+        return AppointmentResource::collection($query->orderByDesc('starts_at')->get());
     }
 
-    public function store(StoreAppointmentRequest $request)
+    public function store(StoreAppointmentRequest $request, TelegramService $telegram)
     {
         $this->authorize('create', Appointment::class);
 
@@ -46,29 +69,99 @@ class AppointmentController extends Controller
             'created_via' => 'web',
         ]);
 
-        return new AppointmentResource($appointment->load(['patient', 'doctor']));
+        $appointment->load(['patient', 'doctor']);
+
+        ActivityLog::record(
+            'appointment.created',
+            sprintf('حجز موعد جديد لـ %s مع %s بتاريخ %s', $appointment->patient?->full_name, $appointment->doctor?->full_name ?? 'بدون طبيب', display_datetime($appointment->starts_at)),
+            $appointment,
+        );
+
+        $notifyEnabled = Setting::where('key', 'notify_new_appointment_enabled')->value('value');
+        if ($notifyEnabled !== false) {
+            $link = TelegramLink::activeForDoctor($appointment->doctor);
+            if ($link) {
+                $telegram->sendMessage(
+                    (int) $link->telegram_chat_id,
+                    sprintf("📅 موعد جديد!\n%s — %s", display_datetime($appointment->starts_at), $appointment->patient?->full_name),
+                );
+            }
+        }
+
+        return new AppointmentResource($appointment);
     }
 
     public function show(Appointment $appointment)
     {
         $this->authorize('view', $appointment);
 
-        return new AppointmentResource($appointment->load(['patient', 'doctor']));
+        return new AppointmentResource($appointment->load([
+            'patient', 'doctor', 'workItems.service', 'workItems.doctor', 'workItems.teeth', 'workItems.steps.toothSteps',
+        ]));
     }
 
     public function update(UpdateAppointmentRequest $request, Appointment $appointment)
     {
         $this->authorize('update', $appointment);
 
-        $appointment->update($request->validated());
+        $previousStatus = $appointment->status;
+        $data = $request->validated();
+
+        $appointment->update($data);
+
+        if (array_key_exists('status', $data) && $data['status'] !== $previousStatus) {
+            ActivityLog::record(
+                'appointment.status_changed',
+                sprintf('%s → %s', self::STATUS_LABELS_AR[$previousStatus] ?? $previousStatus, self::STATUS_LABELS_AR[$data['status']] ?? $data['status']),
+                $appointment,
+            );
+        }
 
         return new AppointmentResource($appointment->fresh(['patient', 'doctor']));
+    }
+
+    public function timeline(Appointment $appointment)
+    {
+        $this->authorize('view', $appointment);
+
+        return ActivityLog::where('subject_type', Appointment::class)
+            ->where('subject_id', $appointment->id)
+            ->orderBy('created_at')
+            ->get()
+            ->map(fn (ActivityLog $log) => [
+                'id' => $log->id,
+                'user_name' => $log->user_name,
+                'action' => $log->action,
+                'description' => $log->description,
+                'created_at' => display_datetime($log->created_at),
+            ]);
     }
 
     public function destroy(Appointment $appointment)
     {
         $this->authorize('delete', $appointment);
-        $appointment->delete();
+
+        // Deleting a visit never touches the work or the money. The session log
+        // is built from invoice lines, not from the calendar, so a session keeps
+        // its service, tooth, doctor, price and date in the patient's history
+        // with or without a visit to hang off — the appointment here is a
+        // scheduling note, not the clinical record.
+        $appointment->loadMissing(['patient:id,full_name', 'doctor:id,full_name']);
+        ActivityLog::record('appointment.deleted', sprintf(
+            'حذف موعد %s مع %s بتاريخ %s',
+            $appointment->patient?->full_name ?? 'مريض محذوف',
+            $appointment->doctor?->full_name ?? 'بدون طبيب',
+            display_datetime($appointment->starts_at),
+        ));
+
+        DB::transaction(function () use ($appointment) {
+            // Any not-yet-billed work item this appointment was scheduled for
+            // just loses that link — the work itself (if any progress was
+            // saved) stays, it just needs a new appointment to continue.
+            WorkItem::where('appointment_id', $appointment->id)->update(['appointment_id' => null]);
+
+            $appointment->delete();
+        });
 
         return response()->noContent();
     }

@@ -15,7 +15,7 @@ class UpdateServiceRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'service_category_id' => ['sometimes', 'required', Rule::exists('service_categories', 'id')],
+            'service_category_id' => ['sometimes', 'nullable', Rule::exists('service_categories', 'id')],
             'name' => ['sometimes', 'required', 'string', 'max:255'],
             'default_price' => ['sometimes', 'required', 'numeric', 'min:0'],
             'default_currency' => ['sometimes', 'string', 'size:3'],
@@ -23,6 +23,11 @@ class UpdateServiceRequest extends FormRequest
             'default_interval_days' => ['sometimes', 'nullable', 'integer', 'min:1'],
             'default_commission_percent' => ['sometimes', 'nullable', 'numeric', 'min:0', 'max:100'],
             'is_active' => ['sometimes', 'boolean'],
+            'marks_teeth_missing' => ['sometimes', 'boolean'],
+            'allows_missing_teeth' => ['sometimes', 'boolean'],
+            'price_per_tooth' => ['sometimes', 'boolean'],
+            'color' => ['sometimes', 'nullable', 'regex:/^#[0-9a-fA-F]{6}$/'],
+            'spans_teeth' => ['sometimes', 'boolean'],
         ];
     }
 }

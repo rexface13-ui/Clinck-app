@@ -1,8 +1,9 @@
 @import 'tailwindcss';
-@import '@fontsource/ibm-plex-sans-arabic/400.css';
-@import '@fontsource/ibm-plex-sans-arabic/500.css';
-@import '@fontsource/ibm-plex-sans-arabic/600.css';
-@import '@fontsource/ibm-plex-sans-arabic/700.css';
+@import '@fontsource/cairo/400.css';
+@import '@fontsource/cairo/500.css';
+@import '@fontsource/cairo/600.css';
+@import '@fontsource/cairo/700.css';
+@import '@fontsource/cairo/800.css';
 
 /*
  * DentaFlow design tokens. Defined once here — components reference the
@@ -10,18 +11,30 @@
  * text-accent, border-danger, ...), never raw hex values.
  */
 @theme {
-  --font-sans: 'IBM Plex Sans Arabic', system-ui, sans-serif;
+  --font-sans: 'Cairo', 'system-ui', sans-serif;
 
-  --color-background: #fafaf9;
-  --color-ink: #1e293b;
+  --color-background: #f4f5f7;
+  --color-surface: #ffffff;
+  --color-surface-hover: #fafbfc;
+  --color-border: #e6e8ec;
+  --color-ink: #1a2233;
+  --color-muted: #7c8494;
   --color-accent: #4d6a5b;
   --color-accent-hover: #3e5548;
+  --color-accent-soft: #eaf0ec;
   --color-danger: #dc2626;
+  --color-danger-soft: #fdecec;
+  --color-success: #16a34a;
+  --color-success-soft: #e9f7ee;
+  --color-warning: #d97706;
+  --color-warning-soft: #fdf3e2;
+  --color-info: #2563eb;
+  --color-info-soft: #e9f0fd;
 
   /* dental chart legend */
-  --color-tooth-planned: #dc2626;
-  --color-tooth-done: #2563eb;
-  --color-tooth-missing: #94a3b8;
+  --color-tooth-planned: #eab308;
+  --color-tooth-done: #16a34a;
+  --color-tooth-missing: #1f2937;
 }
 
 html {
@@ -33,4 +46,47 @@ body {
   background-color: var(--color-background);
   color: var(--color-ink);
   font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Force Latin digits everywhere, even inside Arabic text runs */
+body {
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+::selection {
+  background-color: var(--color-accent-soft);
+  color: var(--color-accent-hover);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: #d3d7dd;
+  border-radius: 999px;
+  border: 2px solid var(--color-background);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: #b8bec7;
+}
+
+/*
+ * react-odontogram draws its own keyboard-focus ring (a colored box) on
+ * whichever tooth <g> last held DOM focus — independent of our own
+ * selection state, and it can land on a different tooth than the one
+ * actually selected. We draw our own selection ring from verified
+ * geometry instead (see OdontogramSelectionOverlay), so the library's
+ * own ring is suppressed everywhere to avoid two conflicting highlights.
+ */
+.Odontogram g[role='option']:focus-visible {
+  outline: none !important;
 }

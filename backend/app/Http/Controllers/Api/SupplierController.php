@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Cashbox;
+use App\Models\PurchaseInvoice;
 use App\Models\Supplier;
+use App\Models\SupplierTransaction;
 use App\Services\SupplierService;
 use Illuminate\Http\Request;
 
@@ -14,7 +16,21 @@ class SupplierController extends Controller
     {
         abort_unless($request->user()->can('suppliers.view'), 403);
 
-        return Supplier::orderBy('name')->get();
+        $suppliers = Supplier::orderBy('name')->get();
+
+        // One grouped query for every supplier's running balance instead of
+        // an N+1 ledger() call per card — purchases/check_bounced already
+        // carry a positive amount_ils and payments/check_endorsed a
+        // negative one (see SupplierService), so a plain sum is the balance.
+        $balances = SupplierTransaction::whereIn('supplier_id', $suppliers->pluck('id'))
+            ->selectRaw('supplier_id, SUM(amount_ils) as total')
+            ->groupBy('supplier_id')
+            ->pluck('total', 'supplier_id');
+
+        return $suppliers->map(fn ($s) => [
+            ...$s->toArray(),
+            'outstanding_ils' => round((float) ($balances[$s->id] ?? 0), 2),
+        ]);
     }
 
     public function store(Request $request)
@@ -72,8 +88,11 @@ class SupplierController extends Controller
                 'reference_type' => $t->reference_type,
                 'reference_id' => $t->reference_id,
                 'amount_ils' => $t->amount_ils,
+                'notes' => $t->notes,
+                'editable' => in_array($t->type, ['payment', 'discount', 'adjustment'], true),
                 'balance_after_ils' => round($running, 2),
                 'occurred_at' => display_datetime($t->occurred_at),
+                'occurred_at_iso' => $t->occurred_at->toDateString(),
             ];
         });
 
@@ -81,6 +100,22 @@ class SupplierController extends Controller
             'outstanding_ils' => round($running, 2),
             'transactions' => $rows->reverse()->values(),
         ];
+    }
+
+    public function destroy(Request $request, Supplier $supplier)
+    {
+        abort_unless($request->user()->can('suppliers.manage'), 403);
+
+        abort_if(
+            PurchaseInvoice::where('supplier_id', $supplier->id)->exists()
+                || SupplierTransaction::where('supplier_id', $supplier->id)->exists(),
+            422,
+            'هذا المورد له فواتير شراء أو حركات مالية مسجّلة — لا يمكن حذفه نهائياً حفاظاً على السجل. عطّله من "تعديل" بدلاً من ذلك.',
+        );
+
+        $supplier->delete();
+
+        return response()->noContent();
     }
 
     public function pay(Request $request, Supplier $supplier, SupplierService $supplierService)
@@ -92,6 +127,8 @@ class SupplierController extends Controller
             'amount' => ['required', 'numeric', 'min:0.01'],
             'currency' => ['required', 'string', 'size:3'],
             'exchange_rate' => ['nullable', 'numeric', 'min:0.000001'],
+            'notes' => ['nullable', 'string', 'max:2000'],
+            'occurred_at' => ['nullable', 'date'],
         ]);
 
         $cashbox = Cashbox::findOrFail($data['cashbox_id']);
@@ -103,8 +140,60 @@ class SupplierController extends Controller
             currency: $data['currency'],
             exchangeRate: (float) ($data['exchange_rate'] ?? 1),
             cashboxService: app(\App\Services\CashboxService::class),
+            notes: $data['notes'] ?? null,
+            occurredAt: $data['occurred_at'] ?? null,
         );
 
         return $transaction;
+    }
+
+    /** The supplier agreed to knock an amount off the outstanding balance — no cashbox involved. */
+    public function discount(Request $request, Supplier $supplier, SupplierService $supplierService)
+    {
+        abort_unless($request->user()->can('suppliers.manage'), 403);
+
+        $data = $request->validate([
+            'amount' => ['required', 'numeric', 'min:0.01'],
+            'notes' => ['nullable', 'string', 'max:2000'],
+            'occurred_at' => ['nullable', 'date'],
+        ]);
+
+        return $supplierService->discount(
+            supplier: $supplier,
+            amount: (float) $data['amount'],
+            notes: $data['notes'] ?? null,
+            occurredAt: $data['occurred_at'] ?? null,
+        );
+    }
+
+    /** Corrects a hand-entered payment/discount/adjustment — mistakes happen when a payment or discount is logged wrong. */
+    public function updateTransaction(Request $request, Supplier $supplier, SupplierTransaction $transaction, SupplierService $supplierService)
+    {
+        abort_unless($request->user()->can('suppliers.manage'), 403);
+        abort_unless($transaction->supplier_id === $supplier->id, 404);
+
+        $data = $request->validate([
+            'amount' => ['required', 'numeric', 'min:0.01'],
+            'notes' => ['nullable', 'string', 'max:2000'],
+            'occurred_at' => ['nullable', 'date'],
+        ]);
+
+        return $supplierService->update(
+            transaction: $transaction,
+            amount: (float) $data['amount'],
+            notes: $data['notes'] ?? null,
+            occurredAt: $data['occurred_at'] ?? null,
+            cashboxService: app(\App\Services\CashboxService::class),
+        );
+    }
+
+    public function destroyTransaction(Request $request, Supplier $supplier, SupplierTransaction $transaction, SupplierService $supplierService)
+    {
+        abort_unless($request->user()->can('suppliers.manage'), 403);
+        abort_unless($transaction->supplier_id === $supplier->id, 404);
+
+        $supplierService->delete($transaction, app(\App\Services\CashboxService::class));
+
+        return response()->noContent();
     }
 }

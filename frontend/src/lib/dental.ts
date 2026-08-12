@@ -11,10 +11,71 @@ export const LOWER_PRIMARY = [85, 84, 83, 82, 81, 71, 72, 73, 74, 75]
 
 export const SURFACES = ['M', 'D', 'O', 'I', 'B', 'L'] as const
 
+/**
+ * The react-odontogram library only knows the permanent (adult) FDI
+ * numbers 11-48 — it has no concept of primary/baby teeth. A primary
+ * tooth's real number (51-85) maps onto the same quadrant *position* one
+ * permanent quadrant over (e.g. 51/52/53 → 11/12/13), so a child's chart
+ * reuses the library's rendering (sliced to `maxTeeth={5}`, matching a
+ * primary quadrant's real tooth count) while our own data model keeps
+ * the correct 51-85 numbers throughout — only the library's own
+ * id/label gets translated, at the two edges of this bridge.
+ */
+export function toLibraryToothId(toothNumber: number): string {
+  if (toothNumber < 50) return `teeth-${toothNumber}`
+  const quadrant = Math.floor(toothNumber / 10)
+  const position = toothNumber % 10
+  return `teeth-${(quadrant - 4) * 10 + position}`
+}
+
+export function fromLibraryFdi(fdi: string, isChild: boolean): number {
+  const n = Number(fdi)
+  if (!isChild) return n
+  const quadrant = Math.floor(n / 10)
+  const position = n % 10
+  return (quadrant + 4) * 10 + position
+}
+
+/**
+ * Turns a set of tooth numbers into a short, readable label instead of a
+ * long raw list — "3-4 وشوية" gets spelled out, a whole arch/mouth gets its
+ * name, and anything larger gets a count with a hint to expand for detail.
+ */
+export function describeTeeth(teeth: number[], isChild: boolean): string {
+  const sorted = [...teeth].sort((a, b) => a - b)
+  if (sorted.length === 0) return ''
+  if (sorted.length === 1) return `سن ${sorted[0]}`
+
+  const set = new Set(sorted)
+  const upper = isChild ? UPPER_PRIMARY : UPPER_PERMANENT
+  const lower = isChild ? LOWER_PRIMARY : LOWER_PERMANENT
+  const sameAs = (list: number[]) => list.length === set.size && list.every((n) => set.has(n))
+
+  if (sameAs([...upper, ...lower])) return 'كل الأسنان'
+  if (sameAs(upper)) return 'النصف العلوي'
+  if (sameAs(lower)) return 'النصف السفلي'
+  if (sorted.length <= 4) return `أسنان ${sorted.join('، ')}`
+  return `${sorted.length} سن (اضغط للتفاصيل)`
+}
+
 export const STATUS_COLOR: Record<string, string> = {
   planned: 'var(--color-tooth-planned)',
   done: 'var(--color-tooth-done)',
   missing: 'var(--color-tooth-missing)',
+}
+
+export const DEFAULT_TOOTH_FILL = '#fff8f0'
+
+/** Mixes a hex color toward white by `amount` (0-1) — used to fade a service's color for "partially done" teeth without relying on fill-opacity (which would also fade the enamel gloss/shading layered on top). */
+export function fadeHex(hex: string, amount: number): string {
+  const m = /^#([0-9a-fA-F]{6})$/.exec(hex)
+  if (!m) return hex
+  const n = parseInt(m[1], 16)
+  const r = (n >> 16) & 255
+  const g = (n >> 8) & 255
+  const b = n & 255
+  const mix = (c: number) => Math.round(c + (255 - c) * amount)
+  return `rgb(${mix(r)}, ${mix(g)}, ${mix(b)})`
 }
 
 export type ToothShapeType = 'incisor' | 'canine' | 'premolar' | 'molar'
@@ -59,40 +120,59 @@ function pointedPath(w: number, h: number): string {
   return `M0,${-y} L${x * 0.55},${-y + h * 0.22} a${r},${r} 0 0 1 ${r * 0.3},${r * 0.5} v${h * 0.35} a${r},${r} 0 0 1 -${r},${r} h-${w - 2 * r} a${r},${r} 0 0 1 -${r},-${r} v-${h * 0.35} a${r},${r} 0 0 1 ${r * 0.3},-${r * 0.5} z`
 }
 
-/** SVG path `d` string for a tooth crown, local coords centered at origin. */
-export function toothCrownPath(type: ToothShapeType, w: number, h: number): string {
-  if (type === 'canine') return pointedPath(w, h)
-  const r = type === 'molar' ? w * 0.28 : Math.min(w, h) * 0.32
-  return roundedRectPath(w, h, r)
+/**
+ * Crown outline whose top (biting) edge is scalloped by `bumps` cusps
+ * instead of a flat/rounded edge — a real premolar or molar's silhouette
+ * actually has that ridge, it's not just a decoration drawn on top of a
+ * smooth shape.
+ */
+function scallopedPath(w: number, h: number, bumps: number): string {
+  const x = w / 2
+  const y = h / 2
+  const rSide = Math.min(w, h) * 0.3
+  const bumpH = h * 0.1
+  const step = (w - 2 * rSide) / bumps
+
+  let top = `M${-x + rSide},${-y}`
+  for (let i = 0; i < bumps; i++) {
+    const startX = -x + rSide + i * step
+    const midX = startX + step / 2
+    const endX = startX + step
+    top += ` Q${midX},${-y - bumpH} ${endX},${-y}`
+  }
+
+  return `${top} a${rSide},${rSide} 0 0 1 ${rSide},${rSide} v${h - 2 * rSide} a${rSide},${rSide} 0 0 1 -${rSide},${rSide} h-${w - 2 * rSide} a${rSide},${rSide} 0 0 1 -${rSide},-${rSide} v-${h - 2 * rSide} a${rSide},${rSide} 0 0 1 ${rSide},-${rSide} z`
 }
 
-/** Small cusp bump positions (local coords) along the crown's top half. */
-export function cuspPositions(type: ToothShapeType, w: number, h: number): { x: number; y: number; r: number }[] {
-  const count = SHAPE_SIZE[type].cusps
-  if (count === 0) return []
+/** SVG path `d` string for a tooth crown, local coords centered at origin — silhouette varies by type so a molar reads as a molar, a canine as a canine, at a glance. */
+export function toothCrownPath(type: ToothShapeType, w: number, h: number): string {
+  if (type === 'canine') return pointedPath(w, h)
+  if (type === 'premolar') return scallopedPath(w, h, 2)
+  if (type === 'molar') return scallopedPath(w, h, 4)
+  return roundedRectPath(w, h, Math.min(w, h) * 0.32)
+}
 
-  const cuspR = w * 0.13
-  const yPos = -h * 0.12
-  if (count === 1) return [{ x: 0, y: -h * 0.3, r: cuspR }]
-  if (count === 2) {
-    return [
-      { x: -w * 0.22, y: yPos, r: cuspR },
-      { x: w * 0.22, y: yPos, r: cuspR },
-    ]
+/**
+ * Hairline fissure/groove lines (local coords) drawn on every tooth's
+ * crown — a short central groove on all of them, plus a crossing side
+ * groove on premolars/molars (their real occlusal surface has a fissure
+ * pattern, not a smooth face like a front tooth).
+ */
+export function cuspPositions(type: ToothShapeType, w: number, h: number): { x1: number; y1: number; x2: number; y2: number }[] {
+  const lines = [{ x1: 0, y1: -h * 0.28, x2: 0, y2: h * 0.28 }]
+  if (type === 'molar' || type === 'premolar') {
+    lines.push({ x1: -w * 0.24, y1: 0, x2: w * 0.24, y2: 0 })
   }
-  // 4 cusps, quatrefoil layout
-  return [
-    { x: -w * 0.22, y: -h * 0.2, r: cuspR },
-    { x: w * 0.22, y: -h * 0.2, r: cuspR },
-    { x: -w * 0.22, y: h * 0.18, r: cuspR },
-    { x: w * 0.22, y: h * 0.18, r: cuspR },
-  ]
+  return lines
 }
 
 export interface ArchPosition {
   x: number
   y: number
   rotationDeg: number
+  /** Absolute (un-rotated) position for the tooth number label, sitting just outside the ring at this tooth's true circle angle. */
+  labelX: number
+  labelY: number
 }
 
 export interface ArchConfig {
@@ -101,25 +181,75 @@ export interface ArchConfig {
   radius: number
   /** +1 bulges the arch downward (lower jaw), -1 bulges it upward (upper jaw). */
   direction: 1 | -1
+  /** Degrees to inset the arch's start/end from the shared horizontal midline, so the upper and lower arches don't collide where they meet on each side. */
+  posStartDeg: number
+  posEndDeg: number
 }
 
-export const UPPER_ARCH: ArchConfig = { cx: 260, cy: 155, radius: 132, direction: -1 }
-export const LOWER_ARCH: ArchConfig = { cx: 260, cy: 185, radius: 132, direction: 1 }
+/**
+ * Both arches share one circle (same center + radius) so they read as a
+ * single continuous ring, matching a real circular dental chart. Each arch
+ * only occupies its half (top for upper, bottom for lower); GAP_DEG insets
+ * the start/end of each half so the outermost teeth (18/28, 48/38) don't
+ * overlap the other arch's outermost teeth at the sides.
+ */
+const CIRCLE_CX = 260
+const CIRCLE_CY = 190
+const CIRCLE_RADIUS = 148
+const GAP_DEG = 7
+
+export const UPPER_ARCH: ArchConfig = {
+  cx: CIRCLE_CX, cy: CIRCLE_CY, radius: CIRCLE_RADIUS, direction: -1,
+  posStartDeg: 180 - GAP_DEG, posEndDeg: GAP_DEG,
+}
+export const LOWER_ARCH: ArchConfig = {
+  cx: CIRCLE_CX, cy: CIRCLE_CY, radius: CIRCLE_RADIUS, direction: 1,
+  posStartDeg: 180 + GAP_DEG, posEndDeg: 360 - GAP_DEG,
+}
 
 /**
  * Position tooth `index` of `total` along the arch (index 0 = leftmost /
  * side tooth, index total-1 = rightmost / other side tooth, center teeth
  * sit at the arch's apex — matching UPPER_PERMANENT/LOWER_PERMANENT order).
  */
-export function archPosition(index: number, total: number, arch: ArchConfig): ArchPosition {
-  const t = total === 1 ? 0.5 : index / (total - 1)
-  const angle = Math.PI * (1 - t) // 180deg (left) -> 0deg (right)
-  const x = arch.cx + arch.radius * Math.cos(angle)
-  const y = arch.cy - arch.direction * arch.radius * Math.sin(angle)
-  const angleDeg = (angle * 180) / Math.PI
-  const rotationDeg = arch.direction === -1 ? angleDeg - 90 : 90 - angleDeg
-
-  return { x, y, rotationDeg }
+/**
+ * A primary tooth's slot within the SAME 16-slot canonical range used for
+ * the permanent arch (not its own 0..9 index) — so it sits at the position
+ * its permanent successor would occupy, rather than being stretched evenly
+ * across the full adult-width arc. Primary quadrants 5/8 read first
+ * (descending, mirroring permanent quadrants 1/4); 6/7 read second
+ * (ascending, mirroring 2/3). Canonical positions 6/7/8 (the un-erupted
+ * premolar/molar slots) are simply never used, which is what leaves a
+ * child's arch visibly shorter than an adult's, matching real anatomy.
+ */
+export function primaryCanonicalIndex(toothNumber: number): number {
+  const quadrant = Math.floor(toothNumber / 10)
+  const position = toothNumber % 10
+  const isFirstInList = quadrant === 5 || quadrant === 8
+  return isFirstInList ? 8 - position : 7 + position
 }
 
-export const VIEWBOX = { width: 520, height: 340 }
+export function archPosition(index: number, total: number, arch: ArchConfig): ArchPosition {
+  const t = total === 1 ? 0.5 : index / (total - 1)
+
+  // x/y walk around the shared circle using the arch's own (gapped) angle range.
+  const posAngle = ((arch.posStartDeg + t * (arch.posEndDeg - arch.posStartDeg)) * Math.PI) / 180
+  const x = arch.cx + arch.radius * Math.cos(posAngle)
+  const y = arch.cy - arch.radius * Math.sin(posAngle)
+
+  // Label sits at the same true circle angle, just further out — computed
+  // independently of tooth rotation so labels never cluster, overlap, or
+  // get pushed off-canvas at the sides/apex the way a rotated local offset would.
+  const labelRadius = arch.radius + 17
+  const labelX = arch.cx + labelRadius * Math.cos(posAngle)
+  const labelY = arch.cy - labelRadius * Math.sin(posAngle)
+
+  // Rotation uses the un-gapped 180deg->0deg mapping so tooth orientation
+  // (cusp pointing toward the center of the mouth) stays exactly as tuned before.
+  const angleDeg = 180 * (1 - t)
+  const rotationDeg = arch.direction === -1 ? angleDeg - 90 : 90 - angleDeg
+
+  return { x, y, rotationDeg, labelX, labelY }
+}
+
+export const VIEWBOX = { width: 520, height: 380 }

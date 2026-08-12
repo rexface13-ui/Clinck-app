@@ -1,61 +1,95 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faPlus, faUser, faBolt } from '@fortawesome/free-solid-svg-icons'
+import { faPlus, faUser, faBolt, faMagnifyingGlass } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
-import DatePicker from '../components/DatePicker'
+import MedicalHistoryField from '../components/MedicalHistoryField'
+import { Card, PageHeader, Badge, Button, Modal, Table, Thead, Th, Td, Tr, EmptyRow, TableSkeleton, Input, Select } from '../components/ui'
 import type { Branch, Doctor, Patient } from '../types'
-
-/** Same rule as backend/app/Models/Patient.php: under 12 defaults to child. */
-function isChildFromBirthDate(birthDate: string): boolean {
-  const parsed = new Date(birthDate + 'T00:00:00')
-  const now = new Date()
-  let age = now.getFullYear() - parsed.getFullYear()
-  const monthDiff = now.getMonth() - parsed.getMonth()
-  if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < parsed.getDate())) age--
-  return age < 12
-}
 
 export default function PatientsListPage() {
   const { data, can } = useAuth()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [patients, setPatients] = useState<Patient[]>([])
   const [doctors, setDoctors] = useState<Doctor[]>([])
   const [loading, setLoading] = useState(true)
-  const [showForm, setShowForm] = useState(false)
+  const [showForm, setShowForm] = useState(() => searchParams.get('new') === '1')
   const [submitting, setSubmitting] = useState(false)
+  const [search, setSearch] = useState('')
+  const telegramLinkId = searchParams.get('telegram_link_id')
+
+  useEffect(() => {
+    if (searchParams.get('new') === '1') {
+      setShowForm(true)
+      searchParams.delete('new')
+      searchParams.delete('name')
+      searchParams.delete('phone')
+      setSearchParams(searchParams, { replace: true })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const branches: Branch[] = data?.branches ?? []
 
   const [form, setForm] = useState({
     branch_id: branches[0]?.id ?? 1,
-    full_name: '',
+    full_name: searchParams.get('name') ?? '',
     gender: 'male' as 'male' | 'female',
-    birth_date: '',
+    age: '',
     isChildOverride: null as boolean | null,
-    phone: '',
+    phone: searchParams.get('phone') ?? '',
     guardian_name: '',
     guardian_phone: '',
+    medical_alerts: [] as string[],
+    medical_notes: '',
     walkIn: false,
     walkInDoctorId: '',
   })
   const [error, setError] = useState<string | null>(null)
 
-  function loadPatients() {
+  // The unfiltered list is paginated at 25 and nothing ever asked for page two,
+  // so a clinic past 25 patients could only reach the rest by searching — the
+  // list itself quietly stopped a quarter of the way down.
+  const [page, setPage] = useState(1)
+  const [lastPage, setLastPage] = useState(1)
+  const [total, setTotal] = useState(0)
+
+  function loadPatients(searchTerm?: string, pageNumber = 1) {
     setLoading(true)
     api
-      .get('/patients')
-      .then((res) => setPatients(res.data.data))
+      .get('/patients', {
+        params: searchTerm ? { search: searchTerm } : { page: pageNumber },
+      })
+      .then((res) => {
+        setPatients(res.data.data)
+        // A search comes back as a plain list with no paginator behind it.
+        setLastPage(res.data.meta?.last_page ?? 1)
+        setTotal(res.data.meta?.total ?? res.data.data.length)
+      })
       .finally(() => setLoading(false))
   }
 
-  useEffect(loadPatients, [])
+  // Typing a new search has to start again from the first page, or a query
+  // typed while on page 3 comes back empty and reads as "no such patient".
+  useEffect(() => {
+    setPage(1)
+    const id = setTimeout(() => loadPatients(search.trim() || undefined, 1), 250)
+    return () => clearTimeout(id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search])
+
+  useEffect(() => {
+    if (page === 1) return
+    loadPatients(search.trim() || undefined, page)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page])
   useEffect(() => {
     api.get('/doctors').then((res) => setDoctors(res.data.data))
   }, [])
 
-  const inferredIsChild = form.birth_date ? isChildFromBirthDate(form.birth_date) : null
+  const inferredIsChild = form.age !== '' ? Number(form.age) < 12 : null
   const effectiveIsChild = form.isChildOverride ?? inferredIsChild
 
   async function handleCreate(e: FormEvent) {
@@ -67,29 +101,38 @@ export default function PatientsListPage() {
         branch_id: form.branch_id,
         full_name: form.full_name,
         gender: form.gender,
-        birth_date: form.birth_date || null,
+        age: form.age ? Number(form.age) : null,
         is_child: form.isChildOverride ?? undefined,
         guardian_name: form.guardian_name || null,
         guardian_phone: form.guardian_phone || null,
         phone: form.phone || null,
+        medical_alerts: form.medical_alerts,
+        medical_notes: form.medical_notes || null,
       }
       const res = await api.post('/patients', payload)
       const patientId = res.data.data.id
 
-      if (form.walkIn && form.walkInDoctorId) {
+      if (form.walkIn) {
         const now = new Date()
         const ends = new Date(now.getTime() + 30 * 60 * 1000)
         try {
           await api.post('/appointments', {
             branch_id: form.branch_id,
             patient_id: patientId,
-            doctor_id: Number(form.walkInDoctorId),
+            doctor_id: form.walkInDoctorId ? Number(form.walkInDoctorId) : null,
             starts_at: now.toISOString(),
             ends_at: ends.toISOString(),
           })
         } catch {
           // doctor busy right now — patient is still created, just no walk-in slot booked
         }
+      }
+
+      if (telegramLinkId) {
+        await api.post(`/telegram-registrations/${telegramLinkId}/link-patient`, { patient_id: patientId })
+        setShowForm(false)
+        navigate('/telegram')
+        return
       }
 
       setShowForm(false)
@@ -106,62 +149,70 @@ export default function PatientsListPage() {
 
   return (
     <div>
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-ink">المرضى</h1>
-        {can('patients.manage') && (
-          <button
-            onClick={() => setShowForm((v) => !v)}
-            className="flex items-center gap-2 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover"
-          >
-            <FontAwesomeIcon icon={faPlus} />
-            مريض جديد
-          </button>
-        )}
+      <PageHeader
+        title="المرضى"
+        subtitle="إدارة ملفات المرضى وحجز الزيارات الفورية"
+        action={
+          can('patients.manage') && (
+            <Button onClick={() => setShowForm((v) => !v)}>
+              <FontAwesomeIcon icon={faPlus} />
+              مريض جديد
+            </Button>
+          )
+        }
+      />
+
+      <div className="relative mb-4 w-full sm:w-80">
+        <FontAwesomeIcon icon={faMagnifyingGlass} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted" />
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="بحث بالاسم أو رقم الهاتف..."
+          className="w-full rounded-xl border border-border bg-surface py-2.5 pe-3 ps-9 text-sm focus:border-accent focus:outline-none"
+        />
       </div>
 
       {showForm && (
-        <form onSubmit={handleCreate} className="mb-6 grid grid-cols-2 gap-4 rounded-xl bg-white p-6 shadow-sm">
-          <div>
-            <label className="mb-1 block text-sm text-ink/70">الاسم الكامل</label>
-            <input
-              required
-              value={form.full_name}
-              onChange={(e) => setForm({ ...form, full_name: e.target.value })}
-              className="w-full rounded-xl border border-ink/10 px-3 py-2 text-sm focus:border-accent focus:outline-none"
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-sm text-ink/70">الفرع</label>
-            <select
-              value={form.branch_id}
-              onChange={(e) => setForm({ ...form, branch_id: Number(e.target.value) })}
-              className="w-full rounded-xl border border-ink/10 px-3 py-2 text-sm focus:border-accent focus:outline-none"
-            >
-              {branches.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-sm text-ink/70">الجنس</label>
-            <select
-              value={form.gender}
-              onChange={(e) => setForm({ ...form, gender: e.target.value as 'male' | 'female' })}
-              className="w-full rounded-xl border border-ink/10 px-3 py-2 text-sm focus:border-accent focus:outline-none"
-            >
-              <option value="male">ذكر</option>
-              <option value="female">أنثى</option>
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-sm text-ink/70">تاريخ الميلاد (يوم/شهر/سنة)</label>
-            <DatePicker
-              value={form.birth_date}
-              onChange={(iso) => setForm({ ...form, birth_date: iso, isChildOverride: null })}
-            />
-          </div>
+        <Modal title="مريض جديد" onClose={() => setShowForm(false)} width="w-[640px]">
+        {telegramLinkId && (
+          <p className="mb-4 flex items-center gap-2 rounded-lg bg-accent-soft px-3 py-2 text-xs text-accent">
+            رح ينربط هالمريض تلقائياً بمحادثة التيليغرام بعد الحفظ.
+          </p>
+        )}
+        <form onSubmit={handleCreate} className="grid grid-cols-2 gap-4">
+          <Input
+            label="الاسم الكامل"
+            required
+            value={form.full_name}
+            onChange={(e) => setForm({ ...form, full_name: e.target.value })}
+          />
+          <Select
+            label="الفرع"
+            value={form.branch_id}
+            onChange={(e) => setForm({ ...form, branch_id: Number(e.target.value) })}
+          >
+            {branches.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </Select>
+          <Select
+            label="الجنس"
+            value={form.gender}
+            onChange={(e) => setForm({ ...form, gender: e.target.value as 'male' | 'female' })}
+          >
+            <option value="male">ذكر</option>
+            <option value="female">أنثى</option>
+          </Select>
+          <Input
+            type="number"
+            label="العمر"
+            min={0}
+            max={120}
+            value={form.age}
+            onChange={(e) => setForm({ ...form, age: e.target.value, isChildOverride: null })}
+          />
 
           <div className="col-span-2 flex items-center gap-3 rounded-xl bg-background px-4 py-3">
             <span className="text-sm text-ink/70">الفئة العمرية:</span>
@@ -184,37 +235,31 @@ export default function PatientsListPage() {
               طفل
             </button>
             {inferredIsChild !== null && form.isChildOverride === null && (
-              <span className="text-xs text-ink/40">(محسوبة تلقائياً من تاريخ الميلاد — بإمكانك تغييرها)</span>
+              <span className="text-xs text-ink/40">(محسوبة تلقائياً من العمر — بإمكانك تغييرها)</span>
             )}
           </div>
 
-          <div>
-            <label className="mb-1 block text-sm text-ink/70">الهاتف</label>
-            <input
-              value={form.phone}
-              onChange={(e) => setForm({ ...form, phone: e.target.value })}
-              className="w-full rounded-xl border border-ink/10 px-3 py-2 text-sm focus:border-accent focus:outline-none"
-            />
-          </div>
+          <Input label="الهاتف" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
           <div />
-          <div>
-            <label className="mb-1 block text-sm text-ink/70">اسم ولي الأمر (اختياري)</label>
-            <input
-              value={form.guardian_name}
-              onChange={(e) => setForm({ ...form, guardian_name: e.target.value })}
-              className="w-full rounded-xl border border-ink/10 px-3 py-2 text-sm focus:border-accent focus:outline-none"
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-sm text-ink/70">هاتف ولي الأمر</label>
-            <input
-              value={form.guardian_phone}
-              onChange={(e) => setForm({ ...form, guardian_phone: e.target.value })}
-              className="w-full rounded-xl border border-ink/10 px-3 py-2 text-sm focus:border-accent focus:outline-none"
-            />
-          </div>
+          <Input
+            label="اسم ولي الأمر (اختياري)"
+            value={form.guardian_name}
+            onChange={(e) => setForm({ ...form, guardian_name: e.target.value })}
+          />
+          <Input
+            label="هاتف ولي الأمر"
+            value={form.guardian_phone}
+            onChange={(e) => setForm({ ...form, guardian_phone: e.target.value })}
+          />
 
-          <div className="col-span-2 rounded-xl border border-accent/30 bg-accent/5 p-4">
+          <MedicalHistoryField
+            alerts={form.medical_alerts}
+            onAlertsChange={(medical_alerts) => setForm({ ...form, medical_alerts })}
+            notes={form.medical_notes}
+            onNotesChange={(medical_notes) => setForm({ ...form, medical_notes })}
+          />
+
+          <div className="col-span-2 rounded-xl border border-accent/30 bg-accent-soft p-4">
             <label className="flex items-center gap-2 text-sm text-ink">
               <input
                 type="checkbox"
@@ -227,19 +272,17 @@ export default function PatientsListPage() {
             </label>
             {form.walkIn && (
               <div className="mt-3">
-                <label className="mb-1 block text-xs text-ink/60">الطبيب المناوب</label>
-                <select
-                  required={form.walkIn}
+                <Select
+                  label="الطبيب المناوب (اختياري)"
                   value={form.walkInDoctorId}
                   onChange={(e) => setForm({ ...form, walkInDoctorId: e.target.value })}
-                  className="w-full rounded-lg border border-ink/10 px-3 py-2 text-sm focus:border-accent focus:outline-none"
                 >
-                  <option value="">اختر طبيباً</option>
+                  <option value="">بدون طبيب محدد</option>
                   {doctors.map((d) => (
                     <option key={d.id} value={d.id}>{d.full_name}</option>
                   ))}
-                </select>
-                <p className="mt-1 text-xs text-ink/50">
+                </Select>
+                <p className="mt-1 text-xs text-muted">
                   رح يتسجّل الموعد فوراً بالوقت الحالي، وبتقدر تفتح ملف المريض وترسم أسنانه على طول.
                 </p>
               </div>
@@ -249,65 +292,85 @@ export default function PatientsListPage() {
           {error && <p className="col-span-2 text-sm text-danger">{error}</p>}
 
           <div className="col-span-2 flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => setShowForm(false)}
-              className="rounded-xl px-4 py-2 text-sm text-ink/70 hover:bg-background"
-            >
+            <Button type="button" variant="ghost" onClick={() => setShowForm(false)}>
               إلغاء
-            </button>
-            <button
-              type="submit"
-              disabled={submitting}
-              className="rounded-xl bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60"
-            >
+            </Button>
+            <Button type="submit" loading={submitting}>
               {submitting ? 'جارِ الحفظ...' : 'حفظ'}
-            </button>
+            </Button>
           </div>
         </form>
+        </Modal>
       )}
 
-      <div className="overflow-hidden rounded-xl bg-white shadow-sm">
+      <Card>
         {loading ? (
-          <p className="p-6 text-sm text-ink/50">جارِ التحميل...</p>
-        ) : patients.length === 0 ? (
-          <p className="p-6 text-sm text-ink/50">لا يوجد مرضى بعد.</p>
+          <TableSkeleton />
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-ink/10 text-right text-ink/60">
-                <th className="p-4 font-medium">الكود</th>
-                <th className="p-4 font-medium">الاسم</th>
-                <th className="p-4 font-medium">الفئة</th>
-                <th className="p-4 font-medium">الهاتف</th>
-                <th className="p-4 font-medium">تاريخ التسجيل</th>
-              </tr>
-            </thead>
+          <Table>
+            <Thead>
+              <Th>الكود</Th>
+              <Th>الاسم</Th>
+              <Th>الفئة</Th>
+              <Th>الهاتف</Th>
+              <Th>تاريخ التسجيل</Th>
+            </Thead>
             <tbody>
-              {patients.map((p) => (
-                <tr key={p.id} className="border-b border-ink/5 last:border-0 hover:bg-background">
-                  <td className="p-4">
-                    <Link to={`/patients/${p.id}`} className="flex items-center gap-2 text-accent">
-                      <FontAwesomeIcon icon={faUser} className="text-ink/30" />
-                      {p.code}
-                    </Link>
-                  </td>
-                  <td className="p-4">
-                    <Link to={`/patients/${p.id}`}>{p.full_name}</Link>
-                  </td>
-                  <td className="p-4">
-                    <span className={`rounded-lg px-2 py-0.5 text-xs ${p.is_child ? 'bg-accent/10 text-accent' : 'bg-ink/5 text-ink/60'}`}>
-                      {p.is_child ? 'طفل' : 'بالغ'}
-                    </span>
-                  </td>
-                  <td className="p-4 text-ink/70">{p.phone ?? '—'}</td>
-                  <td className="p-4 text-ink/70">{p.created_at}</td>
-                </tr>
-              ))}
+              {patients.length === 0 ? (
+                <EmptyRow colSpan={5}>لا يوجد مرضى بعد.</EmptyRow>
+              ) : (
+                patients.map((p) => (
+                  <Tr key={p.id}>
+                    <Td>
+                      <Link to={`/patients/${p.id}`} className="flex items-center gap-2 text-accent hover:underline">
+                        <FontAwesomeIcon icon={faUser} className="text-ink/30" />
+                        {p.code}
+                      </Link>
+                    </Td>
+                    <Td>
+                      <Link to={`/patients/${p.id}`} className="hover:underline">{p.full_name}</Link>
+                    </Td>
+                    <Td>
+                      <div className="flex items-center gap-1.5">
+                        <Badge variant={p.is_child ? 'accent' : 'neutral'}>{p.is_child ? 'طفل' : 'بالغ'}</Badge>
+                        {p.telegram_linked && (
+                          <span className="rounded-full bg-success-soft px-2 py-0.5 text-xs text-success">تيليغرام</span>
+                        )}
+                      </div>
+                    </Td>
+                    <Td className="text-muted">{p.phone ?? '—'}</Td>
+                    <Td className="text-muted">{p.created_at}</Td>
+                  </Tr>
+                ))
+              )}
             </tbody>
-          </table>
+          </Table>
         )}
-      </div>
+
+        {!search.trim() && lastPage > 1 && (
+          <div className="mt-4 flex items-center justify-between border-t border-border/70 pt-3 text-sm">
+            <span className="text-muted">
+              صفحة {page} من {lastPage} · {total} مريض
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1}
+                className="rounded-lg border border-border px-3 py-1.5 text-xs text-ink/70 hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                السابق
+              </button>
+              <button
+                onClick={() => setPage((p) => Math.min(lastPage, p + 1))}
+                disabled={page >= lastPage}
+                className="rounded-lg border border-border px-3 py-1.5 text-xs text-ink/70 hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                التالي
+              </button>
+            </div>
+          </div>
+        )}
+      </Card>
     </div>
   )
 }

@@ -1,0 +1,649 @@
+import { useEffect, useRef, useState } from 'react'
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
+import { faPen, faCheck, faPenToSquare, faNoteSticky, faMoneyBill, faPercent, faCamera } from '@fortawesome/free-solid-svg-icons'
+import { api } from '../lib/api'
+import { useAuth } from '../contexts/AuthContext'
+import { Modal, Table, Thead, Th, Td, Tr, Badge, SearchableSelect } from './ui'
+import type { BadgeVariant } from './ui'
+import type { Cashbox, Invoice, InvoiceAdjustment, InvoiceCheck, Note } from '../types'
+import MiniOdontogramPreview from './MiniOdontogramPreview'
+import ToothNotesModal from './ToothNotesModal'
+import DatePicker from './DatePicker'
+import RequestCheckImageButton, { TelegramCheckTargetPicker, sendTelegramCheckRequest } from './RequestCheckImageButton'
+
+const STATUS_LABELS: Record<string, string> = {
+  unpaid: 'غير مدفوعة',
+  partial: 'مدفوعة جزئياً',
+  paid: 'مدفوعة',
+  void: 'ملغاة (مسترجعة)',
+}
+
+const STATUS_VARIANTS: Record<string, BadgeVariant> = {
+  unpaid: 'danger',
+  partial: 'warning',
+  paid: 'success',
+  void: 'neutral',
+}
+
+/** Shows a single invoice's line items and payments, and (for billing.manage users) lets the total be corrected to whatever was actually agreed with the patient — the difference posts as a discount/adjustment, never rewriting the original charge lines. */
+export default function InvoiceDetailModal({
+  invoiceId,
+  onClose,
+  onChanged,
+  sessionTeeth,
+  isChild = false,
+  onEditWorkItem,
+  patientId,
+  notes = [],
+}: {
+  invoiceId: number
+  onClose: () => void
+  onChanged?: () => void
+  /** The teeth actually worked on in the session this invoice was billed for — when given, a small full-mouth diagram is shown so "what was done, exactly" is visible at a glance next to the amount, without needing to reopen the work-planning form just to see it. */
+  sessionTeeth?: number[]
+  isChild?: boolean
+  /** Jumps straight to that session's work-planning edit form (teeth/steps editable there) — shown only when the work item behind this invoice is still open (not every invoice has one, e.g. manual charges). */
+  onEditWorkItem?: () => void
+  /** Needed (with `notes`) to show a per-tooth notebook shortcut next to each tooth in the session's diagram — omit both to just skip that row. */
+  patientId?: number
+  notes?: Note[]
+}) {
+  const { can } = useAuth()
+  const canManage = can('billing.manage')
+  const [invoice, setInvoice] = useState<Invoice | null>(null)
+  const [editing, setEditing] = useState(false)
+  const [newTotal, setNewTotal] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [notesToothNumber, setNotesToothNumber] = useState<number | null>(null)
+
+  const [showDiscount, setShowDiscount] = useState(false)
+  const [discountAmount, setDiscountAmount] = useState('')
+
+  const [showCollect, setShowCollect] = useState(false)
+  const [collectTab, setCollectTab] = useState<'cash' | 'check'>('cash')
+  const [cashboxes, setCashboxes] = useState<Cashbox[]>([])
+  const [payAmount, setPayAmount] = useState('')
+  const [payCashboxId, setPayCashboxId] = useState('')
+  const [payMethod, setPayMethod] = useState<'cash' | 'card' | 'transfer'>('cash')
+  const [checkNumber, setCheckNumber] = useState('')
+  const [checkBank, setCheckBank] = useState('')
+  const [checkAmount, setCheckAmount] = useState('')
+  const [checkDueDate, setCheckDueDate] = useState('')
+  const [checkImage, setCheckImage] = useState<File | null>(null)
+  const checkImageInputRef = useRef<HTMLInputElement>(null)
+  const [checkImage2, setCheckImage2] = useState<File | null>(null)
+  const checkImage2InputRef = useRef<HTMLInputElement>(null)
+  const [createdCheck, setCreatedCheck] = useState<{ id: number; check_number: string } | null>(null)
+  const [adjustments, setAdjustments] = useState<InvoiceAdjustment[]>([])
+  const [checks, setChecks] = useState<InvoiceCheck[]>([])
+  // The invoice knows which teeth it covers, so the chart shows up wherever it
+  // is opened from — the callers that pass sessionTeeth still win, since they
+  // may be showing a session wider than this one bill.
+  const [metaTeeth, setMetaTeeth] = useState<number[]>([])
+  const [metaIsChild, setMetaIsChild] = useState(false)
+  const [metaNotes, setMetaNotes] = useState<Note[]>([])
+  const [collecting, setCollecting] = useState(false)
+  const [checkImageSource, setCheckImageSource] = useState<'device' | 'telegram'>('device')
+  const [telegramTarget, setTelegramTarget] = useState('')
+  const [telegramSlots, setTelegramSlots] = useState<(1 | 2)[]>([1])
+
+  // A caller showing a whole session may pass more teeth than this one bill
+  // covers, so its list wins; otherwise the invoice's own teeth are used.
+  const chartTeeth = sessionTeeth && sessionTeeth.length > 0 ? sessionTeeth : metaTeeth
+  const chartNotes = notes.length > 0 ? notes : metaNotes
+
+  function load() {
+    api.get(`/invoices/${invoiceId}`).then((res) => {
+      setInvoice(res.data.data)
+      setAdjustments(res.data.meta?.adjustments ?? [])
+      setChecks(res.data.meta?.checks ?? [])
+      setMetaTeeth(res.data.meta?.teeth ?? [])
+      setMetaIsChild(Boolean(res.data.meta?.is_child))
+      setMetaNotes(res.data.meta?.tooth_notes ?? [])
+    })
+  }
+
+  useEffect(load, [invoiceId])
+
+  useEffect(() => {
+    if (!patientId) return
+    api.get('/cashboxes').then((res) => {
+      setCashboxes(res.data)
+      const ils = res.data.find((c: Cashbox) => c.currency === 'ILS')
+      if (ils) setPayCashboxId(String(ils.id))
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [patientId])
+
+  function startEdit() {
+    if (!invoice) return
+    setNewTotal(invoice.total_amount_ils)
+    setError(null)
+    setEditing(true)
+  }
+
+  async function save() {
+    if (!invoice) return
+    setSaving(true)
+    setError(null)
+    try {
+      const res = await api.patch(`/invoices/${invoice.id}`, { total_amount_ils: Number(newTotal) })
+      setInvoice(res.data.data)
+      setEditing(false)
+      onChanged?.()
+    } catch {
+      setError('تعذّر الحفظ.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function applyDiscount() {
+    if (!invoice || !discountAmount || Number(discountAmount) <= 0) return
+    setSaving(true)
+    setError(null)
+    try {
+      const total = Number(invoice.total_amount_ils)
+      const target = Math.max(0, total - Number(discountAmount))
+      const res = await api.patch(`/invoices/${invoice.id}`, { total_amount_ils: target })
+      setInvoice(res.data.data)
+      setShowDiscount(false)
+      setDiscountAmount('')
+      onChanged?.()
+    } catch {
+      setError('تعذّر تسجيل الخصم.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function collectCash() {
+    if (!patientId || !payCashboxId || !payAmount) return
+    setCollecting(true)
+    setError(null)
+    try {
+      await api.post(`/patients/${patientId}/payments`, {
+        invoice_id: invoiceId,
+        cashbox_id: Number(payCashboxId),
+        amount: Number(payAmount),
+        currency: 'ILS',
+        exchange_rate: 1,
+        method: payMethod,
+      })
+      setShowCollect(false)
+      setPayAmount('')
+      load()
+      onChanged?.()
+    } catch {
+      setError('تعذّر تسجيل الدفعة.')
+    } finally {
+      setCollecting(false)
+    }
+  }
+
+  async function collectCheck() {
+    if (!patientId || !checkNumber || !checkAmount || !checkDueDate) return
+    if (checkImageSource === 'telegram' && !telegramTarget) return
+    setCollecting(true)
+    setError(null)
+    try {
+      const data = new FormData()
+      data.append('direction', 'incoming')
+      data.append('party_type', 'patient')
+      data.append('party_id', String(patientId))
+      data.append('check_number', checkNumber)
+      if (checkBank) data.append('bank_name', checkBank)
+      data.append('amount', checkAmount)
+      data.append('currency', 'ILS')
+      data.append('due_date', checkDueDate)
+      if (checkImageSource === 'device' && checkImage) data.append('image', checkImage)
+      if (checkImageSource === 'device' && checkImage2) data.append('image2', checkImage2)
+      const res = await api.post('/checks', data, { headers: { 'Content-Type': 'multipart/form-data' } })
+      setShowCollect(false)
+      setCheckNumber('')
+      setCheckBank('')
+      setCheckAmount('')
+      setCheckDueDate('')
+      setCheckImage(null)
+      setCheckImage2(null)
+      if (checkImageInputRef.current) checkImageInputRef.current.value = ''
+      if (checkImage2InputRef.current) checkImage2InputRef.current.value = ''
+      if (checkImageSource === 'telegram') {
+        const message = await sendTelegramCheckRequest(res.data.id, telegramTarget, telegramSlots)
+        if (message) setError(message)
+        setTelegramTarget('')
+        setTelegramSlots([1])
+        setCheckImageSource('device')
+      } else if (!checkImage || !checkImage2) {
+        setCreatedCheck({ id: res.data.id, check_number: res.data.check_number })
+      }
+      onChanged?.()
+    } catch {
+      setError('تعذّر تسجيل الشيك.')
+    } finally {
+      setCollecting(false)
+    }
+  }
+
+  const paid = Number(invoice?.paid_ils ?? 0)
+  const total = Number(invoice?.total_amount_ils ?? 0)
+  const linesTotal = (invoice?.lines ?? []).reduce((sum, l) => sum + Number(l.amount_ils), 0)
+  const remaining = Math.max(0, total - paid)
+
+  return (
+    <Modal title={invoice ? `فاتورة ${invoice.invoice_number}` : 'فاتورة'} onClose={onClose} width="w-[560px]">
+      {!invoice ? (
+        <p className="text-sm text-muted">جارِ التحميل...</p>
+      ) : (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <Badge variant={STATUS_VARIANTS[invoice.status]}>{STATUS_LABELS[invoice.status]}</Badge>
+            <span className="text-xs text-muted">{invoice.issued_at}</span>
+          </div>
+
+          {chartTeeth.length > 0 && (
+            <div className="rounded-lg bg-background p-2">
+              <div className="flex justify-center">
+                <MiniOdontogramPreview teeth={chartTeeth} isChild={isChild || metaIsChild} />
+              </div>
+              {patientId && (
+                <div className="mt-2 flex flex-wrap justify-center gap-1.5 border-t border-border/60 pt-2">
+                  {[...chartTeeth].sort((a, b) => a - b).map((tooth) => {
+                    const count = chartNotes.filter((n) => n.tooth_number === tooth).length
+                    return (
+                      <button
+                        key={tooth}
+                        onClick={() => setNotesToothNumber(tooth)}
+                        className={`flex items-center gap-1 rounded-lg border px-1.5 py-0.5 text-[11px] ${count > 0 ? 'border-accent/40 text-accent' : 'border-border text-muted'} hover:border-accent hover:text-accent`}
+                      >
+                        <FontAwesomeIcon icon={faNoteSticky} className="text-[10px]" />
+                        سن {tooth}
+                        {count > 0 && <span className="rounded-full bg-accent px-1 text-[9px] text-white">{count}</span>}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {onEditWorkItem && invoice.status !== 'void' && (
+            <button
+              onClick={onEditWorkItem}
+              className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-ink/15 py-1.5 text-xs font-medium text-accent hover:border-accent"
+            >
+              <FontAwesomeIcon icon={faPenToSquare} />
+              فتح هالجلسة بفورم التعديل (الأسنان/الخطوات)
+            </button>
+          )}
+
+          <Table>
+            <Thead>
+              <Th>الوصف</Th>
+              <Th>المبلغ</Th>
+            </Thead>
+            <tbody>
+              {(invoice.lines ?? []).map((l) => (
+                <Tr key={l.id}>
+                  <Td>
+                    {l.description}
+                    {/* الشغل اللي وراء السطر — الخدمة والخطوة والأسنان والطبيب.
+                        بدونها "شو بتشمل هالفاتورة" بتحتاج تفتح تبويب تاني. */}
+                    {(l.service_name || l.doctor_name || (l.tooth_numbers?.length ?? 0) > 0) && (
+                      <span className="mt-0.5 block text-[11px] text-ink/40">
+                        {[
+                          l.service_name && l.step_title && l.step_title !== l.service_name
+                            ? `${l.service_name} — ${l.step_title}`
+                            : l.service_name || l.step_title,
+                          l.tooth_numbers?.length
+                            ? l.tooth_numbers.length === 1
+                              ? `سن ${l.tooth_numbers[0]}`
+                              : `${l.tooth_numbers.length} أسنان: ${l.tooth_numbers.join('، ')}`
+                            : null,
+                          l.doctor_name,
+                        ]
+                          .filter(Boolean)
+                          .join(' · ')}
+                      </span>
+                    )}
+                  </Td>
+                  <Td className="text-muted">{l.amount_ils} ₪</Td>
+                </Tr>
+              ))}
+            </tbody>
+          </Table>
+
+          {/* كل إشي غيّر إجمالي الفاتورة بعد ما انصدرت — خصم، تصحيح سعر، شغل
+              انلغى. بدونها الإجمالي بيختلف عن مجموع البنود وما في إشي بيفسّر ليش. */}
+          {adjustments.length > 0 && (
+            <div className="rounded-lg border border-border/70 p-3">
+              <p className="mb-2 text-xs font-medium text-ink/60">تعديلات صارت على الفاتورة</p>
+              <ul className="space-y-1.5">
+                {adjustments.map((a) => (
+                  <li key={a.id} className="flex items-start justify-between gap-3 text-xs">
+                    <span className="text-muted">
+                      {a.label}
+                      {a.note && <span className="block text-[11px] text-ink/40">{a.note}</span>}
+                      <span className="block text-[11px] text-ink/40">{a.occurred_at}</span>
+                    </span>
+                    <span className={a.amount_ils < 0 ? 'shrink-0 text-success' : 'shrink-0 text-danger'}>
+                      {a.amount_ils > 0 ? '+' : ''}
+                      {a.amount_ils.toFixed(2)} ₪
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {checks.length > 0 && (
+            <div className="rounded-lg border border-border/70 p-3">
+              <p className="mb-2 text-xs font-medium text-ink/60">شيكات على هالفاتورة</p>
+              <ul className="space-y-1.5">
+                {checks.map((c) => (
+                  <li key={c.id} className="flex items-start justify-between gap-3 text-xs">
+                    <span className="text-muted">
+                      شيك رقم {c.check_number}
+                      <span className="block text-[11px] text-ink/40">
+                        {[c.bank_name, `استحقاق ${c.due_date}`].filter(Boolean).join(' · ')}
+                      </span>
+                    </span>
+                    <span className={c.status === 'bounced' ? 'shrink-0 text-danger' : 'shrink-0 text-ink'}>
+                      {c.amount_ils.toFixed(2)} ₪
+                      {c.status === 'bounced' && <span className="block text-[11px]">مرتجع</span>}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <div className="space-y-1 rounded-lg bg-background p-3 text-sm">
+            {/* A discount only ever moved the invoice total; the lines keep
+                their original prices. Without spelling the gap out, the
+                invoice read as if its own numbers didn't add up. */}
+            {linesTotal > 0 && Math.abs(linesTotal - total) > 0.01 && (
+              <>
+                <div className="flex justify-between">
+                  <span className="text-muted">مجموع البنود</span>
+                  <span className="text-ink">{linesTotal.toFixed(2)} ₪</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted">{linesTotal > total ? 'الخصم' : 'إضافة'}</span>
+                  <span className={linesTotal > total ? 'text-success' : 'text-ink'}>
+                    {(total - linesTotal).toFixed(2)} ₪
+                  </span>
+                </div>
+              </>
+            )}
+            <div className="flex justify-between">
+              <span className="text-muted">المدفوع</span>
+              <span className="text-ink">{paid.toFixed(2)} ₪</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted">المتبقي</span>
+              <span className="text-ink">{remaining.toFixed(2)} ₪</span>
+            </div>
+            <div className="flex items-center justify-between border-t border-border/70 pt-1 font-semibold">
+              <span className="text-ink">الإجمالي المتفق عليه</span>
+              {editing ? (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    autoFocus
+                    value={newTotal}
+                    onChange={(e) => setNewTotal(e.target.value)}
+                    className="w-24 rounded-lg border border-border px-2 py-1 text-sm"
+                  />
+                  <span className="text-xs text-muted">₪</span>
+                  <button onClick={save} disabled={saving} className="text-accent hover:text-accent-hover disabled:opacity-60">
+                    <FontAwesomeIcon icon={faCheck} />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="text-ink">{total.toFixed(2)} ₪</span>
+                  {canManage && invoice.status !== 'void' && (
+                    <button onClick={startEdit} title="تعديل الإجمالي / خصم" className="text-ink/40 hover:text-accent">
+                      <FontAwesomeIcon icon={faPen} />
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {invoice.status !== 'void' && (canManage || patientId) && (
+            <div className="flex flex-wrap gap-2">
+              {canManage && (
+                <button
+                  onClick={() => {
+                    setShowDiscount((v) => !v)
+                    setShowCollect(false)
+                  }}
+                  className="flex items-center gap-1.5 rounded-lg border border-ink/10 px-2.5 py-1.5 text-xs text-ink/70 hover:border-accent hover:text-accent"
+                >
+                  <FontAwesomeIcon icon={faPercent} />
+                  إضافة خصم
+                </button>
+              )}
+              {patientId && remaining > 0 && (
+                <button
+                  onClick={() => {
+                    setShowCollect((v) => !v)
+                    setShowDiscount(false)
+                    setPayAmount(String(remaining))
+                    setCheckAmount(String(remaining))
+                  }}
+                  className="flex items-center gap-1.5 rounded-lg bg-accent px-2.5 py-1.5 text-xs font-medium text-white hover:bg-accent-hover"
+                >
+                  <FontAwesomeIcon icon={faMoneyBill} />
+                  تحصيل دفعة
+                </button>
+              )}
+            </div>
+          )}
+
+          {showDiscount && (
+            <div className="space-y-2 rounded-lg bg-background p-3">
+              <p className="text-xs text-muted">مبلغ الخصم على هاي الفاتورة بس — بينخصم من إجماليها مباشرة.</p>
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  min={0}
+                  max={total}
+                  placeholder="مبلغ الخصم"
+                  value={discountAmount}
+                  onChange={(e) => setDiscountAmount(e.target.value)}
+                  className="w-32 rounded-lg border border-border px-2 py-1.5 text-sm"
+                />
+                <button
+                  onClick={applyDiscount}
+                  disabled={saving || !discountAmount}
+                  className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60"
+                >
+                  {saving ? 'جارِ الحفظ...' : 'تسجيل الخصم'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {showCollect && (
+            <div className="space-y-3 rounded-lg bg-background p-3">
+              <div className="flex gap-1 rounded-lg border border-ink/10 bg-white p-1">
+                <button
+                  type="button"
+                  onClick={() => setCollectTab('cash')}
+                  className={`flex-1 rounded-md py-1.5 text-xs font-medium transition-colors ${collectTab === 'cash' ? 'bg-accent text-white' : 'text-ink/60 hover:bg-background'}`}
+                >
+                  نقدي / بطاقة / تحويل
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCollectTab('check')}
+                  className={`flex-1 rounded-md py-1.5 text-xs font-medium transition-colors ${collectTab === 'check' ? 'bg-accent text-white' : 'text-ink/60 hover:bg-background'}`}
+                >
+                  شيك
+                </button>
+              </div>
+
+              {collectTab === 'cash' ? (
+                <>
+                  <div className="flex gap-2">
+                    <SearchableSelect
+                      options={cashboxes.map((c) => ({ value: String(c.id), label: c.name, sublabel: c.currency }))}
+                      value={payCashboxId}
+                      onChange={setPayCashboxId}
+                      placeholder="الصندوق..."
+                      className="flex-1"
+                    />
+                    <input
+                      type="number"
+                      placeholder="المبلغ"
+                      value={payAmount}
+                      onChange={(e) => setPayAmount(e.target.value)}
+                      className="w-28 rounded-lg border border-ink/10 px-2 py-1.5 text-sm"
+                    />
+                    <select
+                      value={payMethod}
+                      onChange={(e) => setPayMethod(e.target.value as typeof payMethod)}
+                      className="rounded-lg border border-ink/10 px-2 py-1.5 text-sm"
+                    >
+                      <option value="cash">نقدي</option>
+                      <option value="card">بطاقة</option>
+                      <option value="transfer">تحويل</option>
+                    </select>
+                  </div>
+                  <button
+                    onClick={collectCash}
+                    disabled={collecting}
+                    className="w-full rounded-lg bg-accent py-1.5 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60"
+                  >
+                    {collecting ? 'جارِ التسجيل...' : 'تسجيل الدفعة'}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <input
+                    placeholder="رقم الشيك"
+                    value={checkNumber}
+                    onChange={(e) => setCheckNumber(e.target.value)}
+                    className="w-full rounded-lg border border-ink/10 px-2 py-1.5 text-sm"
+                  />
+                  <input
+                    placeholder="اسم البنك"
+                    value={checkBank}
+                    onChange={(e) => setCheckBank(e.target.value)}
+                    className="w-full rounded-lg border border-ink/10 px-2 py-1.5 text-sm"
+                  />
+                  <div className="flex gap-2">
+                    <input
+                      type="number"
+                      placeholder="المبلغ"
+                      value={checkAmount}
+                      onChange={(e) => setCheckAmount(e.target.value)}
+                      className="flex-1 rounded-lg border border-ink/10 px-2 py-1.5 text-sm"
+                    />
+                    <DatePicker value={checkDueDate} onChange={setCheckDueDate} placeholder="تاريخ الاستحقاق" />
+                  </div>
+
+                  <div className="flex gap-1 rounded-lg border border-ink/10 bg-white p-1">
+                    <button
+                      type="button"
+                      onClick={() => setCheckImageSource('device')}
+                      className={`flex-1 rounded-md py-1 text-[11px] font-medium transition-colors ${checkImageSource === 'device' ? 'bg-accent text-white' : 'text-ink/60'}`}
+                    >
+                      إرفاق صورة من هالجهاز
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCheckImageSource('telegram')}
+                      className={`flex-1 rounded-md py-1 text-[11px] font-medium transition-colors ${checkImageSource === 'telegram' ? 'bg-accent text-white' : 'text-ink/60'}`}
+                    >
+                      طلب صورة عبر تيليغرام
+                    </button>
+                  </div>
+
+                  {checkImageSource === 'device' ? (
+                    <>
+                      <input
+                        ref={checkImageInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => setCheckImage(e.target.files?.[0] ?? null)}
+                        className="hidden"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => checkImageInputRef.current?.click()}
+                        className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-ink/15 px-3 py-2 text-xs text-ink/50 hover:border-accent hover:text-accent"
+                      >
+                        <FontAwesomeIcon icon={faCamera} />
+                        {checkImage ? `تم اختيار: ${checkImage.name}` : 'إرفاق صورة الوجه (اختياري)'}
+                      </button>
+                      <input
+                        ref={checkImage2InputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => setCheckImage2(e.target.files?.[0] ?? null)}
+                        className="hidden"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => checkImage2InputRef.current?.click()}
+                        className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-ink/15 px-3 py-2 text-xs text-ink/50 hover:border-accent hover:text-accent"
+                      >
+                        <FontAwesomeIcon icon={faCamera} />
+                        {checkImage2 ? `تم اختيار: ${checkImage2.name}` : 'إرفاق صورة الظهر (اختياري)'}
+                      </button>
+                    </>
+                  ) : (
+                    <TelegramCheckTargetPicker
+                      target={telegramTarget}
+                      onTargetChange={setTelegramTarget}
+                      slots={telegramSlots}
+                      onSlotsChange={setTelegramSlots}
+                    />
+                  )}
+
+                  <p className="text-[11px] text-ink/40">الشيك ما بيأثر على الرصيد إلا لما يتحصّل من صفحة الشيكات.</p>
+                  <button
+                    onClick={collectCheck}
+                    disabled={collecting || (checkImageSource === 'telegram' && !telegramTarget)}
+                    className="w-full rounded-lg bg-accent py-1.5 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-60"
+                  >
+                    {collecting ? 'جارِ التسجيل...' : 'استلام الشيك'}
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+
+          {createdCheck && (
+            <div className="space-y-2 rounded-lg bg-background p-3">
+              <p className="text-xs text-ink/70">تم استلام الشيك رقم {createdCheck.check_number}. ناقصك صورة؟</p>
+              <RequestCheckImageButton
+                checkId={createdCheck.id}
+                checkNumber={createdCheck.check_number}
+                onSent={() => setCreatedCheck(null)}
+              />
+            </div>
+          )}
+
+          {error && <p className="text-xs text-danger">{error}</p>}
+        </div>
+      )}
+
+      {notesToothNumber !== null && patientId && (
+        <ToothNotesModal
+          patientId={patientId}
+          toothNumber={notesToothNumber}
+          notes={chartNotes}
+          onClose={() => setNotesToothNumber(null)}
+          onChanged={() => onChanged?.()}
+        />
+      )}
+    </Modal>
+  )
+}

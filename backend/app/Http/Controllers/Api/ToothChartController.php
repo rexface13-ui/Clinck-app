@@ -7,6 +7,7 @@ use App\Http\Requests\Dental\StoreToothFindingRequest;
 use App\Http\Resources\ToothFindingResource;
 use App\Http\Resources\ToothStateResource;
 use App\Models\Patient;
+use App\Models\Setting;
 use App\Models\ToothFinding;
 use App\Services\CommissionService;
 use Illuminate\Http\Request;
@@ -29,7 +30,7 @@ class ToothChartController extends Controller
 
         if (! $asOf) {
             $states = $patient->toothStates()->get();
-            $findings = $patient->toothFindings()->orderByDesc('recorded_at')->with(['service', 'doctor'])->get();
+            $findings = $patient->toothFindings()->orderByDesc('recorded_at')->with(['service', 'doctor', 'workItemToothStep.step', 'workItemToothStep.invoiceLine'])->get();
 
             return [
                 'tooth_states' => ToothStateResource::collection($states),
@@ -46,8 +47,7 @@ class ToothChartController extends Controller
             ->get();
 
         $missingTeeth = $findings
-            ->where('finding_type', 'extraction')
-            ->where('status', 'done')
+            ->where('marks_missing', true)
             ->pluck('tooth_number')
             ->unique();
 
@@ -73,12 +73,19 @@ class ToothChartController extends Controller
         $finding = DB::transaction(function () use ($data, $patient, $commissions) {
             $finding = $patient->toothFindings()->create($data);
 
-            $isExtractionDone = $data['finding_type'] === 'extraction' && $data['status'] === 'done';
-
-            $patient->toothStates()->updateOrCreate(
-                ['tooth_number' => $data['tooth_number']],
-                ['status' => $isExtractionDone ? 'missing' : 'present'],
-            );
+            // marks_missing is an explicit flag from the client (a checkbox, not
+            // a guess based on what the free-text finding_type says) — a tooth
+            // can go missing for any reason (extraction, trauma, congenitally
+            // absent...), so nothing here hinges on specific wording. Only ever
+            // flips a tooth TO missing here — reverting it to present happens
+            // when the finding that marked it missing is deleted (see
+            // destroyFinding), not as a side effect of unrelated findings.
+            if ($data['marks_missing'] ?? false) {
+                $patient->toothStates()->updateOrCreate(
+                    ['tooth_number' => $data['tooth_number']],
+                    ['status' => 'missing'],
+                );
+            }
 
             if ($data['status'] === 'done') {
                 $commissions->computeForFinding($finding);
@@ -88,6 +95,66 @@ class ToothChartController extends Controller
         });
 
         return new ToothFindingResource($finding->load(['service', 'doctor']));
+    }
+
+    public function updateFinding(Request $request, Patient $patient, ToothFinding $finding, CommissionService $commissions)
+    {
+        $this->authorize('update', $patient);
+        abort_unless($request->user()->can('dental_chart.manage'), 403);
+        abort_unless($finding->patient_id === $patient->id, 404);
+
+        $data = $request->validate([
+            'status' => ['sometimes', 'in:planned,in_progress,done'],
+            'note' => ['sometimes', 'nullable', 'string'],
+            'doctor_id' => ['sometimes', 'nullable', 'exists:doctors,id'],
+            'marks_missing' => ['sometimes', 'boolean'],
+            'performed_externally' => ['sometimes', 'boolean'],
+            'finding_type' => ['sometimes', 'string', 'max:255'],
+        ]);
+
+        DB::transaction(function () use ($data, $finding, $patient, $commissions) {
+            $wasMissing = $finding->marks_missing;
+            $finding->update($data);
+
+            if (array_key_exists('marks_missing', $data) && $data['marks_missing'] !== $wasMissing) {
+                $stillMissing = $patient->toothFindings()
+                    ->where('tooth_number', $finding->tooth_number)
+                    ->where('marks_missing', true)
+                    ->exists();
+
+                $patient->toothStates()->updateOrCreate(
+                    ['tooth_number' => $finding->tooth_number],
+                    ['status' => $stillMissing ? 'missing' : 'present'],
+                );
+            }
+
+            if (($data['status'] ?? null) === 'done') {
+                $commissions->computeForFinding($finding->fresh());
+            }
+        });
+
+        return new ToothFindingResource($finding->fresh(['service', 'doctor']));
+    }
+
+    /**
+     * The overview chart's worked-tooth callout labels are draggable — this
+     * saves where the clinic likes each tooth's label positioned (a single
+     * shared template, keyed by tooth number, not per-patient) so it doesn't
+     * have to be re-dragged into place every time a chart is opened.
+     */
+    public function updateCalloutLayout(Request $request)
+    {
+        abort_unless($request->user()->can('dental_chart.manage'), 403);
+
+        $data = $request->validate([
+            'offsets' => ['required', 'array'],
+            'offsets.*' => ['array', 'size:2'],
+            'offsets.*.*' => ['numeric'],
+        ]);
+
+        Setting::updateOrCreate(['key' => 'tooth_callout_offsets'], ['value' => json_encode($data['offsets'])]);
+
+        return ['tooth_callout_offsets' => $data['offsets']];
     }
 
     public function destroyFinding(Request $request, Patient $patient, ToothFinding $finding)
@@ -100,15 +167,14 @@ class ToothChartController extends Controller
             $toothNumber = $finding->tooth_number;
             $finding->delete();
 
-            $stillExtracted = $patient->toothFindings()
+            $stillMissing = $patient->toothFindings()
                 ->where('tooth_number', $toothNumber)
-                ->where('finding_type', 'extraction')
-                ->where('status', 'done')
+                ->where('marks_missing', true)
                 ->exists();
 
             $patient->toothStates()->updateOrCreate(
                 ['tooth_number' => $toothNumber],
-                ['status' => $stillExtracted ? 'missing' : 'present'],
+                ['status' => $stillMissing ? 'missing' : 'present'],
             );
         });
 

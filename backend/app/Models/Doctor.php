@@ -6,6 +6,7 @@ use App\Models\Concerns\BelongsToClinic;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Doctor extends Model
 {
@@ -49,5 +50,10 @@ class Doctor extends Model
     public function toothFindings(): HasMany
     {
         return $this->hasMany(ToothFinding::class);
+    }
+
+    public function telegramLink(): HasOne
+    {
+        return $this->hasOne(TelegramLink::class)->whereNotNull('linked_at');
     }
 }

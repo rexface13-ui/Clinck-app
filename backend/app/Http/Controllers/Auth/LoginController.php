@@ -4,8 +4,10 @@ namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\LoginRequest;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 
 class LoginController extends Controller
@@ -14,12 +16,21 @@ class LoginController extends Controller
     {
         $credentials = $request->validated();
 
-        if (! Auth::attempt([...$credentials, 'is_active' => true], remember: true)) {
+        // Username lookup is case-insensitive (Postgres '=' isn't), so
+        // typing "Owner" or "OWNER" logs in the same as "owner" — the
+        // default Auth::attempt() would fail here since it matches the
+        // username column exactly.
+        $user = User::whereRaw('lower(username) = ?', [mb_strtolower($credentials['username'])])
+            ->where('is_active', true)
+            ->first();
+
+        if (! $user || ! Hash::check($credentials['password'], $user->password)) {
             throw ValidationException::withMessages([
-                'email' => 'بيانات الدخول غير صحيحة.',
+                'username' => 'بيانات الدخول غير صحيحة.',
             ]);
         }
 
+        Auth::login($user, remember: true);
         $request->session()->regenerate();
 
         return response()->noContent();

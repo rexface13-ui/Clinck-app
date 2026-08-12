@@ -19,6 +19,17 @@ class StockMovementController extends Controller
             $query->where('item_id', $request->input('item_id'));
         }
 
+        if ($request->filled('reference_type') && $request->filled('reference_id')) {
+            // Scoped lookup (e.g. every movement a specific purchase invoice
+            // produced) — exempt from the 200-row cap below, since it's
+            // already narrow and the cap would otherwise hide older
+            // invoices' movements once enough newer ones pile up elsewhere.
+            $query->where('reference_type', $request->input('reference_type'))
+                ->where('reference_id', $request->input('reference_id'));
+
+            return $query->get();
+        }
+
         return $query->limit(200)->get();
     }
 

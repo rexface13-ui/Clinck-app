@@ -9,14 +9,15 @@ use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Patient extends Model
 {
     use BelongsToClinic, HasNotesAndAttachments;
 
     protected $fillable = [
-        'clinic_id', 'branch_id', 'code', 'full_name', 'birth_date', 'gender',
-        'is_child', 'phone', 'guardian_name', 'guardian_phone', 'medical_alerts',
+        'clinic_id', 'branch_id', 'code', 'full_name', 'birth_date', 'age', 'gender',
+        'is_child', 'phone', 'guardian_name', 'guardian_phone', 'medical_alerts', 'medical_notes',
     ];
 
     protected function casts(): array
@@ -36,20 +37,28 @@ class Patient extends Model
             }
 
             if (is_null($patient->getAttribute('is_child'))) {
-                $patient->is_child = $patient->birth_date
-                    ? Carbon::parse($patient->birth_date)->age < 12
-                    : false;
+                // age (plain number staff actually know) takes priority —
+                // birth_date is legacy/optional and only used as a fallback
+                // for records that happen to have one but no age set.
+                $patient->is_child = $patient->age !== null
+                    ? $patient->age < 12
+                    : ($patient->birth_date ? Carbon::parse($patient->birth_date)->age < 12 : false);
             }
         });
     }
 
     protected static function nextCode(): string
     {
-        $count = static::withoutGlobalScopes()
+        $lastCode = static::withoutGlobalScopes()
             ->where('clinic_id', CurrentClinic::id())
-            ->count();
+            ->whereRaw("code ~ '^P-[0-9]+$'")
+            ->orderByRaw("CAST(SUBSTRING(code FROM 3) AS INTEGER) DESC")
+            ->lockForUpdate()
+            ->value('code');
 
-        return sprintf('P-%06d', $count + 1);
+        $next = $lastCode ? ((int) substr($lastCode, 2)) + 1 : 1;
+
+        return sprintf('P-%06d', $next);
     }
 
     public function branch(): BelongsTo
@@ -72,9 +81,9 @@ class Patient extends Model
         return $this->hasMany(Appointment::class);
     }
 
-    public function treatmentPlans(): HasMany
+    public function workItems(): HasMany
     {
-        return $this->hasMany(TreatmentPlan::class);
+        return $this->hasMany(WorkItem::class);
     }
 
     public function invoices(): HasMany
@@ -85,5 +94,10 @@ class Patient extends Model
     public function transactions(): HasMany
     {
         return $this->hasMany(PatientTransaction::class);
+    }
+
+    public function telegramLink(): HasOne
+    {
+        return $this->hasOne(TelegramLink::class)->whereNotNull('linked_at');
     }
 }

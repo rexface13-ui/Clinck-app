@@ -6,6 +6,7 @@ use App\Models\Concerns\BelongsToClinic;
 use App\Models\Concerns\HasNotesAndAttachments;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Appointment extends Model
 {
@@ -13,7 +14,7 @@ class Appointment extends Model
 
     protected $fillable = [
         'clinic_id', 'branch_id', 'patient_id', 'doctor_id',
-        'starts_at', 'ends_at', 'status', 'created_via',
+        'starts_at', 'ends_at', 'status', 'created_via', 'notes',
     ];
 
     protected function casts(): array
@@ -37,5 +38,10 @@ class Appointment extends Model
     public function doctor(): BelongsTo
     {
         return $this->belongsTo(Doctor::class);
+    }
+
+    public function workItems(): HasMany
+    {
+        return $this->hasMany(WorkItem::class);
     }
 }

@@ -22,8 +22,11 @@
 /storage/pail
 /storage/app/backups
 /storage/app/tmp
+/storage/app/checks
 /vendor
 _ide_helper.php
 Homestead.json
 Homestead.yaml
 Thumbs.db
+rr
+.rr.yaml
