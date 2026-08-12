@@ -77,16 +77,30 @@ export default function InvoiceDetailModal({
   const [createdCheck, setCreatedCheck] = useState<{ id: number; check_number: string } | null>(null)
   const [adjustments, setAdjustments] = useState<InvoiceAdjustment[]>([])
   const [checks, setChecks] = useState<InvoiceCheck[]>([])
+  // The invoice knows which teeth it covers, so the chart shows up wherever it
+  // is opened from — the callers that pass sessionTeeth still win, since they
+  // may be showing a session wider than this one bill.
+  const [metaTeeth, setMetaTeeth] = useState<number[]>([])
+  const [metaIsChild, setMetaIsChild] = useState(false)
+  const [metaNotes, setMetaNotes] = useState<Note[]>([])
   const [collecting, setCollecting] = useState(false)
   const [checkImageSource, setCheckImageSource] = useState<'device' | 'telegram'>('device')
   const [telegramTarget, setTelegramTarget] = useState('')
   const [telegramSlots, setTelegramSlots] = useState<(1 | 2)[]>([1])
+
+  // A caller showing a whole session may pass more teeth than this one bill
+  // covers, so its list wins; otherwise the invoice's own teeth are used.
+  const chartTeeth = sessionTeeth && sessionTeeth.length > 0 ? sessionTeeth : metaTeeth
+  const chartNotes = notes.length > 0 ? notes : metaNotes
 
   function load() {
     api.get(`/invoices/${invoiceId}`).then((res) => {
       setInvoice(res.data.data)
       setAdjustments(res.data.meta?.adjustments ?? [])
       setChecks(res.data.meta?.checks ?? [])
+      setMetaTeeth(res.data.meta?.teeth ?? [])
+      setMetaIsChild(Boolean(res.data.meta?.is_child))
+      setMetaNotes(res.data.meta?.tooth_notes ?? [])
     })
   }
 
@@ -228,15 +242,15 @@ export default function InvoiceDetailModal({
             <span className="text-xs text-muted">{invoice.issued_at}</span>
           </div>
 
-          {sessionTeeth && sessionTeeth.length > 0 && (
+          {chartTeeth.length > 0 && (
             <div className="rounded-lg bg-background p-2">
               <div className="flex justify-center">
-                <MiniOdontogramPreview teeth={sessionTeeth} isChild={isChild} />
+                <MiniOdontogramPreview teeth={chartTeeth} isChild={isChild || metaIsChild} />
               </div>
               {patientId && (
                 <div className="mt-2 flex flex-wrap justify-center gap-1.5 border-t border-border/60 pt-2">
-                  {[...sessionTeeth].sort((a, b) => a - b).map((tooth) => {
-                    const count = notes.filter((n) => n.tooth_number === tooth).length
+                  {[...chartTeeth].sort((a, b) => a - b).map((tooth) => {
+                    const count = chartNotes.filter((n) => n.tooth_number === tooth).length
                     return (
                       <button
                         key={tooth}
@@ -625,7 +639,7 @@ export default function InvoiceDetailModal({
         <ToothNotesModal
           patientId={patientId}
           toothNumber={notesToothNumber}
-          notes={notes}
+          notes={chartNotes}
           onClose={() => setNotesToothNumber(null)}
           onChanged={() => onChanged?.()}
         />

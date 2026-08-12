@@ -10,6 +10,7 @@ use App\Models\Cashbox;
 use App\Models\CheckModel;
 use App\Models\Invoice;
 use App\Models\InvoiceLine;
+use App\Models\Note;
 use App\Models\Patient;
 use App\Models\PatientTransaction;
 use App\Models\Payment;
@@ -43,10 +44,37 @@ class PatientBillingController extends Controller
             'lines.workItemToothStep.workItem.doctor',
             'lines.workItemToothStep.step',
             'payments',
+            'patient',
         ]);
+
+        // Which teeth this bill covers — the same set the lines carry, gathered
+        // once so the invoice can draw its own chart wherever it's opened from
+        // instead of depending on the screen that opened it to hand them over.
+        $teeth = WorkItemToothStep::whereIn('invoice_line_id', $invoice->lines->pluck('id'))
+            ->pluck('tooth_number')
+            ->map(fn ($n) => (int) $n)
+            ->unique()
+            ->sort()
+            ->values();
 
         return (new InvoiceResource($invoice))->additional([
             'meta' => [
+                'teeth' => $teeth,
+                // The chart is drawn differently for a child's mouth.
+                'is_child' => (bool) $invoice->patient?->is_child,
+                // Only the notes for the teeth on this bill: enough for the
+                // per-tooth notebook shortcuts, without dragging the patient's
+                // whole notebook along for a chart of two teeth.
+                'tooth_notes' => $teeth->isEmpty() ? [] : Note::where('notable_type', (new Patient)->getMorphClass())
+                    ->where('notable_id', $invoice->patient_id)
+                    ->whereIn('tooth_number', $teeth)
+                    ->get()
+                    ->map(fn ($n) => [
+                        'id' => $n->id,
+                        'body' => $n->body,
+                        'tooth_number' => (int) $n->tooth_number,
+                        'created_at' => display_datetime($n->created_at),
+                    ]),
                 // Everything that moved this invoice's total after it was
                 // issued — a general "خصم" on the bill, a step repriced, work
                 // undone. Without these the invoice shows a total that doesn't

@@ -506,12 +506,22 @@ export default function ChecksPage() {
                 لمريض (استرجاع)
               </button>
             </div>
-            <select value={endorseSupplier} onChange={(e) => setEndorseSupplier(e.target.value)} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
-              <option value="">{endorseTargetType === 'patient' ? 'المريض...' : 'المورد...'}</option>
-              {(endorseTargetType === 'patient' ? patients : suppliers).map((p) => (
-                <option key={p.id} value={p.id}>{'full_name' in p ? p.full_name : p.name}</option>
-              ))}
-            </select>
+            {endorseTargetType === 'patient' ? (
+              <SearchableSelect
+                options={patientPickerOptions}
+                value={endorseSupplier}
+                onChange={setEndorseSupplier}
+                onSearch={searchPatients}
+                placeholder="ابحث عن مريض بالاسم..."
+              />
+            ) : (
+              <select value={endorseSupplier} onChange={(e) => setEndorseSupplier(e.target.value)} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
+                <option value="">المورد...</option>
+                {suppliers.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            )}
             <Button onClick={endorse} loading={busy} className="w-full justify-center">
               تأكيد التظهير
             </Button>

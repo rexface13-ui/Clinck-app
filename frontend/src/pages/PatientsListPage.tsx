@@ -49,19 +49,42 @@ export default function PatientsListPage() {
   })
   const [error, setError] = useState<string | null>(null)
 
-  function loadPatients(searchTerm?: string) {
+  // The unfiltered list is paginated at 25 and nothing ever asked for page two,
+  // so a clinic past 25 patients could only reach the rest by searching — the
+  // list itself quietly stopped a quarter of the way down.
+  const [page, setPage] = useState(1)
+  const [lastPage, setLastPage] = useState(1)
+  const [total, setTotal] = useState(0)
+
+  function loadPatients(searchTerm?: string, pageNumber = 1) {
     setLoading(true)
     api
-      .get('/patients', { params: searchTerm ? { search: searchTerm } : undefined })
-      .then((res) => setPatients(res.data.data))
+      .get('/patients', {
+        params: searchTerm ? { search: searchTerm } : { page: pageNumber },
+      })
+      .then((res) => {
+        setPatients(res.data.data)
+        // A search comes back as a plain list with no paginator behind it.
+        setLastPage(res.data.meta?.last_page ?? 1)
+        setTotal(res.data.meta?.total ?? res.data.data.length)
+      })
       .finally(() => setLoading(false))
   }
 
+  // Typing a new search has to start again from the first page, or a query
+  // typed while on page 3 comes back empty and reads as "no such patient".
   useEffect(() => {
-    const id = setTimeout(() => loadPatients(search.trim() || undefined), 250)
+    setPage(1)
+    const id = setTimeout(() => loadPatients(search.trim() || undefined, 1), 250)
     return () => clearTimeout(id)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search])
+
+  useEffect(() => {
+    if (page === 1) return
+    loadPatients(search.trim() || undefined, page)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page])
   useEffect(() => {
     api.get('/doctors').then((res) => setDoctors(res.data.data))
   }, [])
@@ -322,6 +345,30 @@ export default function PatientsListPage() {
               )}
             </tbody>
           </Table>
+        )}
+
+        {!search.trim() && lastPage > 1 && (
+          <div className="mt-4 flex items-center justify-between border-t border-border/70 pt-3 text-sm">
+            <span className="text-muted">
+              صفحة {page} من {lastPage} · {total} مريض
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1}
+                className="rounded-lg border border-border px-3 py-1.5 text-xs text-ink/70 hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                السابق
+              </button>
+              <button
+                onClick={() => setPage((p) => Math.min(lastPage, p + 1))}
+                disabled={page >= lastPage}
+                className="rounded-lg border border-border px-3 py-1.5 text-xs text-ink/70 hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                التالي
+              </button>
+            </div>
+          </div>
         )}
       </Card>
     </div>
