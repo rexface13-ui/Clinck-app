@@ -21,8 +21,8 @@ class SettingController extends Controller
         'reminder_appointments_enabled', 'reminder_checks_enabled', 'reminder_lab_enabled',
         'notify_new_appointment_enabled',
         'clinic_hours_start', 'clinic_hours_end',
-        'telegram_bot_token', 'telegram_bot_username',
-        'daily_report_time',
+        'telegram_bot_token', 'telegram_bot_username', 'telegram_welcome_message',
+        'daily_report_time', 'reminder_time',
         // { "USD": 3.7, "JOD": 5.2 } — how many shekels one unit is worth.
         // Kept as a setting so the rate is typed once here instead of from
         // memory on every foreign-currency payment.
@@ -49,6 +49,7 @@ class SettingController extends Controller
             Setting::updateOrCreate(['key' => $key], ['value' => $value ?? '']);
         }
 
-        return ['settings' => Setting::pluck('value', 'key')];
+        // Same rule as the bootstrap payload: the token goes in, never out.
+        return ['settings' => Setting::pluck('value', 'key')->except('telegram_bot_token')];
     }
 }

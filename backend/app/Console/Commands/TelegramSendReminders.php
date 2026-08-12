@@ -20,8 +20,11 @@ class TelegramSendReminders extends Command
 
     public function handle(TelegramService $telegram): int
     {
-        if (config('telegram.bot_token') === '') {
-            $this->warn('TELEGRAM_BOT_TOKEN غير معرّف — تخطي إرسال التذكيرات.');
+        // Must ask the service, not config(): the owner pastes the token into
+        // the Settings page and it lives in the DB, so reading env here made
+        // this bail out as "no token" on every real install.
+        if ($telegram->token() === '') {
+            $this->warn('التوكن غير معرّف بعد — من صفحة تيليغرام على الموقع. تخطي إرسال التذكيرات.');
 
             return self::SUCCESS;
         }

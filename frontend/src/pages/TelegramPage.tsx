@@ -35,20 +35,33 @@ interface LinkedPatient {
 }
 
 function BotConfigCard() {
-  const { can } = useAuth()
-  const [form, setForm] = useState({ telegram_bot_token: '', telegram_bot_username: '' })
+  const { can, data, refresh } = useAuth()
+  const [form, setForm] = useState({ telegram_bot_token: '', telegram_bot_username: '', telegram_welcome_message: '' })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+
+  useEffect(() => {
+    if (!data) return
+    setForm((f) => ({
+      ...f,
+      telegram_bot_username: (data.settings.telegram_bot_username as string) ?? '',
+      telegram_welcome_message: (data.settings.telegram_welcome_message as string) ?? '',
+    }))
+  }, [data])
 
   async function save() {
     setSaving(true)
     setSaved(false)
     try {
-      const values: Record<string, string> = { telegram_bot_username: form.telegram_bot_username }
+      const values: Record<string, string> = {
+        telegram_bot_username: form.telegram_bot_username,
+        telegram_welcome_message: form.telegram_welcome_message,
+      }
       // Token is write-only (never returned from the server) — an empty
       // field here means "leave it as is," not "clear it."
       if (form.telegram_bot_token) values.telegram_bot_token = form.telegram_bot_token
       await api.put('/settings', { values })
+      await refresh()
       setForm((f) => ({ ...f, telegram_bot_token: '' }))
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
@@ -83,6 +96,19 @@ function BotConfigCard() {
           onChange={(e) => setForm({ ...form, telegram_bot_username: e.target.value })}
           placeholder="MyClinicBot"
         />
+        <div>
+          <label className="mb-1 block text-sm text-ink/70">الرسالة الافتتاحية</label>
+          <textarea
+            rows={3}
+            value={form.telegram_welcome_message}
+            onChange={(e) => setForm({ ...form, telegram_welcome_message: e.target.value })}
+            placeholder="أهلاً بك! 👋 اختر واحد من الأزرار تحت 👇"
+            className="w-full rounded-lg border border-border bg-surface p-2 text-sm focus:border-accent focus:outline-none"
+          />
+          <p className="mt-1 text-xs text-muted">
+            أول رسالة بتوصل أي حدا بيفتح البوت لأول مرة. اتركها فاضية للرسالة الافتراضية. الأزرار تحتها ثابتة لأنها هي اللي بتسجّله.
+          </p>
+        </div>
       </div>
 
       <div className="mt-4 flex items-center gap-3">

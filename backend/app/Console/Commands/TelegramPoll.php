@@ -9,6 +9,7 @@ use App\Models\DoctorTransaction;
 use App\Models\Note;
 use App\Models\Patient;
 use App\Models\Prescription;
+use App\Models\Setting;
 use App\Models\Supplier;
 use App\Models\TelegramLink;
 use App\Models\ToothFinding;
@@ -68,6 +69,13 @@ class TelegramPoll extends Command
     protected const BTN_TODAY_SHORT = 'اليوم';
 
     protected const BTN_TOMORROW = 'بكرا';
+
+    /**
+     * First thing an unrecognised chat sees. The owner can replace it from
+     * Settings (telegram_welcome_message); the buttons underneath are fixed
+     * because they are what drives registration.
+     */
+    public const DEFAULT_WELCOME = 'أهلاً بك! 👋 اختر واحد من الأزرار تحت 👇';
 
     /**
      * Which button/prompt an *unlinked* chat is currently answering — kept
@@ -209,7 +217,7 @@ class TelegramPoll extends Command
 
         $telegram->sendMessage(
             $chatId,
-            'أهلاً بك! 👋 اختر واحد من الأزرار تحت 👇',
+            Setting::where('key', 'telegram_welcome_message')->value('value') ?: self::DEFAULT_WELCOME,
             [[self::BTN_PATIENT], [self::BTN_DOCTOR], [self::BTN_STAFF_LOGIN]],
         );
     }

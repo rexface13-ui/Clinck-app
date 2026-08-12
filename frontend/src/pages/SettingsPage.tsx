@@ -252,11 +252,13 @@ function RemindersSettingsCard() {
     reminder_checks_enabled: true,
     reminder_lab_enabled: true,
   })
+  const [reminderTime, setReminderTime] = useState('08:00')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
 
   useEffect(() => {
     if (!data) return
+    setReminderTime((data.settings.reminder_time as string) ?? '08:00')
     setForm({
       notify_new_appointment_enabled: (data.settings.notify_new_appointment_enabled as boolean) ?? true,
       reminder_appointments_enabled: (data.settings.reminder_appointments_enabled as boolean) ?? true,
@@ -269,7 +271,7 @@ function RemindersSettingsCard() {
     setSaving(true)
     setSaved(false)
     try {
-      await api.put('/settings', { values: form })
+      await api.put('/settings', { values: { ...form, reminder_time: reminderTime } })
       await refresh()
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
@@ -307,6 +309,21 @@ function RemindersSettingsCard() {
             />
           </label>
         ))}
+      </div>
+
+      <div className="mt-4 rounded-xl border border-border px-3 py-2">
+        <label className="flex items-center justify-between text-sm">
+          وقت إرسال التذكيرات اليومية
+          <input
+            type="time"
+            value={reminderTime}
+            onChange={(e) => setReminderTime(e.target.value)}
+            className="rounded-lg border border-border bg-surface px-2 py-1 text-sm focus:border-accent focus:outline-none"
+          />
+        </label>
+        <p className="mt-1 text-xs text-muted">
+          بتنبعت مرة وحدة باليوم. إذا الكمبيوتر كان مسكّر بهاد الوقت، بتنبعت أول ما يفتح.
+        </p>
       </div>
 
       <div className="mt-4 flex items-center gap-3">
