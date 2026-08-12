@@ -903,6 +903,25 @@ class TelegramPoll extends Command
 
         $telegram->sendMessage($chatId, implode("\n", $lines));
         $this->sendTeethSummary($chatId, $patient, $telegram, $keyboard, forSelf: false);
+        $this->sendPatientAccountSummary($chatId, $patient, $telegram, $keyboard);
+    }
+
+    /**
+     * Balance only — same signed-sum convention as the rest of the bot's
+     * account views (handleAccount, BTN_MY_ACCOUNT): positive means the
+     * patient owes the clinic. A doctor checking a patient before they sit
+     * down doesn't need the full ledger, just whether there's an open balance.
+     */
+    protected function sendPatientAccountSummary(int $chatId, Patient $patient, TelegramService $telegram, array $keyboard): void
+    {
+        $balance = $patient->transactions()->sum('amount_ils');
+        $text = $balance > 0
+            ? sprintf('💰 كشف الحساب: عليه %s ₪', number_format((float) $balance, 2))
+            : ($balance < 0
+                ? sprintf('💰 كشف الحساب: له رصيد زايد %s ₪', number_format(abs((float) $balance), 2))
+                : '💰 كشف الحساب: لا يوجد رصيد مستحق.');
+
+        $telegram->sendMessage($chatId, $text, $keyboard);
     }
 
     protected function handleDoctorAppointments(int $chatId, Doctor $doctor, TelegramLink $link, TelegramService $telegram, int $daysAhead, array $keyboard): void
@@ -1120,8 +1139,16 @@ class TelegramPoll extends Command
         $done = $latestByTooth->where('status', 'done');
         $inProgress = $latestByTooth->whereIn('status', ['planned', 'in_progress']);
 
+        // Named per service with the actual tooth numbers listed, not just a
+        // count — a doctor deciding what to do with a patient today needs to
+        // know *which* teeth, not how many.
         $summarize = fn ($rows) => $rows->groupBy(fn ($f) => $f->service?->name ?? 'غير محدد')
-            ->map(fn ($group, $name) => sprintf('%s: %d سن', $name, $group->count()))
+            ->map(fn ($group, $name) => sprintf(
+                '%s (%d): %s',
+                $name,
+                $group->count(),
+                $group->pluck('tooth_number')->sort()->implode('، '),
+            ))
             ->implode("\n");
 
         $lines = [];
