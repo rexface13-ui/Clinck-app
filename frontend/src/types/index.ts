@@ -323,6 +323,9 @@ export interface LedgerRow {
   signed_amount_ils: number
   balance_after_ils: number
   occurred_at: string
+  /** Only present in the combined (multi-patient) statement view. */
+  patient_id?: number | null
+  patient_name?: string | null
 }
 
 export interface LedgerTotals {
@@ -339,6 +342,13 @@ export interface Ledger {
   outstanding_ils: number
   totals?: LedgerTotals
   transactions: LedgerRow[]
+}
+
+export interface PatientRelative {
+  relation_id: number
+  /** Free-text, written by the user — "أب", "زوجة"... */
+  label: string
+  patient: { id: number; full_name: string; code: string }
 }
 
 export interface Visit {

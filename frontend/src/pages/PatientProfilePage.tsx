@@ -17,6 +17,7 @@ import ToothChart from '../components/ToothChart'
 import ToothNotesModal from '../components/ToothNotesModal'
 import WorkPlanningPanel from '../components/WorkPlanningPanel'
 import PatientLedgerPanel from '../components/PatientLedgerPanel'
+import PatientRelativesPanel from '../components/PatientRelativesPanel'
 import VisitHistoryPanel from '../components/VisitHistoryPanel'
 import DatePicker from '../components/DatePicker'
 import AppointmentDetailModal from '../components/AppointmentDetailModal'
@@ -511,6 +512,11 @@ export default function PatientProfilePage() {
                 onOpenWorkItem={openWorkItem}
               />
             ),
+          },
+          {
+            key: 'relatives',
+            label: 'أقارب',
+            content: <PatientRelativesPanel patientId={patient.id} canManage={can('patients.manage')} onChanged={load} />,
           },
           ...(canViewBilling
             ? [

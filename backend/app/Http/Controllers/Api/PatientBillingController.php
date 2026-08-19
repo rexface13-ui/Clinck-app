@@ -139,7 +139,27 @@ class PatientBillingController extends Controller
     {
         $this->requireBillingView($request);
 
-        $transactions = $patient->transactions()->orderBy('occurred_at')->get();
+        // "Combined" merges every transaction across the patient's whole
+        // relative group into one running balance — same rows, same math,
+        // just not filtered down to one patient_id. A patient with no
+        // relatives gets exactly the group of one, so this is a no-op for
+        // the overwhelming majority of patients who aren't linked to anyone.
+        $patientIds = $request->boolean('combined') ? $patient->relativeGroupIds() : [$patient->id];
+        $withOwners = count($patientIds) > 1;
+
+        return $this->buildLedgerRows($patientIds, $withOwners);
+    }
+
+    /**
+     * @param  int[]  $patientIds
+     */
+    private function buildLedgerRows(array $patientIds, bool $includeOwner = false): array
+    {
+        $transactions = PatientTransaction::whereIn('patient_id', $patientIds)->orderBy('occurred_at')->get();
+
+        $ownerNames = $includeOwner
+            ? Patient::withoutGlobalScopes()->whereIn('id', $patientIds)->pluck('full_name', 'id')
+            : collect();
 
         $invoiceIds = $transactions
             ->filter(fn ($t) => in_array($t->reference_type, ['invoice', 'invoice_discount', 'invoice_line_reprice', 'invoice_line_reversal'], true))
@@ -176,7 +196,7 @@ class PatientBillingController extends Controller
         };
 
         $running = 0;
-        $rows = $transactions->map(function ($t) use (&$running, $descriptionFor) {
+        $rows = $transactions->map(function ($t) use (&$running, $descriptionFor, $ownerNames, $includeOwner) {
             $signed = in_array($t->type, ['charge', 'adjustment'], true) ? $t->amount_ils : -$t->amount_ils;
             $running += $signed;
 
@@ -198,6 +218,10 @@ class PatientBillingController extends Controller
                 'signed_amount_ils' => round($signed, 2),
                 'balance_after_ils' => round($running, 2),
                 'occurred_at' => display_datetime($t->occurred_at),
+                // Only meaningful (and only sent) in the combined view — a
+                // single-patient statement has nothing to disambiguate.
+                'patient_id' => $includeOwner ? $t->patient_id : null,
+                'patient_name' => $includeOwner ? $ownerNames->get($t->patient_id) : null,
             ];
         });
 
@@ -345,6 +369,39 @@ class PatientBillingController extends Controller
         );
 
         return new PaymentResource($payment);
+    }
+
+    /**
+     * One payment spread across a patient's whole relative group instead of
+     * tied to just this patient — settles whoever in the group owes the
+     * most first, patient by patient, until the amount runs out (or, if it
+     * covers everyone, credits the remainder to the last patient in the
+     * group exactly like an unallocated single-patient payment does today).
+     */
+    public function storeCombinedPayment(Request $request, Patient $patient, PaymentService $paymentService)
+    {
+        abort_unless($request->user()->can('billing.manage'), 403);
+
+        $data = $request->validate([
+            'cashbox_id' => ['required', 'exists:cashboxes,id'],
+            'amount' => ['required', 'numeric', 'min:0.01'],
+            'currency' => ['required', 'string', 'size:3'],
+            'exchange_rate' => ['required', 'numeric', 'min:0.000001'],
+            'method' => ['required', Rule::in(['cash', 'card', 'transfer'])],
+        ]);
+
+        $cashbox = Cashbox::findOrFail($data['cashbox_id']);
+
+        $payments = $paymentService->collectCombined(
+            patient: $patient,
+            cashbox: $cashbox,
+            amount: (float) $data['amount'],
+            currency: $data['currency'],
+            exchangeRate: (float) $data['exchange_rate'],
+            method: $data['method'],
+        );
+
+        return PaymentResource::collection($payments);
     }
 
     public function destroyPayment(Request $request, Payment $payment, PaymentService $paymentService)

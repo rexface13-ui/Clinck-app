@@ -69,6 +69,10 @@ export default function PatientLedgerPanel({
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [openInvoiceId, setOpenInvoiceId] = useState<number | null>(null)
   const [cashboxes, setCashboxes] = useState<Cashbox[]>([])
+  const [hasRelatives, setHasRelatives] = useState(false)
+  // Defaults to combined once we know there are relatives to combine with —
+  // starts false so a patient with no relatives never even flashes the toggle.
+  const [combined, setCombined] = useState(false)
   const [showForm, setShowForm] = useState(() => autoOpenPayment || searchParams.get('pay') === '1')
   const [tab, setTab] = useState<Tab>(canCollectCash ? 'cash' : 'check')
   const [showDiscountForm, setShowDiscountForm] = useState(false)
@@ -98,18 +102,25 @@ export default function PatientLedgerPanel({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  function load() {
-    api.get(`/patients/${patientId}/ledger`).then((res) => setLedger(res.data))
+  function load(combinedOverride?: boolean) {
+    const wantCombined = combinedOverride ?? combined
+    api.get(`/patients/${patientId}/ledger`, { params: wantCombined ? { combined: 1 } : undefined }).then((res) => setLedger(res.data))
     api.get(`/patients/${patientId}/invoices`).then((res) => setInvoices(res.data.data))
   }
 
   useEffect(() => {
-    load()
+    api.get(`/patients/${patientId}/relatives`).then((res) => {
+      const has = (res.data as unknown[]).length > 0
+      setHasRelatives(has)
+      setCombined(has)
+      load(has)
+    })
     api.get('/cashboxes').then((res) => {
       setCashboxes(res.data)
       const ils = res.data.find((c: Cashbox) => c.currency === 'ILS')
       if (ils) setCashForm((f) => ({ ...f, cashbox_id: String(ils.id) }))
     })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [patientId])
 
   useEffect(() => {
@@ -149,14 +160,27 @@ export default function PatientLedgerPanel({
     setBusy(true)
     setError(null)
     try {
-      await api.post(`/patients/${patientId}/payments`, {
-        invoice_id: cashForm.invoice_id || null,
-        cashbox_id: Number(cashForm.cashbox_id),
-        amount: Number(cashForm.amount),
-        currency: selectedCashbox.currency,
-        exchange_rate: exchangeRate,
-        method: cashForm.method,
-      })
+      if (combined) {
+        // No invoice_id here — a combined payment can span several
+        // patients' invoices, so tying it to one specific invoice doesn't
+        // make sense the way it does for a single-patient payment.
+        await api.post(`/patients/${patientId}/payments/combined`, {
+          cashbox_id: Number(cashForm.cashbox_id),
+          amount: Number(cashForm.amount),
+          currency: selectedCashbox.currency,
+          exchange_rate: exchangeRate,
+          method: cashForm.method,
+        })
+      } else {
+        await api.post(`/patients/${patientId}/payments`, {
+          invoice_id: cashForm.invoice_id || null,
+          cashbox_id: Number(cashForm.cashbox_id),
+          amount: Number(cashForm.amount),
+          currency: selectedCashbox.currency,
+          exchange_rate: exchangeRate,
+          method: cashForm.method,
+        })
+      }
       setShowForm(false)
       setCashForm({ invoice_id: '', cashbox_id: '', amount: '', method: 'cash', exchange_rate: '1' })
       load()
@@ -337,7 +361,7 @@ export default function PatientLedgerPanel({
     <Card className="p-6">
       <div className="mb-4 flex items-center justify-between">
         <div>
-          <h2 className="text-sm font-medium text-muted">كشف الحساب</h2>
+          <h2 className="text-sm font-medium text-muted">كشف الحساب{combined ? ' (مجمّع مع الأقارب)' : ''}</h2>
           {ledger && (
             <p className={`text-lg font-semibold ${ledger.outstanding_ils > 0 ? 'text-danger' : 'text-success'}`}>
               {ledger.outstanding_ils.toFixed(2)} ₪
@@ -345,6 +369,24 @@ export default function PatientLedgerPanel({
           )}
         </div>
         <div className="flex items-center gap-2">
+          {hasRelatives && (
+            <div className="flex gap-1 rounded-lg border border-ink/10 bg-white p-1">
+              <button
+                type="button"
+                onClick={() => { setCombined(true); load(true) }}
+                className={`rounded-md px-2 py-1 text-xs font-medium transition-colors ${combined ? 'bg-accent text-white' : 'text-ink/60'}`}
+              >
+                مجمّع
+              </button>
+              <button
+                type="button"
+                onClick={() => { setCombined(false); load(false) }}
+                className={`rounded-md px-2 py-1 text-xs font-medium transition-colors ${!combined ? 'bg-accent text-white' : 'text-ink/60'}`}
+              >
+                هادا بس
+              </button>
+            </div>
+          )}
           {canCollectCash && (
             <button
               onClick={() => {
@@ -441,6 +483,12 @@ export default function PatientLedgerPanel({
 
           {tab === 'cash' && canCollectCash && (
             <>
+              {combined && (
+                <p className="text-[11px] text-ink/40">
+                  دفعة مجمّعة — بتتوزع تلقائياً على ديون المريض وأقاربه، أكبر دين أول.
+                </p>
+              )}
+              {!combined && (
               <select
                 value={cashForm.invoice_id}
                 onChange={(e) => setCashForm({ ...cashForm, invoice_id: e.target.value })}
@@ -453,6 +501,7 @@ export default function PatientLedgerPanel({
                   </option>
                 ))}
               </select>
+              )}
               <div className="flex gap-2">
                 <SearchableSelect
                   options={cashboxes.map((c) => ({ value: String(c.id), label: c.name, sublabel: c.currency }))}
@@ -654,6 +703,7 @@ export default function PatientLedgerPanel({
 
       <Table>
         <Thead>
+          {combined && <Th>المريض</Th>}
           <Th>النوع</Th>
           <Th>التفاصيل</Th>
           <Th>المبلغ</Th>
@@ -663,13 +713,14 @@ export default function PatientLedgerPanel({
         </Thead>
         <tbody>
           {!ledger || ledger.transactions.length === 0 ? (
-            <EmptyRow colSpan={6}>لا توجد حركات مالية.</EmptyRow>
+            <EmptyRow colSpan={combined ? 7 : 6}>لا توجد حركات مالية.</EmptyRow>
           ) : (
             ledger.transactions.map((t) => {
               const isEditablePayment = (t.type === 'payment' || t.type === 'refund') && t.reference_type === 'payment' && t.reference_id
               return (
               <Fragment key={t.id}>
               <Tr>
+                {combined && <Td className="text-muted">{t.patient_name ?? '—'}</Td>}
                 <Td>
                   <Badge variant={TYPE_VARIANTS[t.type]}>{TYPE_LABELS[t.type]}</Badge>
                 </Td>
@@ -758,7 +809,7 @@ export default function PatientLedgerPanel({
               </Tr>
               {editingAdjustmentId === t.id && t.type === 'adjustment' && (
                 <Tr>
-                  <Td colSpan={6}>
+                  <Td colSpan={combined ? 7 : 6}>
                     <div className="flex flex-wrap items-center gap-2 rounded-lg bg-background p-2">
                       <span className="text-xs text-ink/60">مبلغ الخصم الجديد:</span>
                       <input
@@ -784,7 +835,7 @@ export default function PatientLedgerPanel({
               )}
               {editingInvoiceId === t.reference_id && t.type === 'charge' && (
                 <Tr>
-                  <Td colSpan={6}>
+                  <Td colSpan={combined ? 7 : 6}>
                     <div className="flex flex-wrap items-center gap-2 rounded-lg bg-background p-2">
                       <span className="text-xs text-ink/60">الإجمالي الجديد:</span>
                       <input
@@ -810,7 +861,7 @@ export default function PatientLedgerPanel({
               )}
               {editingPaymentId === t.reference_id && isEditablePayment && (
                 <Tr>
-                  <Td colSpan={6}>
+                  <Td colSpan={combined ? 7 : 6}>
                     <div className="flex flex-wrap items-center gap-2 rounded-lg bg-background p-2">
                       <SearchableSelect
                         options={cashboxes.filter((c) => c.currency === t.currency).map((c) => ({ value: String(c.id), label: c.name, sublabel: c.currency }))}

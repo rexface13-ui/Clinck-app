@@ -25,6 +25,7 @@ use App\Http\Controllers\Api\PatientAttachmentController;
 use App\Http\Controllers\Api\PatientBillingController;
 use App\Http\Controllers\Api\ActivityLogController;
 use App\Http\Controllers\Api\PatientController;
+use App\Http\Controllers\Api\PatientRelativeController;
 use App\Http\Controllers\Api\PrescriptionController;
 use App\Http\Controllers\Api\PatientNoteController;
 use App\Http\Controllers\Api\PurchaseInvoiceController;
@@ -92,6 +93,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('patients/{patient}/attachments/request-telegram', [PatientAttachmentController::class, 'requestViaTelegram']);
     Route::get('attachments/{attachment}/download', [PatientAttachmentController::class, 'download'])->name('attachments.download');
 
+    Route::get('patients/{patient}/relatives', [PatientRelativeController::class, 'index']);
+    Route::post('patients/{patient}/relatives', [PatientRelativeController::class, 'store']);
+    Route::delete('patients/{patient}/relatives/{relative}', [PatientRelativeController::class, 'destroy']);
+
     Route::get('patients/{patient}/chart', [ToothChartController::class, 'show']);
     Route::post('patients/{patient}/chart/findings', [ToothChartController::class, 'storeFinding']);
     Route::patch('patients/{patient}/chart/findings/{finding}', [ToothChartController::class, 'updateFinding']);
@@ -127,6 +132,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('invoices/{invoice}', [PatientBillingController::class, 'destroyInvoice']);
     Route::get('patients/{patient}/ledger', [PatientBillingController::class, 'ledger']);
     Route::post('patients/{patient}/payments', [PatientBillingController::class, 'storePayment']);
+    Route::post('patients/{patient}/payments/combined', [PatientBillingController::class, 'storeCombinedPayment']);
     Route::post('patients/{patient}/discount', [PatientBillingController::class, 'addDiscount']);
     Route::patch('payments/{payment}', [PatientBillingController::class, 'updatePayment']);
     Route::delete('payments/{payment}', [PatientBillingController::class, 'destroyPayment']);

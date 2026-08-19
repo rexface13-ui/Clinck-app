@@ -83,6 +83,82 @@ class PaymentService
     }
 
     /**
+     * One payment amount, settled across every patient in $patient's whole
+     * relative group — whoever owes the most first, patient by patient,
+     * until the amount runs out. Reuses collect() once per patient it
+     * actually pays rather than inventing a second way to move money: each
+     * sub-payment is a completely normal Payment/PatientTransaction/cashbox
+     * movement, just several of them landing in one request instead of one.
+     * Any amount left after every debt in the group is cleared lands
+     * unallocated on the last patient paid — same as a single-patient
+     * payment with no invoice named today.
+     *
+     * @return Payment[]
+     */
+    public function collectCombined(
+        Patient $patient,
+        Cashbox $cashbox,
+        float $amount,
+        string $currency,
+        float $exchangeRate,
+        string $method,
+    ): array {
+        abort_if($cashbox->currency !== $currency, 422, 'عملة الدفعة لازم تطابق عملة الصندوق.');
+
+        $groupIds = $patient->relativeGroupIds();
+        // The current patient pays off their own debt first — the person
+        // actually standing at the desk handing over the money — then
+        // whoever else in the group still owes the most.
+        $patients = Patient::whereIn('id', $groupIds)->get()->sortBy(function (Patient $p) use ($patient) {
+            return $p->id === $patient->id ? -PHP_FLOAT_MAX : -$this->outstandingIls($p->id);
+        })->values();
+
+        return DB::transaction(function () use ($patients, $cashbox, $amount, $currency, $exchangeRate, $method) {
+            $remaining = $amount;
+            $payments = [];
+
+            foreach ($patients as $index => $p) {
+                if ($remaining <= 0) {
+                    break;
+                }
+
+                $isLast = $index === $patients->count() - 1;
+                $outstanding = $this->outstandingIls($p->id);
+                $outstandingInPaymentCurrency = $exchangeRate > 0 ? round($outstanding / $exchangeRate, 2) : 0.0;
+
+                // The last patient absorbs whatever's left (including a
+                // surplus past every debt in the group) instead of leaving a
+                // remainder nobody's payment accounts for.
+                $take = $isLast ? $remaining : min($remaining, max($outstandingInPaymentCurrency, 0));
+                if ($take <= 0) {
+                    continue;
+                }
+
+                $payments[] = $this->collect($p, $cashbox, $take, $currency, $exchangeRate, $method);
+                $remaining = round($remaining - $take, 2);
+            }
+
+            return $payments;
+        });
+    }
+
+    /**
+     * Same running-balance math as PatientBillingController::ledger(), kept
+     * minimal here since this is only ever used to decide how to split a
+     * combined payment — not to render anything.
+     */
+    private function outstandingIls(int $patientId): float
+    {
+        $running = 0.0;
+
+        foreach (PatientTransaction::where('patient_id', $patientId)->get(['type', 'amount_ils']) as $t) {
+            $running += in_array($t->type, ['charge', 'adjustment'], true) ? (float) $t->amount_ils : -(float) $t->amount_ils;
+        }
+
+        return $running;
+    }
+
+    /**
      * Hands money back out of a cashbox against a patient/invoice — the
      * mirror of collect(): a negative Payment, a cashbox 'adjustment'
      * movement that shrinks its balance, and a 'refund' ledger entry.
@@ -386,10 +462,18 @@ class PaymentService
             PatientTransaction::where('reference_type', 'payment')->where('reference_id', $payment->id)->delete();
 
             $invoice = $payment->invoice;
+            $patientId = $payment->patient_id;
             $payment->delete();
 
             if ($invoice) {
                 $this->refreshInvoiceStatus($invoice->fresh());
+            } else {
+                // An unallocated payment (no invoice_id) was credited across
+                // whichever of the patient's invoices needed it via
+                // refreshPatientInvoiceStatuses() when it was collected —
+                // deleting it has to run that same recompute, or every
+                // invoice it had settled is stuck reading "paid" forever.
+                $this->refreshPatientInvoiceStatuses($patientId);
             }
         });
     }

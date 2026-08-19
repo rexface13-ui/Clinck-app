@@ -100,4 +100,58 @@ class Patient extends Model
     {
         return $this->hasOne(TelegramLink::class)->whereNotNull('linked_at');
     }
+
+    /**
+     * Direct relative links only (not transitive) — each entry is
+     * {relative: Patient, label, relation_id}. A link is stored once
+     * regardless of which side added it, so both directions are checked.
+     */
+    public function directRelatives(): \Illuminate\Support\Collection
+    {
+        return PatientRelative::with(['patient', 'relatedPatient'])
+            ->where('patient_id', $this->id)
+            ->orWhere('related_patient_id', $this->id)
+            ->get()
+            ->map(fn (PatientRelative $r) => [
+                'relation_id' => $r->id,
+                'relative' => $r->patient_id === $this->id ? $r->relatedPatient : $r->patient,
+                'label' => $r->label,
+            ]);
+    }
+
+    /**
+     * Every patient reachable through any chain of relative links (BFS over
+     * the patient_relatives graph), including this patient itself — used for
+     * the combined statement and combined payment, never for the direct
+     * relatives list (which stays link-by-link so unlinking one is
+     * unambiguous about what it affects).
+     */
+    public function relativeGroupIds(): array
+    {
+        $found = [$this->id => true];
+        $frontier = [$this->id];
+        $iterations = 0;
+
+        while (! empty($frontier) && $iterations < 500) {
+            $iterations++;
+
+            $edges = PatientRelative::whereIn('patient_id', $frontier)
+                ->orWhereIn('related_patient_id', $frontier)
+                ->get(['patient_id', 'related_patient_id']);
+
+            $next = [];
+            foreach ($edges as $edge) {
+                foreach ([$edge->patient_id, $edge->related_patient_id] as $id) {
+                    if (! isset($found[$id])) {
+                        $found[$id] = true;
+                        $next[] = $id;
+                    }
+                }
+            }
+
+            $frontier = $next;
+        }
+
+        return array_keys($found);
+    }
 }
