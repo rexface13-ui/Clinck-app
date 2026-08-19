@@ -14,6 +14,7 @@ use App\Models\SupplierTransaction;
 use App\Models\TelegramLink;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Storage;
 
 class CheckService
@@ -98,32 +99,49 @@ class CheckService
             return $check->fresh('events');
         });
 
-        // Sending each image to every linked owner/accountant is a blocking
-        // HTTP call per recipient (up to a 20s timeout each — see
-        // TelegramService::sendPhoto). The dev server (`artisan serve`)
-        // handles one request at a time, so doing this before responding
-        // froze the entire app on every check — including for anyone who
-        // wasn't even touching checks — until Telegram's servers answered or
-        // timed out. Deferring it to run after the response is sent keeps
-        // the check save itself instant; the notification still goes out,
-        // just a moment later and without blocking anyone.
-        dispatch(function () use ($check) {
-            if ($check->image_path) {
-                $this->notifyImageReceived($check, $check->image_path);
-            }
-            if ($check->image_path_2) {
-                $this->notifyImageReceived($check, $check->image_path_2);
-            }
-        })->afterResponse();
+        if ($check->image_path) {
+            $this->queueImageNotification($check, $check->image_path);
+        }
+        if ($check->image_path_2) {
+            $this->queueImageNotification($check, $check->image_path_2);
+        }
 
         return $check;
     }
 
     /**
+     * Hands the notification off to a separate, detached PHP process instead
+     * of running it in this request at all — not even after the response.
+     * `php artisan serve` (what this app runs on) handles one request at a
+     * time in a single process, so anything that runs inside that process,
+     * even deferred to "after the response is sent," still keeps that
+     * process from picking up the next request until it's done. Sending
+     * each check image to every linked owner/accountant is a blocking HTTP
+     * call per recipient (up to 20s timeout each — see
+     * TelegramService::sendPhoto), so this used to freeze the whole app for
+     * every user, every time a check was added, until Telegram answered or
+     * timed out. A detached process is the only way to make it truly not
+     * matter whether Telegram is reachable at all — the check save is
+     * instant either way, and the notification is fire-and-forget: it either
+     * gets there or it doesn't, nobody's waiting on it.
+     */
+    private function queueImageNotification(CheckModel $check, string $imagePath): void
+    {
+        try {
+            Process::path(base_path())->start([PHP_BINARY, 'artisan', 'telegram:notify-check-image', (string) $check->id, $imagePath]);
+        } catch (\Throwable $e) {
+            // Never let a failure to even launch the notifier block or fail
+            // the check itself — same fire-and-forget spirit as the process it starts.
+        }
+    }
+
+    /**
      * Notifies every owner/accountant with a linked Telegram chat as soon as
      * a check's photo is on file, so they can verify it without opening the app.
+     * Called from the detached `telegram:notify-check-image` command, never
+     * directly from a request — see queueImageNotification() above.
      */
-    protected function notifyImageReceived(CheckModel $check, string $imagePath): void
+    public function notifyImageReceived(CheckModel $check, string $imagePath): void
     {
         $absolutePath = Storage::disk('local')->path($imagePath);
         $caption = sprintf(
@@ -157,7 +175,7 @@ class CheckService
         $newPath = $image->store('checks', 'local');
         $check->update([$column => $newPath]);
 
-        dispatch(fn () => $this->notifyImageReceived($check, $newPath))->afterResponse();
+        $this->queueImageNotification($check, $newPath);
 
         return $check->fresh();
     }

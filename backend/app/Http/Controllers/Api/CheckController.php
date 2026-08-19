@@ -137,11 +137,17 @@ class CheckController extends Controller
         $link->update(['pending_check_id' => $check->id, 'pending_check_slots' => implode(',', $slots)]);
 
         $side = count($slots) > 1 ? 'وجه وظهر' : ($slots[0] === 2 ? 'ظهر' : 'وجه');
-        $telegram->sendMessage(
+        $sent = $telegram->sendMessage(
             (int) $link->telegram_chat_id,
             "📸 مطلوب صورة {$side} الشيك رقم {$check->check_number} ({$check->amount} {$check->currency}) — صوّرها أو اختارها من المعرض وابعتها هون مباشرة."
                 . (count($slots) > 1 ? ' (ابعت أول صورة للوجه وبعدها صورة للظهر)' : ''),
         );
+        // Unlike the automatic "here's the check photo" notification (which is
+        // fire-and-forget by design — see CheckService::queueImageNotification),
+        // this one is a direct action the user just took and is waiting on, so
+        // it should actually tell them when it didn't go through instead of
+        // silently reporting success either way.
+        abort_unless($sent, 422, 'تعذّر إرسال الطلب عبر تيليغرام — تحقق من الاتصال أو التوكن.');
 
         return response()->noContent();
     }
