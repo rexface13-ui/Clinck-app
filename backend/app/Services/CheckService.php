@@ -98,12 +98,23 @@ class CheckService
             return $check->fresh('events');
         });
 
-        if ($check->image_path) {
-            $this->notifyImageReceived($check, $check->image_path);
-        }
-        if ($check->image_path_2) {
-            $this->notifyImageReceived($check, $check->image_path_2);
-        }
+        // Sending each image to every linked owner/accountant is a blocking
+        // HTTP call per recipient (up to a 20s timeout each — see
+        // TelegramService::sendPhoto). The dev server (`artisan serve`)
+        // handles one request at a time, so doing this before responding
+        // froze the entire app on every check — including for anyone who
+        // wasn't even touching checks — until Telegram's servers answered or
+        // timed out. Deferring it to run after the response is sent keeps
+        // the check save itself instant; the notification still goes out,
+        // just a moment later and without blocking anyone.
+        dispatch(function () use ($check) {
+            if ($check->image_path) {
+                $this->notifyImageReceived($check, $check->image_path);
+            }
+            if ($check->image_path_2) {
+                $this->notifyImageReceived($check, $check->image_path_2);
+            }
+        })->afterResponse();
 
         return $check;
     }
@@ -146,7 +157,7 @@ class CheckService
         $newPath = $image->store('checks', 'local');
         $check->update([$column => $newPath]);
 
-        $this->notifyImageReceived($check, $newPath);
+        dispatch(fn () => $this->notifyImageReceived($check, $newPath))->afterResponse();
 
         return $check->fresh();
     }
