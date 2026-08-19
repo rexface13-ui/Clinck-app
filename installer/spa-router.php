@@ -28,9 +28,27 @@ $isBackendRoute = str_starts_with($uri, '/api/') || in_array($uri, ['/login', '/
 if ($isBackendRoute) {
     $ch = curl_init(BACKEND_ORIGIN . $_SERVER['REQUEST_URI']);
 
+    $contentType = $_SERVER['CONTENT_TYPE'] ?? '';
+    // php://input reads empty for multipart/form-data — PHP's built-in
+    // server (like every SAPI) parses that body into $_POST/$_FILES before
+    // this script ever runs, and offers no way to get the raw bytes back
+    // afterward. Forwarding the *original* Content-Length header alongside
+    // that empty body used to tell the backend "N bytes are coming" while
+    // curl actually sent none, so the backend sat there waiting for a body
+    // that would never arrive — freezing every check upload (and anything
+    // else with an attached file) for as long as the backend kept waiting,
+    // and since php -S handles one request at a time, the whole app with it.
+    // Rebuilding the multipart body from $_POST/$_FILES and handing curl an
+    // array lets it generate a fresh, correctly-sized body instead.
+    $isMultipart = str_starts_with($contentType, 'multipart/form-data');
+
     $headers = [];
     foreach (getallheaders() as $name => $value) {
-        if (strtolower($name) === 'host') continue;
+        $lower = strtolower($name);
+        if ($lower === 'host') continue;
+        // These describe the body we're about to replace — keeping the old
+        // ones (wrong boundary, wrong length) is exactly what caused the hang.
+        if ($isMultipart && in_array($lower, ['content-type', 'content-length'], true)) continue;
         $headers[] = "$name: $value";
     }
 
@@ -43,7 +61,24 @@ if ($isBackendRoute) {
     ]);
 
     if (in_array($_SERVER['REQUEST_METHOD'], ['POST', 'PUT', 'PATCH', 'DELETE'], true)) {
-        curl_setopt($ch, CURLOPT_POSTFIELDS, file_get_contents('php://input'));
+        if ($isMultipart) {
+            $fields = $_POST;
+            foreach ($_FILES as $key => $file) {
+                if (is_array($file['tmp_name'])) {
+                    foreach ($file['tmp_name'] as $i => $tmpName) {
+                        $fields["{$key}[{$i}]"] = new CURLFile($tmpName, $file['type'][$i], $file['name'][$i]);
+                    }
+                } else {
+                    $fields[$key] = new CURLFile($file['tmp_name'], $file['type'], $file['name']);
+                }
+            }
+            // Laravel reads PUT/PATCH from a spoofed POST (_method field) —
+            // multipart bodies can't carry a real PUT/PATCH payload anyway.
+            curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'POST');
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $fields);
+        } else {
+            curl_setopt($ch, CURLOPT_POSTFIELDS, file_get_contents('php://input'));
+        }
     }
 
     $response = curl_exec($ch);
