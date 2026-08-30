@@ -16,6 +16,7 @@ import {
   faDatabase,
   faCoins,
   faMagnifyingGlass,
+  faLock,
 } from '@fortawesome/free-solid-svg-icons'
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core'
 import { api } from '../lib/api'
@@ -38,7 +39,7 @@ interface QuickAction {
   permission: string | null
 }
 
-function buildQuickActions(openPatientSearch: () => void, openPaymentSearch: () => void): QuickAction[] {
+function buildQuickActions(openPatientSearch: () => void, openPaymentSearch: () => void, closeDay: () => void): QuickAction[] {
   return [
     { onClick: openPatientSearch, label: 'تسجيل زيارة', icon: faUserPlus, permission: 'patients.manage' },
     { onClick: openPaymentSearch, label: 'تحصيل دفعة', icon: faCoins, permission: 'billing.manage' },
@@ -48,6 +49,7 @@ function buildQuickActions(openPatientSearch: () => void, openPaymentSearch: () 
     { to: '/purchase-invoices?new=1', label: 'فاتورة شراء', icon: faFileInvoiceDollar, permission: 'purchasing.manage' },
     { to: '/items?new=1', label: 'صنف جديد', icon: faBoxesStacked, permission: 'inventory.manage' },
     { to: '/backups', label: 'نسخة احتياطية', icon: faDatabase, permission: 'settings.manage' },
+    { onClick: closeDay, label: 'إغلاق المحل', icon: faLock, permission: 'settings.manage' },
   ]
 }
 
@@ -159,7 +161,28 @@ export default function DashboardPage() {
   const [searchedInvoices, setSearchedInvoices] = useState<Invoice[] | null>(null)
   const [appointmentsSearch, setAppointmentsSearch] = useState('')
   const [openAppointmentId, setOpenAppointmentId] = useState<number | null>(null)
-  const quickActions = buildQuickActions(() => setShowPatientSearch(true), () => setShowPaymentSearch(true))
+  const [closingDay, setClosingDay] = useState(false)
+  const [closeDayResult, setCloseDayResult] = useState<{ report_url: string; sessions_url: string } | null>(null)
+  const [closeDayError, setCloseDayError] = useState<string | null>(null)
+
+  async function closeDay() {
+    if (closingDay) return
+    if (!window.confirm('توليد ونشر تقرير إغلاق اليوم، وإرسال الرابط لكل المستخدمين المرتبطين بتيليغرام؟')) return
+    setClosingDay(true)
+    setCloseDayResult(null)
+    setCloseDayError(null)
+    try {
+      const res = await api.post('/reports/close-day')
+      setCloseDayResult({ report_url: res.data.report_url, sessions_url: res.data.sessions_url })
+    } catch (err) {
+      const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      setCloseDayError(message ?? 'تعذّر إغلاق المحل.')
+    } finally {
+      setClosingDay(false)
+    }
+  }
+
+  const quickActions = buildQuickActions(() => setShowPatientSearch(true), () => setShowPaymentSearch(true), closeDay)
 
   function loadSummary() {
     api.get<Summary>('/dashboard/summary').then((res) => setData(res.data))
@@ -252,6 +275,21 @@ export default function DashboardPage() {
               ),
             )}
         </div>
+        {closingDay && <p className="mt-3 text-sm text-muted">🦷 جارِ توليد التقرير ونشره...</p>}
+        {closeDayResult && (
+          <div className="mt-3 rounded-xl border border-success/30 bg-success-soft p-3 text-sm text-success">
+            تم إغلاق المحل ونشر التقرير ✅
+            <div className="mt-1 flex flex-col gap-1 text-xs">
+              <a href={closeDayResult.report_url} target="_blank" rel="noreferrer" className="underline">
+                فتح تقرير اليوم
+              </a>
+              <a href={closeDayResult.sessions_url} target="_blank" rel="noreferrer" className="underline">
+                فتح سجل الجلسات الكامل
+              </a>
+            </div>
+          </div>
+        )}
+        {closeDayError && <p className="mt-3 text-sm text-danger">{closeDayError}</p>}
       </div>
 
       {showPatientSearch && (

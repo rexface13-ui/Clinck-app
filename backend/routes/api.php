@@ -253,4 +253,5 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('reports', [ReportPublishController::class, 'index']);
     Route::post('reports/publish', [ReportPublishController::class, 'publish']);
+    Route::post('reports/close-day', [ReportPublishController::class, 'closeDay']);
 });

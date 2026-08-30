@@ -71,6 +71,27 @@ class ReportPublishService
     }
 
     /**
+     * Publishes the full all-time sessions log to a fixed path (sessions.html)
+     * — overwritten every time it's published, no history of its own (the
+     * daily reports are what accumulate; this is always "as of now").
+     *
+     * @throws \RuntimeException on any failure
+     */
+    public function publishSessionsLog(string $html): string
+    {
+        if (! $this->enabled()) {
+            throw new \RuntimeException('ريبو أو توكن نشر التقارير غير معبّى بـ.env (GITHUB_REPORTS_REPO / GITHUB_REPORTS_TOKEN).');
+        }
+
+        $this->putFile('sessions.html', $html, 'تحديث سجل الجلسات الكامل');
+        $this->ensurePagesEnabled();
+
+        [$owner, $name] = explode('/', $this->repo(), 2);
+
+        return "https://{$owner}.github.io/{$name}/sessions.html";
+    }
+
+    /**
      * @return string[] date strings (without .html), unsorted
      */
     protected function listReportDates(): array
@@ -124,10 +145,11 @@ class ReportPublishService
 <!doctype html>
 <html lang="ar" dir="rtl">
 <head><meta charset="utf-8"><title>تقارير الإغلاق اليومية</title>
-<style>body{font-family:sans-serif;padding:24px;max-width:500px;margin:0 auto} li{margin:6px 0} a{color:#2563eb;text-decoration:none}</style>
+<style>body{font-family:sans-serif;padding:24px;max-width:500px;margin:0 auto} li{margin:6px 0} a{color:#2563eb;text-decoration:none} .sessions{display:block;margin-bottom:16px;font-weight:600}</style>
 </head>
 <body>
 <h1>تقارير الإغلاق اليومية</h1>
+<a class="sessions" href="sessions.html">📋 سجل الجلسات الكامل — كل الزيارات من أول يوم</a>
 <ul>{$items}</ul>
 </body>
 </html>

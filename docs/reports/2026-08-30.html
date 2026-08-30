@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>تقرير الإغلاق اليومي — DentaFlow</title>
+<style>*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',Tahoma,Arial,sans-serif;background:#F0F2F5;color:#1F2937;direction:rtl;font-size:14px;}
+.app-header{background:linear-gradient(135deg,#1D9E75,#185FA5);padding:16px;display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,.2);}
+.tooth-emoji{font-size:22px;filter:drop-shadow(0 1px 1px rgba(0,0,0,.15));}
+.app-header h1{color:#fff;font-size:16px;flex:1;}
+.app-date{color:rgba(255,255,255,.85);font-size:12px;white-space:nowrap;background:rgba(255,255,255,.15);padding:3px 10px;border-radius:999px;}
+.sessions-link{display:block;background:#fff;text-align:center;padding:9px;font-size:13px;font-weight:600;color:#185FA5;text-decoration:none;border-bottom:1px solid #E5E7EB;}
+.sessions-link:hover{background:#F9FAFB;}
+.search-bar{padding:10px 16px;background:#fff;border-bottom:1px solid #E5E7EB;position:sticky;top:0;z-index:99;}
+.search-bar input{width:100%;padding:9px 12px;border:1.5px solid #D1D5DB;border-radius:8px;font-size:14px;outline:none;direction:rtl;}
+.search-bar input:focus{border-color:#1D9E75;}
+.content{padding:14px;max-width:900px;margin:0 auto;}
+.section{background:#fff;border-radius:12px;margin-bottom:14px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.07);}
+.section-title{padding:11px 14px;color:#fff;font-size:14px;font-weight:600;}
+.kv-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;padding:12px;margin-bottom:14px;}
+.kv-cell{background:#fff;border-radius:10px;padding:10px 12px;box-shadow:0 1px 3px rgba(0,0,0,.08);}
+.kv-label{display:block;font-size:11px;color:#9CA3AF;margin-bottom:3px;}
+.kv-val{display:block;font-size:15px;font-weight:700;color:#1F2937;}
+.table-wrap{overflow-x:auto;}
+table{width:100%;border-collapse:collapse;min-width:380px;}
+thead tr th{padding:8px 10px;color:#fff;text-align:right;font-size:12px;white-space:nowrap;}
+tbody tr td{padding:7px 10px;font-size:13px;text-align:right;border-bottom:1px solid #F3F4F6;}
+tbody tr:nth-child(even){background:#F9FAFB;}
+.empty{padding:16px;color:#9CA3AF;text-align:center;font-size:13px;}
+.empty.ok{color:#1D9E75;}
+mark{background:#FEF3C7;color:#1F2937;border-radius:2px;padding:0 1px;}
+.no-result{text-align:center;padding:40px 20px;color:#9CA3AF;font-size:14px;display:none;}
+.patient-work-card{border-top:1px solid #F0F1F3;padding:12px 14px;}
+.patient-work-card:first-child{border-top:none;}
+.patient-work-name{font-size:13px;font-weight:700;color:#1F2937;margin-bottom:8px;}
+.patient-work-body{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-start;}
+.patient-work-body .table-wrap{flex:1;min-width:260px;}
+.tooth-chart-wrap{flex:0 0 auto;background:#FAFAFA;border-radius:10px;padding:6px;}
+@media(max-width:480px){.app-header h1{font-size:13px;}.kv-grid{grid-template-columns:1fr 1fr;}thead tr th,tbody tr td{font-size:11px;padding:6px 7px;}.patient-work-body{flex-direction:column;}}</style>
+</head>
+<body>
+<header class="app-header">
+  <span class="tooth-emoji">🦷</span>
+  <h1>تقرير الإغلاق اليومي — DentaFlow</h1>
+  <span class="app-date">30/08/2026</span>
+</header>
+<a href="sessions.html" class="sessions-link">📋 سجل الجلسات الكامل — كل الزيارات من أول يوم</a>
+<div class="search-bar">
+  <input id="search-input" type="search" placeholder="🔍 بحث بالتقرير..." autocomplete="off">
+</div>
+<div id="no-result" class="no-result">لا توجد نتائج تطابق البحث</div>
+<div class="content"><div class="kv-grid"><div class="kv-cell"><span class="kv-label">الوارد</span><span class="kv-val">0.00 ₪</span></div><div class="kv-cell"><span class="kv-label">المصاريف</span><span class="kv-val">0.00 ₪</span></div><div class="kv-cell"><span class="kv-label">الصافي</span><span class="kv-val">0.00 ₪</span></div><div class="kv-cell"><span class="kv-label">إيراد الفواتير</span><span class="kv-val">0.00 ₪</span></div><div class="kv-cell"><span class="kv-label">المحصّل</span><span class="kv-val">0.00 ₪</span></div><div class="kv-cell"><span class="kv-label">مرضى جدد</span><span class="kv-val">0</span></div><div class="kv-cell"><span class="kv-label">حجوزات اليوم</span><span class="kv-val">0</span></div><div class="kv-cell"><span class="kv-label">إجمالي ديون المرضى</span><span class="kv-val">180.00 ₪</span></div></div><div class="section"><div class="section-title" style="background:#1D9E75;">📅 حجوزات اليوم</div><p class="empty">لا توجد حجوزات اليوم</p></div><div class="section"><div class="section-title" style="background:#1D9E75;">🧾 فواتير اليوم</div><p class="empty">لا توجد فواتير اليوم</p></div><div class="section"><div class="section-title" style="background:#1D9E75;">🦷 الشغل اللي انعمل اليوم</div><p class="empty">لا يوجد شغل مسجّل اليوم</p></div><div class="section"><div class="section-title" style="background:#185FA5;">🧑‍⚕️ مرضى جدد اليوم</div><p class="empty">لا يوجد تسجيل مرضى جدد اليوم</p></div><div class="section"><div class="section-title" style="background:#1D9E75;">💳 طرق الدفع اليوم</div><p class="empty">لا يوجد تحصيل اليوم</p></div><div class="section"><div class="section-title" style="background:#EF4444;">💸 مصاريف اليوم</div><p class="empty">لا توجد مصاريف اليوم</p></div><div class="section"><div class="section-title" style="background:#F59E0B;">🏦 شيكات اليوم</div><p class="empty">لا توجد شيكات اليوم</p></div><div class="section"><div class="section-title" style="background:#185FA5;">💰 أرصدة الصناديق الحالية</div><div class="table-wrap"><table><thead style="background:#185FA5;"><tr><th>الصندوق</th><th>العملة</th><th>الرصيد</th></tr></thead><tbody><tr><td>صندوق شيكل</td><td>ILS</td><td>2,695.00</td></tr></tbody></table></div></div><div class="section"><div class="section-title" style="background:#EF4444;">⚠️ ديون المرضى (مجمّعة حسب القرابة)</div><div class="table-wrap"><table><thead style="background:#EF4444;"><tr><th>المريض / العائلة</th><th>المستحق</th></tr></thead><tbody><tr><td>يوسف كتظم</td><td>150.00 ₪</td></tr><tr><td>تيست تيست</td><td>30.00 ₪</td></tr><tr><td>الإجمالي</td><td>180.00 ₪</td></tr></tbody></table></div></div><div class="section"><div class="section-title" style="background:#F59E0B;">📦 ديون الموردين</div><div class="table-wrap"><table><thead style="background:#F59E0B;"><tr><th>المورد</th><th>المستحق</th></tr></thead><tbody><tr><td>باسل</td><td>3,025.00 ₪</td></tr><tr><td>الإجمالي</td><td>3,025.00 ₪</td></tr></tbody></table></div></div></div>
+<script>(function(){
+  var searchInput = document.getElementById('search-input');
+  var noResult = document.getElementById('no-result');
+  function doSearch(q){
+    q = q.trim().toLowerCase();
+    var rows = document.querySelectorAll('tbody tr');
+    var visible = 0;
+    rows.forEach(function(row){
+      if(!q){ row.style.display=''; visible++; return; }
+      var text = row.textContent.toLowerCase();
+      if(text.includes(q)){ row.style.display=''; visible++; } else { row.style.display='none'; }
+    });
+    noResult.style.display = (q && visible===0) ? 'block' : 'none';
+  }
+  searchInput.addEventListener('input', function(){ doSearch(this.value); });
+})();</script>
+</body>
+</html>
