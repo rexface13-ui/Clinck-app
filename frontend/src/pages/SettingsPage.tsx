@@ -344,6 +344,7 @@ function DailyReportCard() {
   const [reports, setReports] = useState<{ reports: string[]; repo_slug: string | null } | null>(null)
   const [publishing, setPublishing] = useState(false)
   const [publishResult, setPublishResult] = useState<string | null>(null)
+  const [publishUrl, setPublishUrl] = useState<string | null>(null)
   const [publishError, setPublishError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -373,10 +374,12 @@ function DailyReportCard() {
   async function publish() {
     setPublishing(true)
     setPublishResult(null)
+    setPublishUrl(null)
     setPublishError(null)
     try {
       const res = await api.post('/reports/publish')
-      setPublishResult(res.data.status === 'already_published' ? 'التقارير منشورة مسبقاً — ما في شي جديد.' : 'تم النشر بنجاح!')
+      setPublishResult('تم النشر بنجاح!')
+      setPublishUrl(res.data.url ?? null)
     } catch (err) {
       const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
       setPublishError(message ?? 'تعذّر النشر.')
@@ -389,6 +392,10 @@ function DailyReportCard() {
 
   const repoSlug = reports?.repo_slug
   const latest = reports?.reports?.[0]
+  // Files now live at the reports repo's own root (it holds nothing else),
+  // so the link is just {owner}.github.io/{repo}/{date}.html — no extra
+  // "/reports/" path segment like the old same-repo-as-code layout needed.
+  const expectedUrl = repoSlug && latest ? `https://${repoSlug.split('/')[0]}.github.io/${repoSlug.split('/')[1]}/${latest}.html` : null
 
   return (
     <Card className="max-w-lg p-6">
@@ -424,11 +431,23 @@ function DailyReportCard() {
           <FontAwesomeIcon icon={faCloudArrowUp} />
           {publishing ? 'جارِ النشر...' : 'نشر آخر تقرير الآن'}
         </Button>
-        {publishResult && <p className="mt-2 text-sm text-success">{publishResult}</p>}
+        {publishResult && (
+          <p className="mt-2 text-sm text-success">
+            {publishResult}
+            {publishUrl && (
+              <>
+                {' '}
+                <a href={publishUrl} target="_blank" rel="noreferrer" className="underline">
+                  فتح الرابط
+                </a>
+              </>
+            )}
+          </p>
+        )}
         {publishError && <p className="mt-2 text-sm text-danger">{publishError}</p>}
-        {repoSlug && latest && (
+        {!publishUrl && expectedUrl && (
           <p className="mt-2 text-xs text-muted">
-            الرابط بعد النشر: <span className="font-mono">https://{repoSlug.split('/')[0]}.github.io/{repoSlug.split('/')[1]}/reports/{latest}.html</span>
+            الرابط بعد النشر: <span className="font-mono">{expectedUrl}</span>
           </p>
         )}
       </div>

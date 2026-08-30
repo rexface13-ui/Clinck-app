@@ -3,13 +3,15 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Services\ReportPublishService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Process;
 
 /**
- * Publishing the generated daily reports (docs/reports/*.html) is a
- * deliberate, human-clicked action — never automatic — since it pushes to
- * the same (public) GitHub repo this app's code lives in.
+ * Publishing a generated daily report (docs/reports/*.html, local staging
+ * files) is a deliberate, human-clicked action — never automatic. The actual
+ * upload goes to a separate, dedicated public repo via ReportPublishService
+ * (GitHub Contents API), never touching this app's own repo or working
+ * directory — see that class for why.
  */
 class ReportPublishController extends Controller
 {
@@ -28,31 +30,30 @@ class ReportPublishController extends Controller
             ->sortDesc()
             ->values();
 
-        return ['reports' => $files, 'repo_slug' => config('dentaflow.report_repo_slug')];
+        return ['reports' => $files, 'repo_slug' => env('GITHUB_REPORTS_REPO')];
     }
 
-    public function publish(Request $request)
+    public function publish(Request $request, ReportPublishService $publisher)
     {
         abort_unless($request->user()->can('settings.manage'), 403);
 
-        $repoRoot = dirname(base_path());
+        $reportsDir = dirname(base_path()).DIRECTORY_SEPARATOR.'docs'.DIRECTORY_SEPARATOR.'reports';
+        $files = collect(glob($reportsDir.DIRECTORY_SEPARATOR.'*.html'))
+            ->map(fn ($p) => basename($p, '.html'))
+            ->filter(fn ($name) => $name !== 'index')
+            ->sortDesc();
 
-        $add = Process::path($repoRoot)->run(['git', 'add', 'docs/reports']);
-        if (! $add->successful()) {
-            abort(500, 'git add فشل: '.$add->errorOutput());
+        $latest = $files->first();
+        abort_if(! $latest, 422, 'ما في تقرير مولّد بعد — بيتولّد تلقائياً بالوقت المحدد، أو شغّل report:daily يدوياً.');
+
+        $html = file_get_contents($reportsDir.DIRECTORY_SEPARATOR."{$latest}.html");
+
+        try {
+            $url = $publisher->publish($latest, $html);
+        } catch (\RuntimeException $e) {
+            abort(500, $e->getMessage());
         }
 
-        $commit = Process::path($repoRoot)->run(['git', 'commit', '-m', 'Publish daily closing report(s)']);
-        $nothingToCommit = str_contains($commit->output().$commit->errorOutput(), 'nothing to commit');
-        if (! $commit->successful() && ! $nothingToCommit) {
-            abort(500, 'git commit فشل: '.$commit->errorOutput());
-        }
-
-        $push = Process::path($repoRoot)->timeout(60)->run(['git', 'push', 'origin', 'HEAD']);
-        if (! $push->successful()) {
-            abort(500, 'git push فشل: '.$push->errorOutput());
-        }
-
-        return ['status' => $nothingToCommit ? 'already_published' : 'published'];
+        return ['status' => 'published', 'date' => $latest, 'url' => $url];
     }
 }
