@@ -106,6 +106,17 @@ class GenerateDailyReport extends Command
             ->get();
         $revenueIls = (float) $invoices->sum('total_amount_ils');
 
+        // ── شغل اليوم بالتفصيل — أي سن/خطوة انفوترت اليوم، مين سواها (نفس
+        // سلسلة العلاقات المستخدمة بـ PatientBillingController::visits) ──
+        $workLines = \App\Models\InvoiceLine::with([
+            'invoice.patient',
+            'workItemToothStep.workItem.service',
+            'workItemToothStep.workItem.doctor',
+            'workItemToothStep.step',
+        ])
+            ->whereHas('invoice', fn ($q) => $q->whereBetween('issued_at', [$dayStartUtc, $dayEndUtc]))
+            ->get();
+
         // ── حجوزات اليوم ──
         $appointments = Appointment::with(['patient:id,full_name', 'doctor:id,full_name'])
             ->whereBetween('starts_at', [$dayStartUtc, $dayEndUtc])
@@ -137,19 +148,36 @@ class GenerateDailyReport extends Command
         // ── أرصدة الصناديق ──
         $cashboxes = Cashbox::all();
 
-        // ── ديون المرضى بالتفصيل (نفس منطق ReportController::debtsAging بدون تقسيم لفئات) ──
-        $patientDebts = Patient::with(['transactions' => fn ($q) => $q->orderBy('occurred_at')])->get()
-            ->map(function (Patient $p) {
-                $balance = $p->transactions->reduce(
-                    fn ($carry, $t) => $carry + (in_array($t->type, ['charge', 'adjustment'], true) ? (float) $t->amount_ils : -(float) $t->amount_ils),
-                    0.0
-                );
+        // ── ديون المرضى بالتفصيل، مجمّعة حسب عائلة القرابة — نفس منطق
+        // كشف الحساب المجمّع (Patient::relativeGroupIds): مريضين مرتبطين
+        // أصلاً بيتحاسبوا سوا (دفعة وحدة بتسدد ديون الاثنين)، فسطر ديون
+        // منفصل لكل واحد بيضلل — رصيد باسل ممكن يكون صفر لأنه قريبه
+        // يوسف هو يلي عليه الدين الفعلي، وبالعكس. سطر واحد لكل عائلة
+        // بالصافي هو يلي فعلاً بيعبّر شو "لسا محتاج نلاحقه".
+        $allPatients = Patient::with(['transactions' => fn ($q) => $q->orderBy('occurred_at')])->get()->keyBy('id');
+        $balances = $allPatients->map(fn (Patient $p) => $p->transactions->reduce(
+            fn ($carry, $t) => $carry + (in_array($t->type, ['charge', 'adjustment'], true) ? (float) $t->amount_ils : -(float) $t->amount_ils),
+            0.0
+        ));
 
-                return ['name' => $p->full_name, 'phone' => $p->phone, 'balance' => round($balance, 2)];
-            })
-            ->filter(fn ($p) => $p['balance'] > 0.01)
-            ->sortByDesc('balance')
-            ->values();
+        $visited = [];
+        $patientDebts = collect();
+        foreach ($allPatients as $id => $patient) {
+            if (isset($visited[$id])) {
+                continue;
+            }
+            $groupIds = $patient->relativeGroupIds();
+            foreach ($groupIds as $gid) {
+                $visited[$gid] = true;
+            }
+            $netBalance = round(collect($groupIds)->sum(fn ($gid) => $balances->get($gid, 0.0)), 2);
+            if ($netBalance <= 0.01) {
+                continue;
+            }
+            $names = collect($groupIds)->map(fn ($gid) => $allPatients->get($gid)?->full_name)->filter()->values();
+            $patientDebts->push(['name' => $names->implode(' + '), 'balance' => $netBalance]);
+        }
+        $patientDebts = $patientDebts->sortByDesc('balance')->values();
         $totalPatientDebt = $patientDebts->sum('balance');
 
         // ── ديون الموردين بالتفصيل ──
@@ -193,6 +221,21 @@ class GenerateDailyReport extends Command
                 $this->invoiceStatusLabel($i->status),
             ])->all()));
 
+        $workSection = $this->section('الشغل اللي انعمل اليوم', self::C_GREEN, $workLines->isEmpty()
+            ? '<p class="empty">لا يوجد شغل مسجّل اليوم</p>'
+            : $this->dataTable(['المريض', 'السن', 'الخدمة / الخطوة', 'الطبيب', 'السعر'], $workLines->map(function ($line) use ($money) {
+                $toothStep = $line->workItemToothStep;
+                $workItem = $toothStep?->workItem;
+
+                return [
+                    $line->invoice?->patient?->full_name ?? 'مريض محذوف',
+                    $toothStep ? (int) $toothStep->tooth_number : '—',
+                    $toothStep?->step?->title ?? $workItem?->service?->name ?? $line->description ?? '—',
+                    $workItem?->doctor?->full_name ?? '—',
+                    $money($line->amount_ils).' ₪',
+                ];
+            })->all()));
+
         $newPatientsSection = $this->section('مرضى جدد اليوم', self::C_BLUE, $newPatients->isEmpty()
             ? '<p class="empty">لا يوجد تسجيل مرضى جدد اليوم</p>'
             : $this->dataTable(['الاسم', 'الكود', 'الهاتف'], $newPatients->map(fn ($p) => [$p->full_name, $p->code, $p->phone ?: '—'])->all(), self::C_BLUE));
@@ -212,13 +255,15 @@ class GenerateDailyReport extends Command
         $cashboxSection = $this->section('أرصدة الصناديق الحالية', self::C_BLUE,
             $this->dataTable(['الصندوق', 'العملة', 'الرصيد'], $cashboxes->map(fn ($c) => [$c->name, $c->currency, $money($c->balance)])->all(), self::C_BLUE));
 
-        $patientDebtsRows = $patientDebts->map(fn ($p) => [$p['name'], $p['phone'] ?: '—', $money($p['balance']).' ₪'])->all();
+        // كل سطر ممكن يكون اسم واحد أو أكتر (عائلة مرتبطة) — عمود واحد
+        // بيوضّح "مين مع مين"، بدل ما نفترض رقم هاتف واحد لعائلة كاملة.
+        $patientDebtsRows = $patientDebts->map(fn ($p) => [$p['name'], $money($p['balance']).' ₪'])->all();
         if ($patientDebts->isNotEmpty()) {
-            $patientDebtsRows[] = ['الإجمالي', '', $money($totalPatientDebt).' ₪'];
+            $patientDebtsRows[] = ['الإجمالي', $money($totalPatientDebt).' ₪'];
         }
-        $patientDebtsSection = $this->section('ديون المرضى', self::C_RED, $patientDebts->isEmpty()
+        $patientDebtsSection = $this->section('ديون المرضى (مجمّعة حسب القرابة)', self::C_RED, $patientDebts->isEmpty()
             ? '<p class="empty ok">✅ لا توجد ديون على المرضى</p>'
-            : $this->dataTable(['المريض', 'الهاتف', 'المستحق'], $patientDebtsRows, self::C_RED));
+            : $this->dataTable(['المريض / العائلة', 'المستحق'], $patientDebtsRows, self::C_RED));
 
         $supplierDebtsRows = $supplierDebts->map(fn ($s) => [$s['name'], $money($s['balance']).' ₪'])->all();
         if ($supplierDebts->isNotEmpty()) {
@@ -228,7 +273,7 @@ class GenerateDailyReport extends Command
             ? '<p class="empty ok">✅ لا توجد ديون للموردين</p>'
             : $this->dataTable(['المورد', 'المستحق'], $supplierDebtsRows, self::C_AMBER));
 
-        $body = $summary.$appointmentsSection.$invoicesSection.$newPatientsSection.$methodsSection
+        $body = $summary.$appointmentsSection.$invoicesSection.$workSection.$newPatientsSection.$methodsSection
             .$expensesSection.$checksSection.$cashboxSection.$patientDebtsSection.$supplierDebtsSection;
 
         return $this->wrapPage($clinicName, $date, $body);
