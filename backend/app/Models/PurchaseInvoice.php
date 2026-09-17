@@ -13,15 +13,28 @@ class PurchaseInvoice extends Model
 
     protected $fillable = [
         'clinic_id', 'supplier_id', 'branch_id', 'invoice_number',
-        'status', 'total_amount_ils', 'issued_at', 'notes',
+        'status', 'total_amount_ils', 'discount_amount_ils', 'issued_at', 'notes',
     ];
 
     protected function casts(): array
     {
         return [
             'total_amount_ils' => 'decimal:2',
+            'discount_amount_ils' => 'decimal:2',
             'issued_at' => 'datetime',
         ];
+    }
+
+    /**
+     * total_amount_ils (what the supplier is actually owed, and what
+     * confirm()'s debt/payment amount uses) is always the lines' gross sum
+     * minus the discount, clamped so a discount bigger than the invoice
+     * doesn't flip it negative.
+     */
+    public function recomputeTotal(): void
+    {
+        $gross = (float) $this->lines()->sum('amount_ils');
+        $this->update(['total_amount_ils' => max(0, $gross - (float) $this->discount_amount_ils)]);
     }
 
     public function supplier(): BelongsTo

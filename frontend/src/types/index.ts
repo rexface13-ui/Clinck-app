@@ -483,6 +483,7 @@ export interface PurchaseInvoice {
   invoice_number: string | null
   status: 'draft' | 'confirmed'
   total_amount_ils: string
+  discount_amount_ils: string
   issued_at: string
   notes?: string | null
   lines?: PurchaseInvoiceLine[]

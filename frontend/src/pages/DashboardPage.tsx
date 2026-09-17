@@ -49,7 +49,7 @@ function buildQuickActions(openPatientSearch: () => void, openPaymentSearch: () 
     { to: '/purchase-invoices?new=1', label: 'فاتورة شراء', icon: faFileInvoiceDollar, permission: 'purchasing.manage' },
     { to: '/items?new=1', label: 'صنف جديد', icon: faBoxesStacked, permission: 'inventory.manage' },
     { to: '/backups', label: 'نسخة احتياطية', icon: faDatabase, permission: 'settings.manage' },
-    { onClick: closeDay, label: 'إغلاق المحل', icon: faLock, permission: 'settings.manage' },
+    { onClick: closeDay, label: 'إنشاء تقرير اليوم', icon: faLock, permission: 'settings.manage' },
   ]
 }
 
@@ -167,7 +167,7 @@ export default function DashboardPage() {
 
   async function closeDay() {
     if (closingDay) return
-    if (!window.confirm('توليد ونشر تقرير إغلاق اليوم، وإرسال الرابط لكل المستخدمين المرتبطين بتيليغرام؟')) return
+    if (!window.confirm('توليد ونشر تقرير اليوم، وإرسال الرابط لكل المستخدمين المرتبطين بتيليغرام؟')) return
     setClosingDay(true)
     setCloseDayResult(null)
     setCloseDayError(null)
@@ -176,7 +176,7 @@ export default function DashboardPage() {
       setCloseDayResult({ report_url: res.data.report_url, sessions_url: res.data.sessions_url })
     } catch (err) {
       const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
-      setCloseDayError(message ?? 'تعذّر إغلاق المحل.')
+      setCloseDayError(message ?? 'تعذّر إنشاء التقرير.')
     } finally {
       setClosingDay(false)
     }
@@ -278,7 +278,7 @@ export default function DashboardPage() {
         {closingDay && <p className="mt-3 text-sm text-muted">🦷 جارِ توليد التقرير ونشره...</p>}
         {closeDayResult && (
           <div className="mt-3 rounded-xl border border-success/30 bg-success-soft p-3 text-sm text-success">
-            تم إغلاق المحل ونشر التقرير ✅
+            تم إنشاء تقرير اليوم ونشره ✅
             <div className="mt-1 flex flex-col gap-1 text-xs">
               <a href={closeDayResult.report_url} target="_blank" rel="noreferrer" className="underline">
                 فتح تقرير اليوم

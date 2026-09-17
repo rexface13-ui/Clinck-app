@@ -32,7 +32,13 @@ export default function PurchaseInvoicesPage() {
   const [newSupplierName, setNewSupplierName] = useState<string | null>(null)
   const [newSupplierPhone, setNewSupplierPhone] = useState('')
   const [creatingSupplier, setCreatingSupplier] = useState(false)
-  const [lineForm, setLineForm] = useState({ item_id: '', quantity: '', unit_price: '', currency: 'ILS', lot_number: '', expiry_date: '' })
+  const emptyRow = (key: number) => ({ key, item_id: '', quantity: '', unit_price: '', currency: 'ILS', lot_number: '', expiry_date: '' })
+  const [draftRows, setDraftRows] = useState([emptyRow(0)])
+  const [rowKeySeq, setRowKeySeq] = useState(1)
+  const [creatingItemForRow, setCreatingItemForRow] = useState<number | null>(null)
+  const [savingLines, setSavingLines] = useState(false)
+  const [discountDraft, setDiscountDraft] = useState('')
+  const [savingDiscount, setSavingDiscount] = useState(false)
   const [busy, setBusy] = useState(false)
   const [showConfirmForm, setShowConfirmForm] = useState(false)
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('credit')
@@ -100,7 +106,10 @@ export default function PurchaseInvoicesPage() {
     api.get(`/purchase-invoices/${invoice.id}`).then((res) => {
       setSelected(res.data)
       setNotesDraft(res.data.notes ?? '')
+      setDiscountDraft(res.data.discount_amount_ils && Number(res.data.discount_amount_ils) > 0 ? res.data.discount_amount_ils : '')
     })
+    setDraftRows([emptyRow(0)])
+    setRowKeySeq(1)
     if (invoice.status === 'confirmed') {
       api
         .get('/stock-movements', { params: { reference_type: 'purchase_invoice', reference_id: invoice.id } })
@@ -146,38 +155,68 @@ export default function PurchaseInvoicesPage() {
     }
   }
 
-  const selectedItem = items.find((i) => i.id === Number(lineForm.item_id))
+  function updateRow(key: number, patch: Partial<(typeof draftRows)[number]>) {
+    setDraftRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)))
+  }
 
-  function pickItem(itemId: string) {
-    setLineForm((f) => ({ ...f, item_id: itemId }))
+  function pickItemForRow(key: number, itemId: string) {
+    updateRow(key, { item_id: itemId })
     if (!selected || !itemId) return
     api
       .get('/purchase-invoices/last-price', { params: { item_id: itemId, supplier_id: selected.supplier_id } })
       .then((res) => {
         if (res.data?.last_price != null) {
-          setLineForm((f) => ({ ...f, unit_price: res.data.last_price, currency: res.data.currency }))
+          updateRow(key, { unit_price: res.data.last_price, currency: res.data.currency })
         }
       })
       .catch(() => {})
   }
 
-  async function addLine() {
-    if (!selected || !lineForm.item_id || !lineForm.quantity || !lineForm.unit_price) return
-    setBusy(true)
+  /** Typed a name with no match — create the item on the spot (simple stock, default unit) and drop it straight into this row, instead of sending the user away to the Items page mid-invoice. */
+  async function quickCreateItem(key: number, name: string) {
+    setCreatingItemForRow(key)
     try {
-      await api.post(`/purchase-invoices/${selected.id}/lines`, {
-        item_id: Number(lineForm.item_id),
-        quantity: Number(lineForm.quantity),
-        unit_price: Number(lineForm.unit_price),
-        currency: lineForm.currency,
-        lot_number: lineForm.lot_number || null,
-        expiry_date: lineForm.expiry_date || null,
+      const res = await api.post('/items', { name, type: 'simple_stock' })
+      setItems((prev) => [...prev, res.data])
+      pickItemForRow(key, String(res.data.id))
+    } finally {
+      setCreatingItemForRow(null)
+    }
+  }
+
+  function addEmptyRow() {
+    setDraftRows((prev) => [...prev, emptyRow(rowKeySeq)])
+    setRowKeySeq((n) => n + 1)
+  }
+
+  function removeRow(key: number) {
+    setDraftRows((prev) => (prev.length > 1 ? prev.filter((r) => r.key !== key) : [emptyRow(key)]))
+  }
+
+  const validRows = draftRows.filter((r) => r.item_id && r.quantity && r.unit_price)
+  const draftTotalIls = validRows.reduce((sum, r) => sum + Number(r.quantity || 0) * Number(r.unit_price || 0), 0)
+
+  /** One request for every filled row in the grid, instead of one save per item — half-filled rows (still being typed) are just skipped, not blocking the rest. */
+  async function submitDraftLines() {
+    if (!selected || validRows.length === 0) return
+    setSavingLines(true)
+    try {
+      await api.post(`/purchase-invoices/${selected.id}/lines/bulk`, {
+        lines: validRows.map((r) => ({
+          item_id: Number(r.item_id),
+          quantity: Number(r.quantity),
+          unit_price: Number(r.unit_price),
+          currency: r.currency,
+          lot_number: r.lot_number || null,
+          expiry_date: r.expiry_date || null,
+        })),
       })
-      setLineForm({ item_id: '', quantity: '', unit_price: '', currency: 'ILS', lot_number: '', expiry_date: '' })
+      setDraftRows([emptyRow(0)])
+      setRowKeySeq(1)
       openInvoice(selected)
       loadAll()
     } finally {
-      setBusy(false)
+      setSavingLines(false)
     }
   }
 
@@ -186,6 +225,18 @@ export default function PurchaseInvoicesPage() {
     await api.delete(`/purchase-invoices/${selected.id}/lines/${lineId}`)
     openInvoice(selected)
     loadAll()
+  }
+
+  async function saveDiscount() {
+    if (!selected) return
+    setSavingDiscount(true)
+    try {
+      const res = await api.put(`/purchase-invoices/${selected.id}`, { discount_amount_ils: discountDraft ? Number(discountDraft) : 0 })
+      setSelected(res.data)
+      loadAll()
+    } finally {
+      setSavingDiscount(false)
+    }
   }
 
   function openConfirmForm() {
@@ -344,10 +395,12 @@ export default function PurchaseInvoicesPage() {
                 </div>
               </div>
             )}
-            <select value={newForm.branch_id} onChange={(e) => setNewForm({ ...newForm, branch_id: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
-              <option value="">الفرع...</option>
-              {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </select>
+            <SearchableSelect
+              options={branches.map((b) => ({ value: String(b.id), label: b.name }))}
+              value={newForm.branch_id}
+              onChange={(v) => setNewForm({ ...newForm, branch_id: v })}
+              placeholder="الفرع..."
+            />
             <Button onClick={createInvoice} loading={busy} className="w-full justify-center">
               إنشاء مسودة
             </Button>
@@ -396,7 +449,14 @@ export default function PurchaseInvoicesPage() {
                           ) : (
                             <div className="space-y-4 py-3">
                               <div className="flex items-center justify-between">
-                                <p className="text-sm text-muted">الإجمالي: <span className="font-semibold text-ink">{selected.total_amount_ils} ₪</span></p>
+                                <div className="text-sm text-muted">
+                                  {Number(selected.discount_amount_ils) > 0 && (
+                                    <span className="me-2">
+                                      إجمالي البنود: {(Number(selected.total_amount_ils) + Number(selected.discount_amount_ils)).toFixed(2)} ₪ — خصم: {selected.discount_amount_ils} ₪ —
+                                    </span>
+                                  )}
+                                  الإجمالي النهائي: <span className="font-semibold text-ink">{selected.total_amount_ils} ₪</span>
+                                </div>
                                 <div className="flex items-center gap-2">
                                   {canManage && selected.status === 'draft' && (
                                     <Button onClick={openConfirmForm} loading={busy} className="px-3 py-1.5 text-xs">
@@ -421,46 +481,90 @@ export default function PurchaseInvoicesPage() {
 
                               {canManage && selected.status === 'draft' && (
                                 <div className="rounded-xl border border-accent/30 bg-accent-soft/40 p-4">
-                                  <p className="mb-3 text-sm font-medium text-ink">إضافة صنف للفاتورة</p>
-                                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-                                    <div className="col-span-2 sm:col-span-3 lg:col-span-2">
-                                      <label className="mb-1 block text-xs text-muted">الصنف</label>
-                                      <SearchableSelect
-                                        options={items.map((i) => ({ value: String(i.id), label: i.name, sublabel: i.unit }))}
-                                        value={lineForm.item_id}
-                                        onChange={pickItem}
-                                        placeholder="ابحث عن صنف..."
-                                      />
-                                    </div>
-                                    <div>
-                                      <label className="mb-1 block text-xs text-muted">الكمية</label>
-                                      <input type="number" placeholder="0" value={lineForm.quantity} onChange={(e) => setLineForm({ ...lineForm, quantity: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
-                                    </div>
-                                    <div>
-                                      <label className="mb-1 block text-xs text-muted">سعر الوحدة</label>
-                                      <input type="number" placeholder="0.00" value={lineForm.unit_price} onChange={(e) => setLineForm({ ...lineForm, unit_price: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
-                                    </div>
-                                    <div>
-                                      <label className="mb-1 block text-xs text-muted">العملة</label>
-                                      <CurrencySelect value={lineForm.currency} onChange={(e) => setLineForm({ ...lineForm, currency: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
-                                    </div>
-                                    {selectedItem?.type === 'tracked' && (
-                                      <>
-                                        <div>
-                                          <label className="mb-1 block text-xs text-muted">رقم الدفعة</label>
-                                          <input placeholder="اختياري" value={lineForm.lot_number} onChange={(e) => setLineForm({ ...lineForm, lot_number: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
+                                  <p className="mb-3 text-sm font-medium text-ink">إضافة أصناف — أضف كل صفوفك أول، وبعدين احفظهم دفعة وحدة</p>
+
+                                  <div className="space-y-2">
+                                    {draftRows.map((row) => {
+                                      const rowItem = items.find((i) => i.id === Number(row.item_id))
+                                      const amount = Number(row.quantity || 0) * Number(row.unit_price || 0)
+                                      return (
+                                        <div key={row.key} className="rounded-lg border border-border bg-surface p-2">
+                                          <div className="grid grid-cols-2 items-end gap-2 sm:grid-cols-3 lg:grid-cols-12">
+                                            <div className="col-span-2 sm:col-span-3 lg:col-span-4">
+                                              <label className="mb-1 block text-xs text-muted">الصنف</label>
+                                              <SearchableSelect
+                                                options={items.map((i) => ({ value: String(i.id), label: i.name, sublabel: i.unit }))}
+                                                value={row.item_id}
+                                                onChange={(v) => pickItemForRow(row.key, v)}
+                                                placeholder="ابحث عن صنف أو اكتب اسم جديد..."
+                                                onCreateNew={(name) => quickCreateItem(row.key, name)}
+                                                createNewLabel="صنف جديد"
+                                              />
+                                              {creatingItemForRow === row.key && <p className="mt-1 text-[11px] text-accent">جارِ إنشاء الصنف...</p>}
+                                            </div>
+                                            <div className="lg:col-span-2">
+                                              <label className="mb-1 block text-xs text-muted">الكمية</label>
+                                              <input
+                                                type="number"
+                                                placeholder="0"
+                                                value={row.quantity}
+                                                onChange={(e) => updateRow(row.key, { quantity: e.target.value })}
+                                                className="w-full rounded-lg border border-border bg-background px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
+                                              />
+                                            </div>
+                                            <div className="lg:col-span-2">
+                                              <label className="mb-1 block text-xs text-muted">سعر الوحدة</label>
+                                              <input
+                                                type="number"
+                                                placeholder="0.00"
+                                                value={row.unit_price}
+                                                onChange={(e) => updateRow(row.key, { unit_price: e.target.value })}
+                                                className="w-full rounded-lg border border-border bg-background px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
+                                              />
+                                            </div>
+                                            <div className="lg:col-span-2">
+                                              <label className="mb-1 block text-xs text-muted">العملة</label>
+                                              <CurrencySelect value={row.currency} onChange={(e) => updateRow(row.key, { currency: e.target.value })} className="w-full rounded-lg border border-border bg-background px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
+                                            </div>
+                                            <div className="flex items-end justify-between gap-2 lg:col-span-2">
+                                              <div>
+                                                <label className="mb-1 block text-xs text-muted">المبلغ</label>
+                                                <p className="px-1 py-1.5 text-sm font-medium text-ink">{amount.toFixed(2)} ₪</p>
+                                              </div>
+                                              <button onClick={() => removeRow(row.key)} className="mb-1.5 text-danger hover:opacity-70">
+                                                <FontAwesomeIcon icon={faTrash} />
+                                              </button>
+                                            </div>
+                                          </div>
+                                          {rowItem?.type === 'tracked' && (
+                                            <div className="mt-2 grid grid-cols-2 gap-2">
+                                              <input
+                                                placeholder="رقم الدفعة (اختياري)"
+                                                value={row.lot_number}
+                                                onChange={(e) => updateRow(row.key, { lot_number: e.target.value })}
+                                                className="w-full rounded-lg border border-border bg-background px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
+                                              />
+                                              <DatePicker value={row.expiry_date} onChange={(v) => updateRow(row.key, { expiry_date: v })} placeholder="تاريخ الصلاحية (اختياري)" />
+                                            </div>
+                                          )}
                                         </div>
-                                        <div>
-                                          <label className="mb-1 block text-xs text-muted">تاريخ الصلاحية</label>
-                                          <DatePicker value={lineForm.expiry_date} onChange={(v) => setLineForm({ ...lineForm, expiry_date: v })} placeholder="اختياري" />
-                                        </div>
-                                      </>
-                                    )}
+                                      )
+                                    })}
                                   </div>
-                                  <Button onClick={addLine} loading={busy} className="mt-3 w-full justify-center sm:w-auto">
-                                    <FontAwesomeIcon icon={faPlus} />
-                                    إضافة البند
-                                  </Button>
+
+                                  <div className="mt-3 flex items-center justify-between">
+                                    <button type="button" onClick={addEmptyRow} className="flex items-center gap-1.5 rounded-lg bg-accent-soft px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent hover:text-white">
+                                      <FontAwesomeIcon icon={faPlus} />
+                                      صف جديد
+                                    </button>
+                                    <div className="flex items-center gap-3">
+                                      <p className="text-sm font-medium text-ink">الإجمالي المتوقع: {draftTotalIls.toFixed(2)} ₪</p>
+                                      <Button onClick={submitDraftLines} loading={savingLines} disabled={validRows.length === 0} className="px-3 py-1.5 text-xs">
+                                        <FontAwesomeIcon icon={faCheck} />
+                                        حفظ كل البنود ({validRows.length})
+                                      </Button>
+                                    </div>
+                                  </div>
                                 </div>
                               )}
 
@@ -496,6 +600,28 @@ export default function PurchaseInvoicesPage() {
                                   </tbody>
                                 </Table>
                               </div>
+
+                              {canManage && selected.status === 'draft' && (selected.lines ?? []).length > 0 && (
+                                <div className="flex items-end gap-2 rounded-xl border border-border bg-surface p-3">
+                                  <div className="flex-1">
+                                    <label className="mb-1 block text-xs text-muted">خصم على كامل الفاتورة (₪، اختياري)</label>
+                                    <input
+                                      type="number"
+                                      placeholder="0"
+                                      value={discountDraft}
+                                      onChange={(e) => setDiscountDraft(e.target.value)}
+                                      className="w-full rounded-lg border border-border bg-background px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
+                                    />
+                                  </div>
+                                  <button
+                                    onClick={saveDiscount}
+                                    disabled={savingDiscount || discountDraft === (Number(selected.discount_amount_ils) > 0 ? selected.discount_amount_ils : '')}
+                                    className="rounded-lg bg-accent-soft px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent hover:text-white disabled:opacity-50"
+                                  >
+                                    {savingDiscount ? 'جارِ الحفظ...' : 'حفظ الخصم'}
+                                  </button>
+                                </div>
+                              )}
 
                               {selected.status === 'confirmed' && movements.length > 0 && (
                                 <div className="overflow-hidden rounded-xl border border-border bg-surface">
@@ -579,10 +705,12 @@ export default function PurchaseInvoicesPage() {
             )}
 
             {paymentMethod === 'cash' && (
-              <select value={payCashboxId} onChange={(e) => setPayCashboxId(e.target.value)} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
-                <option value="">الصندوق...</option>
-                {cashboxes.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.currency})</option>)}
-              </select>
+              <SearchableSelect
+                options={cashboxes.map((c) => ({ value: String(c.id), label: `${c.name} (${c.currency})` }))}
+                value={payCashboxId}
+                onChange={setPayCashboxId}
+                placeholder="الصندوق..."
+              />
             )}
 
             {paymentMethod === 'check' && (

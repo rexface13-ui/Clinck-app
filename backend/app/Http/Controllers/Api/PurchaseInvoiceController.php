@@ -93,9 +93,18 @@ class PurchaseInvoiceController extends Controller
             'invoice_number' => ['sometimes', 'nullable', 'string', 'max:255'],
             'issued_at' => ['sometimes', 'date'],
             'notes' => ['sometimes', 'nullable', 'string', 'max:2000'],
+            'discount_amount_ils' => ['sometimes', 'nullable', 'numeric', 'min:0'],
         ]);
 
+        if (array_key_exists('discount_amount_ils', $data)) {
+            abort_unless($purchaseInvoice->status === 'draft', 422, 'الخصم يتعدّل بس على فاتورة مسودة.');
+        }
+
         $purchaseInvoice->update($data);
+
+        if (array_key_exists('discount_amount_ils', $data)) {
+            $purchaseInvoice->recomputeTotal();
+        }
 
         return $purchaseInvoice->fresh(['lines.item', 'lines.itemLot', 'supplier', 'branch']);
     }
@@ -129,14 +138,54 @@ class PurchaseInvoiceController extends Controller
                 'expiry_date' => $data['expiry_date'] ?? null,
             ]);
 
-            $purchaseInvoice->update([
-                'total_amount_ils' => $purchaseInvoice->lines()->sum('amount_ils'),
-            ]);
+            $purchaseInvoice->recomputeTotal();
 
             return $line;
         });
 
         return $line->load('item');
+    }
+
+    /**
+     * Adds several lines in one request/one transaction — the multi-row
+     * "إضافة سريعة" grid on the invoice page builds up rows locally with no
+     * network call per row, then submits the whole batch here once. Falls
+     * back line-by-line to addLine()'s own validation so a bad row in the
+     * middle doesn't silently drop the rows around it.
+     */
+    public function bulkAddLines(Request $request, PurchaseInvoice $purchaseInvoice)
+    {
+        abort_unless($request->user()->can('purchasing.manage'), 403);
+        abort_unless($purchaseInvoice->status === 'draft', 422, 'الفاتورة مؤكدة مسبقاً.');
+
+        $data = $request->validate([
+            'lines' => ['required', 'array', 'min:1'],
+            'lines.*.item_id' => ['required', 'exists:items,id'],
+            'lines.*.quantity' => ['required', 'numeric', 'min:0.001'],
+            'lines.*.unit_price' => ['required', 'numeric', 'min:0'],
+            'lines.*.currency' => ['required', 'string', 'size:3'],
+            'lines.*.lot_number' => ['nullable', 'string', 'max:255'],
+            'lines.*.expiry_date' => ['nullable', 'date'],
+        ]);
+
+        $created = DB::transaction(function () use ($purchaseInvoice, $data) {
+            $rows = collect($data['lines'])->map(fn ($row) => PurchaseInvoiceLine::create([
+                'purchase_invoice_id' => $purchaseInvoice->id,
+                'item_id' => $row['item_id'],
+                'quantity' => $row['quantity'],
+                'unit_price' => $row['unit_price'],
+                'currency' => $row['currency'],
+                'amount_ils' => round($row['quantity'] * $row['unit_price'], 2),
+                'lot_number' => $row['lot_number'] ?? null,
+                'expiry_date' => $row['expiry_date'] ?? null,
+            ]));
+
+            $purchaseInvoice->recomputeTotal();
+
+            return $rows;
+        });
+
+        return PurchaseInvoiceLine::whereIn('id', $created->pluck('id'))->with('item')->get();
     }
 
     public function removeLine(Request $request, PurchaseInvoice $purchaseInvoice, PurchaseInvoiceLine $line)
@@ -146,7 +195,7 @@ class PurchaseInvoiceController extends Controller
         abort_unless($line->purchase_invoice_id === $purchaseInvoice->id, 404);
 
         $line->delete();
-        $purchaseInvoice->update(['total_amount_ils' => $purchaseInvoice->lines()->sum('amount_ils')]);
+        $purchaseInvoice->recomputeTotal();
 
         return response()->noContent();
     }

@@ -92,12 +92,20 @@ class ReportPublishController extends Controller
         $recipients = TelegramLink::with('user')
             ->whereNotNull('linked_at')
             ->get()
-            ->filter(fn (TelegramLink $l) => $l->user?->hasAnyRole(['owner', 'accountant']));
+            ->filter(fn (TelegramLink $l) => $l->user?->hasAnyRole(['owner', 'accountant']) || $l->receives_full_report);
 
         foreach ($recipients as $link) {
-            $telegram->sendMessage(
+            $telegram->sendMessageWithLinkButton(
                 (int) $link->telegram_chat_id,
-                "🦷 تم إغلاق المحل ليوم {$dateStr}\nتقرير الإغلاق: {$reportUrl}\nسجل الجلسات الكامل: {$sessionsUrl}",
+                "🦷 تقرير إغلاق اليوم {$dateStr} جاهز",
+                'فتح التقرير',
+                $reportUrl,
+            );
+            $telegram->sendMessageWithLinkButton(
+                (int) $link->telegram_chat_id,
+                '📋 سجل الجلسات الكامل — كل الزيارات من أول يوم',
+                'فتح السجل',
+                $sessionsUrl,
             );
         }
 

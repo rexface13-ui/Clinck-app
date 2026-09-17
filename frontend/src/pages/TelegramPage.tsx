@@ -25,6 +25,7 @@ interface LinkedDoctor {
   id: number
   full_name: string
   linked_at: string
+  receives_full_report: boolean
 }
 
 interface LinkedPatient {
@@ -234,6 +235,15 @@ export default function TelegramPage() {
     )
   }
 
+  async function toggleFullReport(doctorId: number, receivesFullReport: boolean) {
+    setLinkedDoctors((prev) => prev && prev.map((d) => (d.id === doctorId ? { ...d, receives_full_report: receivesFullReport } : d)))
+    try {
+      await api.put(`/telegram-registrations-linked/doctors/${doctorId}/full-report`, { receives_full_report: receivesFullReport })
+    } catch {
+      load()
+    }
+  }
+
   async function reject(id: number) {
     if (!window.confirm('رفض هذا الطلب نهائياً؟')) return
     setBusyId(id)
@@ -351,14 +361,30 @@ export default function TelegramPage() {
             ) : linkedDoctors.length === 0 ? (
               <p className="mt-3 text-sm text-muted">ولا طبيب مربوط بتيليغرام حالياً.</p>
             ) : (
-              <ul className="mt-3 space-y-2">
-                {linkedDoctors.map((d) => (
-                  <li key={d.id} className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-sm">
-                    <span className="text-ink">{d.full_name}</span>
-                    <span className="text-xs text-muted">{d.linked_at}</span>
-                  </li>
-                ))}
-              </ul>
+              <>
+                <ul className="mt-3 space-y-2">
+                  {linkedDoctors.map((d) => (
+                    <li key={d.id} className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 text-sm">
+                      <span className="text-ink">{d.full_name}</span>
+                      <div className="flex items-center gap-3">
+                        <label className="flex items-center gap-1.5 text-xs text-muted">
+                          <input
+                            type="checkbox"
+                            checked={d.receives_full_report}
+                            onChange={(e) => toggleFullReport(d.id, e.target.checked)}
+                          />
+                          يستلم تقرير العيادة الكامل
+                        </label>
+                        <span className="text-xs text-muted">{d.linked_at}</span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-2 text-xs text-muted">
+                  إذا محطوطة: هالطبيب بياخد تقرير الإغلاق الكامل (الإيرادات، ديون كل المرضى، ديون الموردين...) مع "إنشاء تقرير اليوم".
+                  إذا مش محطوطة: بيوصله بس تذكيره اليومي بمواعيده هو.
+                </p>
+              </>
             )}
           </Card>
 

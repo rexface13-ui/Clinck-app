@@ -85,6 +85,33 @@ class TelegramService
     }
 
     /**
+     * A message with a single inline "open link" button under it (Telegram's
+     * inline_keyboard, not the persistent reply keyboard sendMessage()
+     * builds) — for report links etc. where tapping should open the URL
+     * directly instead of sending a reply back to the bot.
+     */
+    public function sendMessageWithLinkButton(int $chatId, string $text, string $buttonLabel, string $url): bool
+    {
+        if (! $this->enabled()) {
+            return false;
+        }
+
+        try {
+            $response = Http::timeout(10)->post("https://api.telegram.org/bot{$this->token()}/sendMessage", [
+                'chat_id' => $chatId,
+                'text' => $text,
+                'reply_markup' => json_encode(['inline_keyboard' => [[['text' => $buttonLabel, 'url' => $url]]]]),
+            ]);
+
+            return $response->successful();
+        } catch (\Throwable $e) {
+            Log::warning('Telegram sendMessage (link button) failed', ['error' => $e->getMessage()]);
+
+            return false;
+        }
+    }
+
+    /**
      * Sends a photo from an absolute local file path, with an optional caption.
      */
     public function sendPhoto(int $chatId, string $absoluteFilePath, string $caption = ''): bool

@@ -5,6 +5,7 @@ import { faPlus, faBoxesStacked, faPen, faMagnifyingGlass, faTrash, faClockRotat
 import { api } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import { Card, PageHeader, Button, Modal, Table, Thead, Th, Td, Tr, EmptyRow, TableSkeleton, CurrencySelect } from '../components/ui'
+import SearchableSelect from '../components/ui/SearchableSelect'
 import { normalizeArabic } from '../lib/arabic'
 import type { Item, ItemCategory, ItemPriceHistoryRow } from '../types'
 
@@ -152,12 +153,12 @@ export default function ItemsPage() {
       {showItemForm && (
         <Modal title={editingId ? 'تعديل الصنف' : 'صنف جديد'} onClose={closeItemForm}>
           <div className="space-y-3">
-            <select value={form.item_category_id} onChange={(e) => setForm({ ...form, item_category_id: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
-              <option value="">بدون تصنيف</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
+            <SearchableSelect
+              options={categories.map((c) => ({ value: String(c.id), label: c.name }))}
+              value={form.item_category_id}
+              onChange={(v) => setForm({ ...form, item_category_id: v })}
+              placeholder="بدون تصنيف"
+            />
             <input placeholder="اسم الصنف" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
             <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as Item['type'] })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
               <option value="direct_expense">مصروف مباشر</option>

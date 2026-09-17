@@ -182,6 +182,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('purchase-invoices/{purchaseInvoice}', [PurchaseInvoiceController::class, 'update']);
     Route::delete('purchase-invoices/{purchaseInvoice}', [PurchaseInvoiceController::class, 'destroy']);
     Route::post('purchase-invoices/{purchaseInvoice}/lines', [PurchaseInvoiceController::class, 'addLine']);
+    Route::post('purchase-invoices/{purchaseInvoice}/lines/bulk', [PurchaseInvoiceController::class, 'bulkAddLines']);
     Route::delete('purchase-invoices/{purchaseInvoice}/lines/{line}', [PurchaseInvoiceController::class, 'removeLine']);
     Route::post('purchase-invoices/{purchaseInvoice}/confirm', [PurchaseInvoiceController::class, 'confirm']);
     Route::post('purchase-invoices/{purchaseInvoice}/revert', [PurchaseInvoiceController::class, 'revert']);
@@ -246,6 +247,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('telegram-registrations', [TelegramRegistrationController::class, 'index']);
     Route::get('telegram-registrations-linked', [TelegramRegistrationController::class, 'linked']);
+    Route::put('telegram-registrations-linked/doctors/{doctor}/full-report', [TelegramRegistrationController::class, 'setDoctorFullReport']);
     Route::post('telegram-registrations/{link}/link-staff', [TelegramRegistrationController::class, 'linkStaff']);
     Route::post('telegram-registrations/{link}/link-doctor', [TelegramRegistrationController::class, 'linkDoctor']);
     Route::post('telegram-registrations/{link}/link-patient', [TelegramRegistrationController::class, 'linkPatient']);

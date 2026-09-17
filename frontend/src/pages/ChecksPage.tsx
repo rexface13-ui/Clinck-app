@@ -263,12 +263,12 @@ export default function ChecksPage() {
                 placeholder="ابحث عن مريض بالاسم..."
               />
             ) : (
-              <select value={form.party_id} onChange={(e) => setForm({ ...form, party_id: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
-                <option value="">المورد...</option>
-                {suppliers.map((s) => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
-                ))}
-              </select>
+              <SearchableSelect
+                options={suppliers.map((s) => ({ value: String(s.id), label: s.name }))}
+                value={form.party_id}
+                onChange={(v) => setForm({ ...form, party_id: v })}
+                placeholder="المورد..."
+              />
             )}
             <input placeholder="رقم الشيك" value={form.check_number} onChange={(e) => setForm({ ...form, check_number: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
             <input placeholder="اسم البنك" value={form.bank_name} onChange={(e) => setForm({ ...form, bank_name: e.target.value })} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none" />
@@ -515,12 +515,12 @@ export default function ChecksPage() {
                 placeholder="ابحث عن مريض بالاسم..."
               />
             ) : (
-              <select value={endorseSupplier} onChange={(e) => setEndorseSupplier(e.target.value)} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
-                <option value="">المورد...</option>
-                {suppliers.map((s) => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
-                ))}
-              </select>
+              <SearchableSelect
+                options={suppliers.map((s) => ({ value: String(s.id), label: s.name }))}
+                value={endorseSupplier}
+                onChange={setEndorseSupplier}
+                placeholder="المورد..."
+              />
             )}
             <Button onClick={endorse} loading={busy} className="w-full justify-center">
               تأكيد التظهير
@@ -533,10 +533,12 @@ export default function ChecksPage() {
         <Modal title={`تحصيل الشيك #${clearTarget.check_number}`} onClose={() => setClearTarget(null)}>
           <div className="space-y-3">
             {(clearTarget.direction === 'incoming' && clearTarget.status === 'in_wallet') || clearTarget.direction === 'outgoing' ? (
-              <select value={clearCashbox} onChange={(e) => setClearCashbox(e.target.value)} className="w-full rounded-lg border border-border bg-surface px-2 py-1.5 text-sm focus:border-accent focus:outline-none">
-                <option value="">الصندوق...</option>
-                {cashboxes.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.currency})</option>)}
-              </select>
+              <SearchableSelect
+                options={cashboxes.map((c) => ({ value: String(c.id), label: `${c.name} (${c.currency})` }))}
+                value={clearCashbox}
+                onChange={setClearCashbox}
+                placeholder="الصندوق..."
+              />
             ) : (
               <p className="text-xs text-muted">شيك مظهّر مسبقاً — لا حاجة لصندوق.</p>
             )}

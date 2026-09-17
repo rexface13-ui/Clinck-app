@@ -49,6 +49,7 @@ class TelegramRegistrationController extends Controller
                 'id' => $l->doctor?->id,
                 'full_name' => $l->doctor?->full_name,
                 'linked_at' => display_datetime($l->linked_at),
+                'receives_full_report' => $l->receives_full_report,
             ])
             ->filter(fn ($d) => $d['id'] !== null)
             ->values();
@@ -116,6 +117,24 @@ class TelegramRegistrationController extends Controller
         $telegram->sendMessage((int) $link->telegram_chat_id, 'تم ربط حسابك بنجاح! ✅', [['📅 مواعيد اليوم', '🗓 مواعيد الأسبوع']]);
 
         return $link->fresh('doctor');
+    }
+
+    /**
+     * Toggles whether a linked doctor's Telegram chat gets the full clinic
+     * closing report (revenue, patient debts, supplier debts...) alongside
+     * "إنشاء تقرير اليوم" — off by default, since a doctor normally only
+     * needs their own appointment reminders, not the whole clinic's money.
+     */
+    public function setDoctorFullReport(Request $request, int $doctor)
+    {
+        abort_unless($request->user()->can('settings.manage'), 403);
+
+        $data = $request->validate(['receives_full_report' => ['required', 'boolean']]);
+
+        $link = TelegramLink::whereNotNull('linked_at')->where('doctor_id', $doctor)->firstOrFail();
+        $link->update(['receives_full_report' => $data['receives_full_report']]);
+
+        return ['id' => $doctor, 'receives_full_report' => $link->receives_full_report];
     }
 
     public function linkPatient(Request $request, TelegramLink $link, TelegramService $telegram)

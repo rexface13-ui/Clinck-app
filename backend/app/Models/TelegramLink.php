@@ -11,7 +11,7 @@ class TelegramLink extends Model
     use BelongsToClinic;
 
     protected $fillable = [
-        'clinic_id', 'user_id', 'patient_id', 'doctor_id', 'telegram_chat_id', 'link_code',
+        'clinic_id', 'user_id', 'patient_id', 'doctor_id', 'receives_full_report', 'telegram_chat_id', 'link_code',
         'registered_name', 'registered_phone', 'pending_check_id', 'pending_check_slots',
         'pending_patient_id', 'pending_patient_count', 'pending_patient_title', 'linked_at',
         'booking_step', 'booking_doctor_id', 'booking_date', 'pending_intent',
@@ -19,7 +19,7 @@ class TelegramLink extends Model
 
     protected function casts(): array
     {
-        return ['linked_at' => 'datetime', 'booking_date' => 'date'];
+        return ['linked_at' => 'datetime', 'booking_date' => 'date', 'receives_full_report' => 'boolean'];
     }
 
     public function bookingDoctor(): BelongsTo
