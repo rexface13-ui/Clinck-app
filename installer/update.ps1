@@ -70,6 +70,16 @@ if ((Test-Path $php83Path) -and -not (Test-Path $php83Backup)) {
     Copy-Item $php83Path $php83Backup -Recurse -Force
 }
 
+# frontend/dist (الواجهة المبنية) مو متتبّع بالريبو حالياً (.gitignore) —
+# نفس القصة تماماً متل php83: لو الريبو ما بيحتوي نسخة أحدث، "git reset
+# --hard" هيمسح النسخة الحالية بدون ما يعوّضها، فتصير شاشة بيضاء عند
+# الزبون. منحفظ نسخة احتياطية ونرجّعها إذا انمسحت ولم تتعوّض.
+$distBackup = Join-Path $env:TEMP "dentaflow_frontend_dist_backup"
+$distPath = Join-Path $ROOT "frontend\dist"
+if ((Test-Path $distPath) -and -not (Test-Path $distBackup)) {
+    Copy-Item $distPath $distBackup -Recurse -Force
+}
+
 git reset --hard origin/main
 if ($LASTEXITCODE -ne 0) {
     Write-Host "[!] فشل السحب" -ForegroundColor Red
@@ -81,6 +91,16 @@ if (-not (Test-Path $php83Path) -and (Test-Path $php83Backup)) {
     Write-Host "[!] php83 انمسح مع التحديث — جاري استرجاعه..." -ForegroundColor Yellow
     Copy-Item $php83Backup $php83Path -Recurse -Force
     Write-Host "[OK] تم استرجاع php83" -ForegroundColor Green
+}
+
+if (-not (Test-Path (Join-Path $distPath "index.html"))) {
+    if (Test-Path $distBackup) {
+        Write-Host "[!] الريبو ما فيه نسخة واجهة جديدة — جاري استرجاع النسخة القديمة عشان ما تضل الشاشة فاضية..." -ForegroundColor Yellow
+        Copy-Item $distBackup $distPath -Recurse -Force
+        Write-Host "[OK] تم استرجاع الواجهة (نسخة قديمة — راجع مع المطوّر عن نسخة أحدث)" -ForegroundColor Yellow
+    } else {
+        Write-Host "[!] لا توجد نسخة واجهة مبنية إطلاقاً (frontend\dist فاضي) — الموقع رح يطلع شاشة بيضاء" -ForegroundColor Red
+    }
 }
 
 Write-Host "[OK] تم جلب أحدث كود" -ForegroundColor Green

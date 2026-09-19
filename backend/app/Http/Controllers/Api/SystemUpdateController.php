@@ -50,6 +50,18 @@ class SystemUpdateController extends Controller
             ? [['git', 'remote', 'set-url', 'origin', $repoUrl]]
             : [['git', 'init', '-q'], ['git', 'remote', 'add', 'origin', $repoUrl]];
 
+        // php83 (رنتايم PHP) وfrontend/dist (الواجهة المبنية) مو متتبّعين
+        // بالريبو (كبار الأول، ومتعمّد استبعاده بـ.gitignore التاني) — لو
+        // الريبو ما فيه نسخة أحدث منهم، "git reset --hard" هيمسحهم من
+        // عندك بدون تعويض. منحفظ نسخة احتياطية قبل ونرجّعها لو انمسحوا
+        // ولم يتعوّضوا من الريبو نفسه.
+        $php83Path = $root.'\\php83';
+        $distPath = $root.'\\frontend\\dist';
+        $php83Backup = sys_get_temp_dir().'\\dentaflow_php83_backup';
+        $distBackup = sys_get_temp_dir().'\\dentaflow_frontend_dist_backup';
+        $this->backupIfMissing($php83Path, $php83Backup);
+        $this->backupIfMissing($distPath, $distBackup);
+
         $steps = [
             'سحب آخر نسخة من GitHub' => [
                 ...$gitSteps,
@@ -65,6 +77,20 @@ class SystemUpdateController extends Controller
                 Log::warning('System update failed during git step', ['cmd' => $cmd]);
 
                 return response()->json(['success' => false, 'log' => $log], 500);
+            }
+        }
+
+        if (! is_dir($php83Path) && is_dir($php83Backup)) {
+            $this->run(['robocopy', $php83Backup, $php83Path, '/e'], $root);
+            $log .= "\n[!] php83 انمسح مع التحديث — تم استرجاعه.\n";
+        }
+
+        if (! file_exists($distPath.'\\index.html')) {
+            if (is_dir($distBackup)) {
+                $this->run(['robocopy', $distBackup, $distPath, '/e'], $root);
+                $log .= "\n[!] الريبو ما فيه نسخة واجهة جديدة — تم استرجاع النسخة القديمة عشان ما تضل الشاشة فاضية. راجع مع المطوّر عن نسخة أحدث.\n";
+            } else {
+                $log .= "\n[!] لا توجد نسخة واجهة مبنية إطلاقاً (frontend/dist فاضي) — الموقع رح يطلع شاشة بيضاء.\n";
             }
         }
 
@@ -115,6 +141,13 @@ class SystemUpdateController extends Controller
             'needs_repairs' => $needsRepairs,
             'log' => $log,
         ]);
+    }
+
+    private function backupIfMissing(string $path, string $backupPath): void
+    {
+        if (is_dir($path) && ! is_dir($backupPath)) {
+            $this->run(['robocopy', $path, $backupPath, '/e'], dirname($path));
+        }
     }
 
     /** @param string[] $cmd */
