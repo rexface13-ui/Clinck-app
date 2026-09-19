@@ -885,7 +885,7 @@ interface DayDetail {
   expenses_ils: number
   collected_ils: number
   net_ils: number
-  invoices: { id: number; invoice_number: string; patient_id: number; patient_name: string | null; status: string; total_ils: number; time: string }[]
+  invoices: { id: number; session_label: string; patient_id: number; patient_name: string | null; status: string; total_ils: number; time: string }[]
   expenses: { id: number; category: string; amount_ils: number; description: string | null; time: string }[]
 }
 
@@ -909,7 +909,7 @@ function DayDetailCard({ detail }: { detail: DayDetail }) {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
-            <p className="mb-2 text-xs font-semibold text-ink/60">الفواتير</p>
+            <p className="mb-2 text-xs font-semibold text-ink/60">الجلسات</p>
             {detail.invoices.length === 0 ? (
               <p className="text-xs text-muted">لا توجد فواتير.</p>
             ) : (
@@ -921,7 +921,7 @@ function DayDetailCard({ detail }: { detail: DayDetail }) {
                     className="flex items-center justify-between rounded-lg bg-surface px-2.5 py-1.5 text-xs hover:bg-accent-soft"
                   >
                     <span className="text-ink/80">
-                      {inv.invoice_number} — {inv.patient_name ?? '—'}
+                      {inv.patient_name ?? '—'} — {inv.session_label}
                       <span className="text-muted"> ({inv.time})</span>
                     </span>
                     <span className="flex items-center gap-2">

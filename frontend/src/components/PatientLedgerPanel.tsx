@@ -12,7 +12,7 @@ import RequestCheckImageButton, { TelegramCheckTargetPicker, sendTelegramCheckRe
 import InvoiceDetailModal from './InvoiceDetailModal'
 
 const TYPE_LABELS: Record<string, string> = {
-  charge: 'فاتورة',
+  charge: 'جلسة',
   payment: 'دفعة',
   refund: 'استرجاع',
   adjustment: 'خصم',
@@ -214,7 +214,7 @@ export default function PatientLedgerPanel({
   }
 
   async function deletePayment(paymentId: number) {
-    if (!window.confirm('حذف هاي الدفعة نهائياً؟ رصيد الصندوق وحالة الفاتورة رح يترجعوا متل قبل ما تنسجل.')) return
+    if (!window.confirm('حذف هاي الدفعة نهائياً؟ رصيد الصندوق وحالة الجلسة رح يترجعوا متل قبل ما تنسجل.')) return
     setBusy(true)
     setError(null)
     try {
@@ -245,7 +245,7 @@ export default function PatientLedgerPanel({
   }
 
   async function deleteAdjustment(transactionId: number) {
-    if (!window.confirm('حذف هاي الحركة نهائياً؟ لو كانت مرتبطة بفاتورة، الإجمالي رح يترجع متل قبل ما تنسجل.')) return
+    if (!window.confirm('حذف هاي الحركة نهائياً؟ لو كانت مرتبطة بجلسة، الإجمالي رح يترجع متل قبل ما تنسجل.')) return
     setBusy(true)
     setError(null)
     try {
@@ -260,7 +260,7 @@ export default function PatientLedgerPanel({
   }
 
   async function voidInvoice(invoiceId: number) {
-    if (!window.confirm('حذف هاي الفاتورة نهائياً؟ الشغل يلي كان محسوب عليها بيرجع "مش محسوب" (فيك تحاسبه من جديد لاحقاً).')) return
+    if (!window.confirm('حذف هاي الجلسة من الحساب نهائياً؟ الشغل يلي كان محسوب عليها بيرجع "مش محسوب" (فيك تحاسبه من جديد لاحقاً).')) return
     setBusy(true)
     setError(null)
     try {
@@ -269,7 +269,7 @@ export default function PatientLedgerPanel({
       onChanged?.()
     } catch (err) {
       const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
-      setError(message ?? 'تعذّر حذف الفاتورة.')
+      setError(message ?? 'تعذّر حذف الجلسة.')
     } finally {
       setBusy(false)
     }
@@ -286,7 +286,7 @@ export default function PatientLedgerPanel({
       onChanged?.()
     } catch (err) {
       const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
-      setError(message ?? 'تعذّر تعديل الفاتورة.')
+      setError(message ?? 'تعذّر تعديل الجلسة.')
     } finally {
       setBusy(false)
     }
@@ -419,7 +419,7 @@ export default function PatientLedgerPanel({
           تحت، عشان ما يصير كرت بيقول إشي والجدول بيقول غيره. */}
       {ledger?.totals && (
         <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <SummaryCard label="إجمالي الفواتير" value={ledger.totals.charged_ils} tone="neutral" />
+          <SummaryCard label="إجمالي الجلسات" value={ledger.totals.charged_ils} tone="neutral" />
           <SummaryCard label="إجمالي المدفوع" value={ledger.totals.collected_ils} tone="success" />
           <SummaryCard label="إجمالي الخصومات" value={ledger.totals.discounted_ils} tone="accent" />
           <SummaryCard
@@ -432,7 +432,7 @@ export default function PatientLedgerPanel({
 
       {showDiscountForm && (
         <div className="mb-4 space-y-2 rounded-lg bg-background p-3">
-          <p className="text-xs text-ink/50">خصم على كامل حساب المريض (مو مرتبط بفاتورة معيّنة) — بيقلل الرصيد المستحق مباشرة.</p>
+          <p className="text-xs text-ink/50">خصم على كامل حساب المريض (مو مرتبط بجلسة معيّنة) — بيقلل الرصيد المستحق مباشرة.</p>
           <div className="flex gap-2">
             <input
               type="number"
@@ -494,10 +494,10 @@ export default function PatientLedgerPanel({
                 onChange={(e) => setCashForm({ ...cashForm, invoice_id: e.target.value })}
                 className="w-full rounded-lg border border-ink/10 px-2 py-1.5 text-sm"
               >
-                <option value="">بدون ربط بفاتورة معيّنة</option>
+                <option value="">بدون ربط بجلسة معيّنة</option>
                 {unpaidInvoices.map((inv) => (
                   <option key={inv.id} value={inv.id}>
-                    {inv.invoice_number} — متبقي {(Number(inv.total_amount_ils) - (inv.paid_ils ?? 0)).toFixed(2)} ₪
+                    {inv.session_label} ({inv.issued_at}) — متبقي {(Number(inv.total_amount_ils) - (inv.paid_ils ?? 0)).toFixed(2)} ₪
                   </option>
                 ))}
               </select>
@@ -581,10 +581,10 @@ export default function PatientLedgerPanel({
                 onChange={(e) => setCheckForm({ ...checkForm, invoice_id: e.target.value })}
                 className="w-full rounded-lg border border-ink/10 px-2 py-1.5 text-sm"
               >
-                <option value="">بدون ربط بفاتورة معيّنة</option>
+                <option value="">بدون ربط بجلسة معيّنة</option>
                 {unpaidInvoices.map((inv) => (
                   <option key={inv.id} value={inv.id}>
-                    {inv.invoice_number} — متبقي {(Number(inv.total_amount_ils) - (inv.paid_ils ?? 0)).toFixed(2)} ₪
+                    {inv.session_label} ({inv.issued_at}) — متبقي {(Number(inv.total_amount_ils) - (inv.paid_ils ?? 0)).toFixed(2)} ₪
                   </option>
                 ))}
               </select>
@@ -795,12 +795,12 @@ export default function PatientLedgerPanel({
                           setEditingInvoiceId(t.reference_id)
                           setEditInvoiceTotal(String(Math.abs(Number(t.amount_ils))))
                         }}
-                        title="تعديل الفاتورة"
+                        title="تعديل مبلغ الجلسة"
                         className="text-ink/30 hover:text-accent"
                       >
                         <FontAwesomeIcon icon={faPen} />
                       </button>
-                      <button onClick={() => voidInvoice(t.reference_id!)} title="حذف الفاتورة" className="text-ink/30 hover:text-danger">
+                      <button onClick={() => voidInvoice(t.reference_id!)} title="حذف الجلسة" className="text-ink/30 hover:text-danger">
                         <FontAwesomeIcon icon={faTrash} />
                       </button>
                     </div>

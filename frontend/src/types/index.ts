@@ -291,6 +291,8 @@ export interface Invoice {
   id: number
   patient_id: number
   invoice_number: string
+  /** What to show people instead of the number: "جلسة: حشوة أسنان — سن 14". */
+  session_label: string
   status: 'unpaid' | 'partial' | 'paid' | 'void'
   total_amount_ils: string
   paid_ils?: number
@@ -315,7 +317,7 @@ export interface LedgerRow {
   type: 'charge' | 'payment' | 'refund' | 'adjustment'
   reference_type: string | null
   reference_id: number | null
-  /** "خصم على فاتورة INV-000012", "فاتورة INV-000012"... — which session/invoice this row belongs to, when it's tied to one. */
+  /** "جلسة: حشوة — سن 14", "خصم على جلسة: حشوة — سن 14"... — which session this row belongs to, when it's tied to one. */
   description: string | null
   /** Free-text note on a general (not invoice-tied) discount. */
   note: string | null

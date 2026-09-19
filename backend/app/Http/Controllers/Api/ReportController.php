@@ -18,6 +18,7 @@ use App\Models\Payment;
 use App\Models\Supplier;
 use App\Models\SupplierTransaction;
 use App\Models\WorkItem;
+use App\Support\SessionLabel;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 
@@ -735,6 +736,8 @@ class ReportController extends Controller
             ->whereBetween('received_at', [$dayStartUtc, $dayEndUtc])
             ->sum('amount');
 
+        $sessionLabels = SessionLabel::forInvoices($invoices);
+
         return [
             'date' => $day->format('Y-m-d'),
             'label' => $day->translatedFormat('l d/m/Y'),
@@ -745,6 +748,7 @@ class ReportController extends Controller
             'invoices' => $invoices->map(fn (Invoice $i) => [
                 'id' => $i->id,
                 'invoice_number' => $i->invoice_number,
+                'session_label' => $sessionLabels[$i->id],
                 'patient_id' => $i->patient_id,
                 'patient_name' => $i->patient?->full_name,
                 'status' => $i->status,

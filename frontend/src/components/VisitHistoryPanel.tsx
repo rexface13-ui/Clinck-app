@@ -251,7 +251,7 @@ export default function VisitHistoryPanel({
                         e.stopPropagation()
                         setViewingInvoice({ invoiceId: first.invoice_id, teeth, itemId: first.item_id ?? null })
                       }}
-                      title="عرض تفاصيل الفاتورة"
+                      title="عرض تفاصيل الجلسة"
                     >
                       <Badge variant={INVOICE_STATUS_VARIANTS[first.invoice_status]}>{INVOICE_STATUS_LABELS[first.invoice_status]}</Badge>
                     </button>
@@ -351,7 +351,7 @@ export default function VisitHistoryPanel({
                   e.stopPropagation()
                   setViewingInvoice({ invoiceId: v.invoice_id, teeth, itemId: v.item_id ?? null })
                 }}
-                title="عرض تفاصيل الفاتورة"
+                title="عرض تفاصيل الجلسة"
               >
                 <Badge variant={INVOICE_STATUS_VARIANTS[v.invoice_status]}>{INVOICE_STATUS_LABELS[v.invoice_status]}</Badge>
               </button>

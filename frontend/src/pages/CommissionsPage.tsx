@@ -259,17 +259,14 @@ export default function CommissionsPage() {
                 {selectedSession.invoice_status ? (
                   <dl className="space-y-2 text-sm">
                     <div className="flex justify-between">
-                      <dt className="text-muted">حالة الفاتورة</dt>
+                      <dt className="text-muted">حالة الجلسة</dt>
                       <dd>
                         <Badge variant={INVOICE_STATUS_VARIANTS[selectedSession.invoice_status] ?? 'neutral'}>
                           {INVOICE_STATUS_LABELS[selectedSession.invoice_status] ?? selectedSession.invoice_status}
                         </Badge>
                       </dd>
                     </div>
-                    {selectedSession.invoice_number && (
-                      <div className="flex justify-between"><dt className="text-muted">رقم الفاتورة</dt><dd>{selectedSession.invoice_number}</dd></div>
-                    )}
-                    <div className="flex justify-between"><dt className="text-muted">إجمالي الفاتورة</dt><dd>{money(selectedSession.invoice_total_ils ?? 0)} ₪</dd></div>
+                    <div className="flex justify-between"><dt className="text-muted">إجمالي الجلسة</dt><dd>{money(selectedSession.invoice_total_ils ?? 0)} ₪</dd></div>
                     <div className="flex justify-between"><dt className="text-muted">المدفوع</dt><dd>{money(selectedSession.invoice_paid_ils ?? 0)} ₪</dd></div>
                     <div className="flex justify-between font-semibold text-ink">
                       <dt>المتبقي على المريض</dt>
@@ -277,7 +274,7 @@ export default function CommissionsPage() {
                     </div>
                   </dl>
                 ) : (
-                  <p className="text-sm text-muted">مافي فاتورة مرتبطة بهاي الجلسة.</p>
+                  <p className="text-sm text-muted">هاي الجلسة لسا ما انحسبت.</p>
                 )}
               </div>
             </Modal>

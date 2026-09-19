@@ -13,6 +13,7 @@ use App\Models\ItemLot;
 use App\Models\LabCase;
 use App\Models\Patient;
 use App\Models\PatientTransaction;
+use App\Support\SessionLabel;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -37,11 +38,15 @@ class DashboardController extends Controller
             });
         }
 
+        $found = $query->get(['id', 'patient_id', 'invoice_number', 'status', 'total_amount_ils', 'issued_at']);
+        $labels = SessionLabel::forInvoices($found);
+
         return response()->json(
-            $query->get(['id', 'patient_id', 'invoice_number', 'status', 'total_amount_ils', 'issued_at'])
+            $found
                 ->map(fn (Invoice $i) => [
                     'id' => $i->id,
                     'invoice_number' => $i->invoice_number,
+                    'session_label' => $labels[$i->id],
                     'patient_name' => $i->patient?->full_name,
                     'status' => $i->status,
                     'total_amount_ils' => (float) $i->total_amount_ils,
@@ -125,18 +130,23 @@ class DashboardController extends Controller
                     'doctor_name' => $a->doctor?->full_name,
                     'status' => $a->status,
                 ]),
-            'recent_invoices' => $canViewFinance ? Invoice::with('patient:id,full_name')
-                ->orderByDesc('issued_at')
-                ->limit(8)
-                ->get(['id', 'patient_id', 'invoice_number', 'status', 'total_amount_ils', 'issued_at'])
-                ->map(fn (Invoice $i) => [
+            'recent_invoices' => $canViewFinance ? (function () {
+                $recent = Invoice::with('patient:id,full_name')
+                    ->orderByDesc('issued_at')
+                    ->limit(8)
+                    ->get(['id', 'patient_id', 'invoice_number', 'status', 'total_amount_ils', 'issued_at']);
+                $labels = SessionLabel::forInvoices($recent);
+
+                return $recent->map(fn (Invoice $i) => [
                     'id' => $i->id,
                     'invoice_number' => $i->invoice_number,
+                    'session_label' => $labels[$i->id],
                     'patient_name' => $i->patient?->full_name,
                     'status' => $i->status,
                     'total_amount_ils' => (float) $i->total_amount_ils,
                     'issued_at' => $i->issued_at,
-                ]) : [],
+                ]);
+            })() : [],
             'top_doctors' => $canViewCommissions ? DoctorTransaction::select('doctor_id', DB::raw('SUM(amount_ils) as total'))
                 ->whereBetween('created_at', [$monthStart, Carbon::now()])
                 ->groupBy('doctor_id')

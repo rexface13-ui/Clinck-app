@@ -65,7 +65,7 @@ interface Appointment {
 
 interface Invoice {
   id: number
-  invoice_number: string
+  session_label: string
   patient_name: string | null
   status: string
   total_amount_ils: number
@@ -507,13 +507,13 @@ export default function DashboardPage() {
 
       <Card>
         <div className="flex flex-wrap items-center justify-between gap-3 p-6 pb-0">
-          <h2 className="text-sm font-semibold text-ink/80">آخر الفواتير</h2>
+          <h2 className="text-sm font-semibold text-ink/80">آخر الجلسات</h2>
           <div className="relative">
             <FontAwesomeIcon icon={faMagnifyingGlass} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted" />
             <input
               value={invoiceSearch}
               onChange={(e) => setInvoiceSearch(e.target.value)}
-              placeholder="بحث باسم المريض أو الخدمة أو رقم الفاتورة..."
+              placeholder="بحث باسم المريض أو الخدمة..."
               className="w-72 rounded-xl border border-border bg-surface py-2 pe-3 ps-9 text-sm focus:border-accent focus:outline-none"
             />
           </div>
@@ -523,7 +523,7 @@ export default function DashboardPage() {
         ) : (
           <Table>
             <Thead>
-              <Th>رقم الفاتورة</Th>
+              <Th>الجلسة</Th>
               <Th>المريض</Th>
               <Th>المبلغ</Th>
               <Th>الحالة</Th>
@@ -531,11 +531,11 @@ export default function DashboardPage() {
             </Thead>
             <tbody>
               {invoicesToShow.length === 0 ? (
-                <EmptyRow colSpan={5}>{searchedInvoices ? 'لا توجد نتائج مطابقة' : 'لا توجد فواتير بعد'}</EmptyRow>
+                <EmptyRow colSpan={5}>{searchedInvoices ? 'لا توجد نتائج مطابقة' : 'لا توجد جلسات بعد'}</EmptyRow>
               ) : (
                 invoicesToShow.map((inv) => (
                   <Tr key={inv.id}>
-                    <Td>{inv.invoice_number}</Td>
+                    <Td>{inv.session_label}</Td>
                     <Td>{inv.patient_name}</Td>
                     <Td>{hideMoney ? '••••' : `${money(inv.total_amount_ils)} ₪`}</Td>
                     <Td>

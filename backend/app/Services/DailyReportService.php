@@ -145,11 +145,12 @@ class DailyReportService
                 $this->appointmentStatusLabel($a->status),
             ])->all()));
 
-        $invoicesSection = $this->section('🧾 فواتير اليوم', self::C_GREEN, $invoices->isEmpty()
-            ? '<p class="empty">لا توجد فواتير اليوم</p>'
-            : $this->dataTable(['المريض', 'رقم الفاتورة', 'المبلغ', 'الحالة'], $invoices->map(fn ($i) => [
+        $sessionLabels = \App\Support\SessionLabel::forInvoices($invoices);
+        $invoicesSection = $this->section('🧾 جلسات اليوم', self::C_GREEN, $invoices->isEmpty()
+            ? '<p class="empty">لا توجد جلسات اليوم</p>'
+            : $this->dataTable(['المريض', 'الجلسة', 'المبلغ', 'الحالة'], $invoices->map(fn ($i) => [
                 $i->patient?->full_name ?? 'مريض محذوف',
-                $i->invoice_number,
+                $sessionLabels[$i->id],
                 $money($i->total_amount_ils).' ₪',
                 $this->invoiceStatusLabel($i->status),
             ])->all()));

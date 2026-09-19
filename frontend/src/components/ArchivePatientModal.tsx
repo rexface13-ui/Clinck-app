@@ -98,7 +98,7 @@ export default function ArchivePatientModal({
       ) : (
         <div className="space-y-4">
           <p className="text-sm text-ink/80">
-            أرشفة ملف <span className="font-semibold text-ink">{patientName}</span> مش حذف: كل الزيارات والفواتير والدفعات بتضل محفوظة وبتضل
+            أرشفة ملف <span className="font-semibold text-ink">{patientName}</span> مش حذف: كل الزيارات والجلسات والدفعات بتضل محفوظة وبتضل
             بالتقارير، بس الملف بيختفي من القوائم. بتقدر ترجّعه من الأرشيف بأي وقت.
           </p>
 

@@ -3,6 +3,7 @@
 namespace App\Http\Resources;
 
 use App\Models\WorkItemToothStep;
+use App\Support\SessionLabel;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -14,6 +15,9 @@ class InvoiceResource extends JsonResource
             'id' => $this->id,
             'patient_id' => $this->patient_id,
             'invoice_number' => $this->invoice_number,
+            // What to show people: "جلسة: حشوة — سن 14". List endpoints attach
+            // it in one batch beforehand; a lone invoice computes it here.
+            'session_label' => $this->session_label ?? SessionLabel::forInvoice($this->resource),
             'status' => $this->status,
             'total_amount_ils' => $this->total_amount_ils,
             // What the patient's money has actually covered on this bill,

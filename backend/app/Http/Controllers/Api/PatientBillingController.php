@@ -16,6 +16,7 @@ use App\Models\PatientTransaction;
 use App\Models\Payment;
 use App\Models\WorkItemToothStep;
 use App\Services\PaymentService;
+use App\Support\SessionLabel;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
@@ -31,6 +32,9 @@ class PatientBillingController extends Controller
         $this->requireBillingView($request);
 
         $invoices = $patient->invoices()->with(['lines', 'payments'])->orderByDesc('issued_at')->get();
+
+        $labels = SessionLabel::forInvoices($invoices);
+        $invoices->each(fn (Invoice $i) => $i->setAttribute('session_label', $labels[$i->id]));
 
         return InvoiceResource::collection($invoices);
     }
@@ -166,7 +170,7 @@ class PatientBillingController extends Controller
             ->pluck('reference_id')
             ->filter()
             ->unique();
-        $invoiceNumbers = Invoice::withoutGlobalScopes()->whereIn('id', $invoiceIds)->pluck('invoice_number', 'id');
+        $sessionLabels = SessionLabel::forInvoices(Invoice::withoutGlobalScopes()->whereIn('id', $invoiceIds)->get());
 
         // Check numbers, so a check settlement doesn't read as a bare "دفعة"
         // indistinguishable from cash on the very screen used to chase it up.
@@ -175,17 +179,17 @@ class PatientBillingController extends Controller
             $transactions->where('reference_type', 'check')->pluck('reference_id')->filter()->unique()
         )->pluck('check_number', 'id');
 
-        $descriptionFor = function ($t) use ($invoiceNumbers, $checkNumbers) {
-            $invoiceNumber = $invoiceNumbers->get($t->reference_id);
+        $descriptionFor = function ($t) use ($sessionLabels, $checkNumbers) {
+            $session = $sessionLabels[$t->reference_id] ?? null;
             $checkNumber = $t->reference_type === 'check' ? $checkNumbers->get($t->reference_id) : null;
 
             return match (true) {
-                $t->reference_type === 'invoice' => $invoiceNumber ? "فاتورة {$invoiceNumber}" : 'فاتورة',
-                $t->reference_type === 'invoice_discount' => $invoiceNumber ? "خصم على فاتورة {$invoiceNumber}" : 'خصم على فاتورة',
-                $t->reference_type === 'invoice_line_reprice' => $invoiceNumber ? "تصحيح سعر — فاتورة {$invoiceNumber}" : 'تصحيح سعر',
+                $t->reference_type === 'invoice' => $session ?? 'جلسة',
+                $t->reference_type === 'invoice_discount' => $session ? "خصم على {$session}" : 'خصم على جلسة',
+                $t->reference_type === 'invoice_line_reprice' => $session ? "تصحيح سعر — {$session}" : 'تصحيح سعر',
                 // Used to fall through to null, so undoing billed work showed
                 // up as an unexplained "خصم" the clinic never actually gave.
-                $t->reference_type === 'invoice_line_reversal' => $invoiceNumber ? "إلغاء شغل محسوب — فاتورة {$invoiceNumber}" : 'إلغاء شغل محسوب',
+                $t->reference_type === 'invoice_line_reversal' => $session ? "إلغاء شغل محسوب — {$session}" : 'إلغاء شغل محسوب',
                 $t->reference_type === 'patient_discount' => 'خصم عام على الحساب',
                 $t->reference_type === 'archive_retained_credit' => 'مبلغ احتفظت فيه العيادة عند أرشفة الملف',
                 $t->reference_type === 'archive_write_off' => 'إعفاء من الدين عند أرشفة الملف',

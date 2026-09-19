@@ -232,7 +232,7 @@ export default function InvoiceDetailModal({
   const remaining = Math.max(0, total - paid)
 
   return (
-    <Modal title={invoice ? `فاتورة ${invoice.invoice_number}` : 'فاتورة'} onClose={onClose} width="w-[560px]">
+    <Modal title={invoice ? invoice.session_label : 'جلسة'} onClose={onClose} width="w-[560px]">
       {!invoice ? (
         <p className="text-sm text-muted">جارِ التحميل...</p>
       ) : (
@@ -318,7 +318,7 @@ export default function InvoiceDetailModal({
               انلغى. بدونها الإجمالي بيختلف عن مجموع البنود وما في إشي بيفسّر ليش. */}
           {adjustments.length > 0 && (
             <div className="rounded-lg border border-border/70 p-3">
-              <p className="mb-2 text-xs font-medium text-ink/60">تعديلات صارت على الفاتورة</p>
+              <p className="mb-2 text-xs font-medium text-ink/60">تعديلات صارت على الجلسة</p>
               <ul className="space-y-1.5">
                 {adjustments.map((a) => (
                   <li key={a.id} className="flex items-start justify-between gap-3 text-xs">
@@ -339,7 +339,7 @@ export default function InvoiceDetailModal({
 
           {checks.length > 0 && (
             <div className="rounded-lg border border-border/70 p-3">
-              <p className="mb-2 text-xs font-medium text-ink/60">شيكات على هالفاتورة</p>
+              <p className="mb-2 text-xs font-medium text-ink/60">شيكات على هالجلسة</p>
               <ul className="space-y-1.5">
                 {checks.map((c) => (
                   <li key={c.id} className="flex items-start justify-between gap-3 text-xs">
@@ -447,7 +447,7 @@ export default function InvoiceDetailModal({
 
           {showDiscount && (
             <div className="space-y-2 rounded-lg bg-background p-3">
-              <p className="text-xs text-muted">مبلغ الخصم على هاي الفاتورة بس — بينخصم من إجماليها مباشرة.</p>
+              <p className="text-xs text-muted">مبلغ الخصم على هاي الجلسة بس — بينخصم من إجماليها مباشرة.</p>
               <div className="flex gap-2">
                 <input
                   type="number"

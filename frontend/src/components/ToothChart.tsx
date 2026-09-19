@@ -834,7 +834,7 @@ export default function ToothChart({
                     </button>
                     <button
                       onClick={async () => {
-                        if (!window.confirm('حذف هالشغل بالكامل؟ لو كان انحسب منه شي، الفاتورة رح تترجع متل قبل.')) return
+                        if (!window.confirm('حذف هالشغل بالكامل؟ لو كان انحسب منه شي، الحساب رح يترجع متل قبل.')) return
                         await api.delete(`/work-items/${toothSessions.pending[0].workItemId}`)
                         onChanged()
                       }}
