@@ -26,6 +26,19 @@ class PatientTransaction extends Model
         ];
     }
 
+    /**
+     * What counts as revenue: charges plus every adjustment (discounts,
+     * reversals, price corrections — all negative). A returned check is
+     * booked as a 'charge' to put the debt back, but it isn't new work —
+     * the service was already billed — so counting it would inflate revenue
+     * by every bounced check.
+     */
+    public function scopeRevenue($query)
+    {
+        return $query->whereIn('type', ['charge', 'adjustment'])
+            ->where(fn ($q) => $q->whereNull('reference_type')->orWhere('reference_type', '!=', 'check'));
+    }
+
     public function patient(): BelongsTo
     {
         return $this->belongsTo(Patient::class);

@@ -120,6 +120,40 @@ class ReportAccuracyTest extends TestCase
     }
 
     /**
+     * A returned check is booked as a 'charge' to put the debt back. It isn't
+     * new work — the session was already billed — so revenue must not grow
+     * every time a check bounces.
+     */
+    public function test_a_bounced_check_does_not_inflate_revenue(): void
+    {
+        [$patient, $invoice] = $this->billWork(1000);
+        $before = $this->getJson('/api/reports/summary')->json('revenue_ils');
+
+        $check = app(CheckService::class)->receive(
+            direction: 'incoming', partyType: 'patient', partyId: $patient->id, checkNumber: '888', bankName: 'بنك',
+            amount: 1000, currency: 'ILS', dueDate: now()->addMonth()->toDateString(), invoiceId: $invoice->id,
+        );
+        app(CheckService::class)->bounce($check);
+
+        $this->assertEquals($before, $this->getJson('/api/reports/summary')->json('revenue_ils'));
+        $monthly = collect($this->getJson('/api/reports/revenue?granularity=monthly&count=1')->json('periods'))->sum('total_ils');
+        $this->assertEquals($before, $monthly, 'the monthly chart must agree with the summary');
+    }
+
+    /** Every revenue figure is net of discounts, so the per-service and per-doctor views must both add up to the invoice total. */
+    public function test_doctor_productivity_revenue_is_net_of_discounts_like_the_service_report(): void
+    {
+        [, $invoice] = $this->billWork(1000);
+        app(PaymentService::class)->adjustTotal($invoice, 700);
+
+        $doctors = $this->getJson('/api/reports/doctor-productivity')->assertOk()->json('doctors');
+        $services = $this->getJson('/api/reports/revenue-by-service')->assertOk()->json('services');
+
+        $this->assertEquals(700.0, round(array_sum(array_column($doctors, 'revenue_ils')), 2));
+        $this->assertEquals(round(array_sum(array_column($services, 'total_ils')), 2), round(array_sum(array_column($doctors, 'revenue_ils')), 2));
+    }
+
+    /**
      * This endpoint crashed in production with "column reference created_at is
      * ambiguous" — a Postgres-only error, which is exactly why the suite runs
      * on Postgres rather than sqlite.

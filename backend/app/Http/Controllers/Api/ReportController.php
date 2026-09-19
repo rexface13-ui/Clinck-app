@@ -97,7 +97,7 @@ class ReportController extends Controller
         // reversals and price corrections, all stored negative. Summing only
         // the charges reported list price as if nothing was ever discounted,
         // which overstated revenue by the full value of every discount given.
-        $rows = PatientTransaction::whereIn('type', ['charge', 'adjustment'])
+        $rows = PatientTransaction::revenue()
             ->where('occurred_at', '>=', $rangeStart)
             ->get(['amount_ils', 'occurred_at']);
 
@@ -168,6 +168,57 @@ class ReportController extends Controller
         return ['granularity' => $granularity, 'periods' => $out];
     }
 
+    /**
+     * A line keeps its full list price even after the invoice it sits on was
+     * discounted, so summing lines straight credits services and doctors with
+     * money the clinic never earned. Scale each line by its invoice's
+     * discount ratio, and hand the leftover cent(s) of rounding to the
+     * invoice's largest line so the parts always add back to the invoice's
+     * real total.
+     *
+     * @param  \Illuminate\Support\Collection<int, InvoiceLine>  $lines  each with invoice.lines loaded
+     * @return array<int, float> line id => net amount
+     */
+    private function netLineAmounts($lines): array
+    {
+        $net = [];
+        $done = [];
+
+        foreach ($lines as $line) {
+            $invoice = $line->invoice;
+            if (! $invoice) {
+                $net[$line->id] = (float) $line->amount_ils;
+
+                continue;
+            }
+            if (isset($done[$invoice->id])) {
+                continue;
+            }
+            $done[$invoice->id] = true;
+
+            $all = $invoice->lines;
+            $listTotal = (float) $all->sum('amount_ils');
+            $ratio = $listTotal > 0 ? (float) $invoice->total_amount_ils / $listTotal : 1.0;
+
+            $invoiceNet = [];
+            foreach ($all as $l) {
+                $invoiceNet[$l->id] = round((float) $l->amount_ils * $ratio, 2);
+            }
+            if ($listTotal > 0 && $invoiceNet) {
+                $drift = round((float) $invoice->total_amount_ils - array_sum($invoiceNet), 2);
+                if (abs($drift) > 0 && abs($drift) < 0.1) {
+                    $largest = $all->sortByDesc('amount_ils')->first()->id;
+                    $invoiceNet[$largest] = round($invoiceNet[$largest] + $drift, 2);
+                }
+            }
+            foreach ($invoiceNet as $id => $amount) {
+                $net[$id] = $amount;
+            }
+        }
+
+        return $net;
+    }
+
     /** Revenue by service (from invoice lines) within a date range. */
     public function revenueByService(Request $request)
     {
@@ -183,28 +234,12 @@ class ReportController extends Controller
             ->when($data['to'] ?? null, fn ($q, $to) => $q->where('invoice_lines.created_at', '<=', $to.' 23:59:59'))
             ->get();
 
-        // A line keeps its full list price even after the invoice it sits on
-        // was discounted, so summing lines straight would credit each service
-        // with money the clinic never actually earned. Scale every line by its
-        // invoice's discount ratio so the per-service figures add back up to
-        // real revenue.
-        $discountRatio = [];
-        foreach ($lines as $line) {
-            $invoice = $line->invoice;
-            if (! $invoice || isset($discountRatio[$invoice->id])) {
-                continue;
-            }
-            $listTotal = (float) $invoice->lines->sum('amount_ils');
-            $discountRatio[$invoice->id] = $listTotal > 0
-                ? (float) $invoice->total_amount_ils / $listTotal
-                : 1.0;
-        }
+        $net = $this->netLineAmounts($lines);
 
         $totals = [];
         foreach ($lines as $line) {
             $name = $line->workItemToothStep?->workItem?->service?->name ?? 'أخرى';
-            $ratio = $discountRatio[$line->invoice_id] ?? 1.0;
-            $totals[$name] = ($totals[$name] ?? 0) + round((float) $line->amount_ils * $ratio, 2);
+            $totals[$name] = round(($totals[$name] ?? 0) + $net[$line->id], 2);
         }
 
         arsort($totals);
@@ -225,10 +260,16 @@ class ReportController extends Controller
         $doctors = Doctor::where('is_active', true)->get();
 
         $result = $doctors->map(function (Doctor $doctor) use ($data) {
-            $revenue = InvoiceLine::whereHas('workItemToothStep.workItem', fn ($q) => $q->where('doctor_id', $doctor->id))
+            // Net of invoice discounts, same as revenueByService — summing the
+            // raw line prices credited a doctor with money never collected
+            // and made the doctors' revenue disagree with every other report.
+            $doctorLines = InvoiceLine::with('invoice.lines')
+                ->whereHas('workItemToothStep.workItem', fn ($q) => $q->where('doctor_id', $doctor->id))
                 ->when($data['from'] ?? null, fn ($q, $from) => $q->where('created_at', '>=', $from))
                 ->when($data['to'] ?? null, fn ($q, $to) => $q->where('created_at', '<=', $to.' 23:59:59'))
-                ->sum('amount_ils');
+                ->get();
+            $net = $this->netLineAmounts($doctorLines);
+            $revenue = round($doctorLines->sum(fn ($l) => $net[$l->id]), 2);
 
             // A "session" is one work item (one visit's worth of work), which
             // can span several teeth/steps and therefore several invoice
@@ -637,7 +678,7 @@ class ReportController extends Controller
         ]);
 
         // Net of discounts — see revenue() for why adjustments belong here.
-        $revenue = PatientTransaction::whereIn('type', ['charge', 'adjustment'])
+        $revenue = PatientTransaction::revenue()
             ->when($data['from'] ?? null, fn ($q, $from) => $q->where('occurred_at', '>=', $from))
             ->when($data['to'] ?? null, fn ($q, $to) => $q->where('occurred_at', '<=', $to.' 23:59:59'))
             ->sum('amount_ils');

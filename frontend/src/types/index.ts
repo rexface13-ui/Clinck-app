@@ -90,6 +90,9 @@ export interface Patient {
   medical_alerts: string[]
   medical_notes: string | null
   telegram_linked?: boolean
+  is_archived?: boolean
+  archived_at?: string | null
+  archive_note?: string | null
   created_at: string
 }
 

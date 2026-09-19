@@ -7,6 +7,8 @@ import {
   faTriangleExclamation,
   faPen,
   faTrash,
+  faBoxArchive,
+  faRotateLeft,
   faPaperclip,
   faDownload,
   faUpload,
@@ -22,6 +24,7 @@ import VisitHistoryPanel from '../components/VisitHistoryPanel'
 import DatePicker from '../components/DatePicker'
 import AppointmentDetailModal from '../components/AppointmentDetailModal'
 import MedicalHistoryField from '../components/MedicalHistoryField'
+import ArchivePatientModal from '../components/ArchivePatientModal'
 import { Card, Badge, Button, Tabs, Modal, Input } from '../components/ui'
 import { useAuth } from '../contexts/AuthContext'
 import type { PatientProfile, Service, Ledger, Doctor, WorkItem, Attachment } from '../types'
@@ -74,9 +77,8 @@ export default function PatientProfilePage() {
     medical_notes: '',
   })
   const [savingPatient, setSavingPatient] = useState(false)
-  const [deleteConfirmText, setDeleteConfirmText] = useState('')
-  const [deletingPatient, setDeletingPatient] = useState(false)
-  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [showArchive, setShowArchive] = useState(false)
+  const [restoring, setRestoring] = useState(false)
   const tabsRef = useRef<HTMLDivElement>(null)
   /** Teeth selected from the overview chart's "بدء العمل" button — seeds WorkPlanningPanel's own selection once it mounts on the work tab, so the patient doesn't have to re-pick the same teeth twice. */
   const [pendingWorkTeeth, setPendingWorkTeeth] = useState<number[]>([])
@@ -193,18 +195,13 @@ export default function PatientProfilePage() {
     }
   }
 
-  async function forceDeletePatient() {
-    if (!profile) return
-    setDeletingPatient(true)
-    setDeleteError(null)
+  async function restorePatient() {
+    setRestoring(true)
     try {
-      await api.delete(`/patients/${id}/force-delete`, { data: { confirm: deleteConfirmText } })
-      navigate('/patients')
-    } catch (err) {
-      const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
-      setDeleteError(message ?? 'تعذّر الحذف.')
+      await api.post(`/patients/${id}/restore`)
+      load()
     } finally {
-      setDeletingPatient(false)
+      setRestoring(false)
     }
   }
 
@@ -340,6 +337,22 @@ export default function PatientProfilePage() {
         </div>
       )}
 
+      {patient.is_archived && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-background px-4 py-3 text-sm text-ink/80">
+          <span className="flex items-center gap-2">
+            <FontAwesomeIcon icon={faBoxArchive} className="text-muted" />
+            هذا الملف مؤرشف منذ {patient.archived_at}
+            {patient.archive_note ? ` — ${patient.archive_note}` : ''}
+          </span>
+          {can('patients.manage') && (
+            <Button variant="secondary" onClick={restorePatient} loading={restoring}>
+              <FontAwesomeIcon icon={faRotateLeft} />
+              استرجاع من الأرشيف
+            </Button>
+          )}
+        </div>
+      )}
+
       {hasDebt && (
         <div className="mb-4 flex items-center gap-3 rounded-xl border border-danger/30 bg-danger-soft px-4 py-3 text-sm text-danger">
           <FontAwesomeIcon icon={faTriangleExclamation} />
@@ -376,12 +389,24 @@ export default function PatientProfilePage() {
             <FontAwesomeIcon icon={faPen} />
             تعديل
           </button>
-          <Link to={`/appointments?patient_id=${patient.id}`}>
-            <Button>
-              <FontAwesomeIcon icon={faCalendarPlus} />
-              حجز موعد
-            </Button>
-          </Link>
+          {!patient.is_archived && can('patients.manage') && (
+            <button
+              onClick={() => setShowArchive(true)}
+              title="أرشفة الملف — مش حذف، بتقدر ترجّعه"
+              className="flex items-center gap-2 rounded-xl border border-ink/10 px-3 py-2 text-sm text-ink/70 hover:bg-background hover:text-danger"
+            >
+              <FontAwesomeIcon icon={faBoxArchive} />
+              أرشفة
+            </button>
+          )}
+          {!patient.is_archived && (
+            <Link to={`/appointments?patient_id=${patient.id}`}>
+              <Button>
+                <FontAwesomeIcon icon={faCalendarPlus} />
+                حجز موعد
+              </Button>
+            </Link>
+          )}
         </div>
       </Card>
 
@@ -824,35 +849,16 @@ export default function PatientProfilePage() {
                 {savingPatient ? 'جارِ الحفظ...' : 'حفظ'}
               </Button>
             </div>
-
-            {can('patients.manage') && (
-              <div className="col-span-2 mt-2 rounded-xl border border-danger/30 bg-danger-soft/40 p-4">
-                <p className="mb-2 text-sm font-semibold text-danger">منطقة خطر — حذف نهائي</p>
-                <p className="mb-3 text-xs text-danger/80">
-                  بيحذف المريض وكل شي مرتبط فيه نهائياً (مواعيد، شغل، فواتير، دفعات، حساب، ملاحظات، مرفقات) — ما فيه رجوع.
-                  للتأكيد، اكتب اسم المريض بالضبط: <span className="font-semibold">{patient.full_name}</span>
-                </p>
-                <div className="flex gap-2">
-                  <input
-                    value={deleteConfirmText}
-                    onChange={(e) => setDeleteConfirmText(e.target.value)}
-                    placeholder={patient.full_name}
-                    className="flex-1 rounded-lg border border-danger/30 bg-surface px-2 py-1.5 text-sm focus:border-danger focus:outline-none"
-                  />
-                  <Button
-                    variant="danger"
-                    onClick={forceDeletePatient}
-                    loading={deletingPatient}
-                    disabled={deleteConfirmText !== patient.full_name || deletingPatient}
-                  >
-                    حذف نهائي
-                  </Button>
-                </div>
-                {deleteError && <p className="mt-2 text-xs text-danger">{deleteError}</p>}
-              </div>
-            )}
           </div>
         </Modal>
+      )}
+      {showArchive && (
+        <ArchivePatientModal
+          patientId={patient.id}
+          patientName={patient.full_name}
+          onClose={() => setShowArchive(false)}
+          onArchived={() => navigate('/patients')}
+        />
       )}
     </div>
   )

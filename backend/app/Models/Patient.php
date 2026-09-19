@@ -26,7 +26,33 @@ class Patient extends Model
             'birth_date' => 'date',
             'is_child' => 'boolean',
             'medical_alerts' => 'array',
+            'archived_at' => 'datetime',
         ];
+    }
+
+    /** Archived patients keep every record (history, ledger, reports) but drop out of day-to-day lists and pickers. */
+    public function scopeActive($query)
+    {
+        return $query->whereNull('archived_at');
+    }
+
+    public function isArchived(): bool
+    {
+        return $this->archived_at !== null;
+    }
+
+    /**
+     * Signed ledger balance: positive = the patient owes the clinic,
+     * negative = the clinic holds their money. Same formula the ledger,
+     * dashboard and debts pages use.
+     */
+    public function ledgerBalance(): float
+    {
+        $sum = $this->transactions()
+            ->selectRaw("SUM(CASE WHEN type IN ('charge','adjustment') THEN amount_ils ELSE -amount_ils END) as balance")
+            ->value('balance');
+
+        return round((float) $sum, 2);
     }
 
     protected static function booted(): void

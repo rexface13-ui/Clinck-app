@@ -24,6 +24,9 @@ class PatientResource extends JsonResource
             'medical_alerts' => $this->medical_alerts ?? [],
             'medical_notes' => $this->medical_notes,
             'telegram_linked' => $this->relationLoaded('telegramLink') ? $this->telegramLink !== null : false,
+            'is_archived' => $this->archived_at !== null,
+            'archived_at' => $this->archived_at ? display_datetime($this->archived_at) : null,
+            'archive_note' => $this->archive_note,
             'created_at' => display_date($this->created_at),
         ];
     }

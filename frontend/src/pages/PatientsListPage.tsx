@@ -18,6 +18,7 @@ export default function PatientsListPage() {
   const [showForm, setShowForm] = useState(() => searchParams.get('new') === '1')
   const [submitting, setSubmitting] = useState(false)
   const [search, setSearch] = useState('')
+  const [showArchived, setShowArchived] = useState(false)
   const telegramLinkId = searchParams.get('telegram_link_id')
 
   useEffect(() => {
@@ -60,7 +61,10 @@ export default function PatientsListPage() {
     setLoading(true)
     api
       .get('/patients', {
-        params: searchTerm ? { search: searchTerm } : { page: pageNumber },
+        params: {
+          ...(searchTerm ? { search: searchTerm } : { page: pageNumber }),
+          ...(showArchived ? { archived: 1 } : {}),
+        },
       })
       .then((res) => {
         setPatients(res.data.data)
@@ -78,7 +82,7 @@ export default function PatientsListPage() {
     const id = setTimeout(() => loadPatients(search.trim() || undefined, 1), 250)
     return () => clearTimeout(id)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search])
+  }, [search, showArchived])
 
   useEffect(() => {
     if (page === 1) return
@@ -162,14 +166,29 @@ export default function PatientsListPage() {
         }
       />
 
-      <div className="relative mb-4 w-full sm:w-80">
-        <FontAwesomeIcon icon={faMagnifyingGlass} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted" />
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="بحث بالاسم أو رقم الهاتف..."
-          className="w-full rounded-xl border border-border bg-surface py-2.5 pe-3 ps-9 text-sm focus:border-accent focus:outline-none"
-        />
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <div className="relative w-full sm:w-80">
+          <FontAwesomeIcon icon={faMagnifyingGlass} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="بحث بالاسم أو رقم الهاتف..."
+            className="w-full rounded-xl border border-border bg-surface py-2.5 pe-3 ps-9 text-sm focus:border-accent focus:outline-none"
+          />
+        </div>
+        <div className="flex gap-1 rounded-lg border border-border bg-white p-1">
+          {[false, true].map((archived) => (
+            <button
+              key={String(archived)}
+              onClick={() => setShowArchived(archived)}
+              className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                showArchived === archived ? 'bg-accent text-white' : 'text-ink/60 hover:bg-background'
+              }`}
+            >
+              {archived ? 'المؤرشفين' : 'الفعّالين'}
+            </button>
+          ))}
+        </div>
       </div>
 
       {showForm && (
@@ -317,7 +336,7 @@ export default function PatientsListPage() {
             </Thead>
             <tbody>
               {patients.length === 0 ? (
-                <EmptyRow colSpan={5}>لا يوجد مرضى بعد.</EmptyRow>
+                <EmptyRow colSpan={5}>{showArchived ? 'لا يوجد ملفات مؤرشفة.' : 'لا يوجد مرضى بعد.'}</EmptyRow>
               ) : (
                 patients.map((p) => (
                   <Tr key={p.id}>

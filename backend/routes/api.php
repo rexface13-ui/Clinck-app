@@ -83,6 +83,9 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::apiResource('patients', PatientController::class);
     Route::delete('patients/{patient}/force-delete', [PatientController::class, 'forceDestroy']);
+    Route::get('patients/{patient}/archive-preview', [PatientController::class, 'archivePreview']);
+    Route::post('patients/{patient}/archive', [PatientController::class, 'archive']);
+    Route::post('patients/{patient}/restore', [PatientController::class, 'restore']);
     Route::get('patients/{patient}/profile', [PatientController::class, 'profile']);
     Route::post('patients/{patient}/notes', [PatientNoteController::class, 'store']);
     Route::patch('patients/{patient}/notes/{note}', [PatientNoteController::class, 'update']);

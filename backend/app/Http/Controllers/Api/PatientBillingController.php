@@ -187,6 +187,8 @@ class PatientBillingController extends Controller
                 // up as an unexplained "خصم" the clinic never actually gave.
                 $t->reference_type === 'invoice_line_reversal' => $invoiceNumber ? "إلغاء شغل محسوب — فاتورة {$invoiceNumber}" : 'إلغاء شغل محسوب',
                 $t->reference_type === 'patient_discount' => 'خصم عام على الحساب',
+                $t->reference_type === 'archive_retained_credit' => 'مبلغ احتفظت فيه العيادة عند أرشفة الملف',
+                $t->reference_type === 'archive_write_off' => 'إعفاء من الدين عند أرشفة الملف',
                 $t->reference_type === 'check' && $t->type === 'charge' => $checkNumber ? "شيك مرتجع رقم {$checkNumber}" : 'شيك مرتجع',
                 $t->reference_type === 'check' => $checkNumber ? "دفعة بشيك رقم {$checkNumber}" : 'دفعة بشيك',
                 $t->type === 'payment' => 'دفعة نقدية',

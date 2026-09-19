@@ -64,6 +64,12 @@ class AppointmentController extends Controller
     {
         $this->authorize('create', Appointment::class);
 
+        abort_if(
+            \App\Models\Patient::withoutGlobalScopes()->whereKey($request->validated('patient_id'))->whereNotNull('archived_at')->exists(),
+            422,
+            'ملف المريض مؤرشف — استرجعه من الأرشيف أول قبل ما تحجزله موعد.',
+        );
+
         $appointment = Appointment::create($request->validated() + [
             'status' => 'scheduled',
             'created_via' => 'web',
