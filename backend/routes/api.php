@@ -29,6 +29,7 @@ use App\Http\Controllers\Api\PatientRelativeController;
 use App\Http\Controllers\Api\PrescriptionController;
 use App\Http\Controllers\Api\PatientNoteController;
 use App\Http\Controllers\Api\PurchaseInvoiceController;
+use App\Http\Controllers\Api\MoneyFlowReportController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\ServiceCategoryController;
@@ -224,6 +225,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('checks/{check}/request-image', [CheckController::class, 'requestImage']);
 
     // Reports
+    Route::get('reports/money-flow', [MoneyFlowReportController::class, 'index']);
     Route::get('reports/revenue', [ReportController::class, 'revenue']);
     Route::get('reports/revenue-by-service', [ReportController::class, 'revenueByService']);
     Route::get('reports/doctor-productivity', [ReportController::class, 'doctorProductivity']);

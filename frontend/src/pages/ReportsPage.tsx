@@ -4,6 +4,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faSackDollar, faHandHoldingDollar, faReceipt, faScaleBalanced, faTriangleExclamation } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import DatePicker from '../components/DatePicker'
+import MoneyFlowReport from '../components/MoneyFlowReport'
 import { Card, PageHeader, Tabs, Modal, Table, Thead, Th, Td, Tr, StatCard } from '../components/ui'
 
 /** Shared "from/to" range picker for the reports that support server-side date filtering. Empty values mean "all time". */
@@ -992,6 +993,7 @@ export default function ReportsPage() {
         defaultTab="revenue"
         tabs={[
           { key: 'revenue', label: 'الإيرادات', content: <RevenueTab /> },
+          { key: 'money-flow', label: 'الداخل والخارج', content: <MoneyFlowReport /> },
           { key: 'doctors', label: 'إنتاجية الأطباء', content: <DoctorProductivityTab /> },
           { key: 'cash-expenses', label: 'الصندوق والمصاريف', content: <CashAndExpensesTab /> },
           { key: 'suppliers-checks', label: 'الموردين والشيكات', content: <SuppliersAndChecksTab /> },
