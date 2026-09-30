@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faSackDollar, faHandHoldingDollar, faReceipt, faScaleBalanced, faTriangleExclamation, faCircleCheck } from '@fortawesome/free-solid-svg-icons'
@@ -1233,28 +1233,64 @@ function ReconciliationBadge() {
   )
 }
 
+const REPORT_GROUPS = [
+  {
+    key: 'financial',
+    label: 'مالي',
+    tabs: [
+      { key: 'pnl', label: 'بيان الربح والخسارة', content: <ProfitAndLossTab /> },
+      { key: 'revenue', label: 'الإيرادات', content: <RevenueTab /> },
+      { key: 'money-flow', label: 'الداخل والخارج', content: <MoneyFlowReport /> },
+      { key: 'doctors', label: 'إنتاجية الأطباء', content: <DoctorProductivityTab /> },
+      { key: 'cash-expenses', label: 'الصندوق والمصاريف', content: <CashAndExpensesTab /> },
+      { key: 'suppliers-checks', label: 'الموردين والشيكات', content: <SuppliersAndChecksTab /> },
+      { key: 'collections', label: 'طرق التحصيل', content: <CollectionsTab /> },
+    ],
+  },
+  {
+    key: 'clinical',
+    label: 'مرضى وعيادة',
+    tabs: [
+      { key: 'patients', label: 'مرضى جدد/عائدين', content: <PatientsTab /> },
+      { key: 'no-show', label: 'نسبة الغياب', content: <NoShowTab /> },
+      { key: 'debts', label: 'أعمار الديون', content: <DebtsAgingTab /> },
+      { key: 'pending-treatments', label: 'علاجات غير منجزة', content: <PendingTreatmentsTab /> },
+    ],
+  },
+] as const
+
+/** Ten flat tabs used to sit in one row, several off-screen on a normal window — split into "مالي" (the money side) and "مرضى وعيادة" (the clinical side) so each group's own tab bar stays short and scannable. */
+function ReportGroupTabs() {
+  const [group, setGroup] = useState<(typeof REPORT_GROUPS)[number]['key']>('financial')
+  const active = REPORT_GROUPS.find((g) => g.key === group) ?? REPORT_GROUPS[0]
+
+  return (
+    <div>
+      <div className="mb-4 flex gap-2">
+        {REPORT_GROUPS.map((g) => (
+          <button
+            key={g.key}
+            onClick={() => setGroup(g.key)}
+            className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${
+              group === g.key ? 'bg-ink text-white' : 'bg-background text-ink/60 hover:bg-border/60'
+            }`}
+          >
+            {g.label}
+          </button>
+        ))}
+      </div>
+      <Tabs key={active.key} tabs={active.tabs as unknown as { key: string; label: string; content: ReactNode }[]} />
+    </div>
+  )
+}
+
 export default function ReportsPage() {
   return (
     <div>
       <PageHeader title="التقارير" subtitle="نظرة شاملة على أداء العيادة المالي والسريري" />
       <SummaryStrip />
       <ReconciliationBadge />
-      <Tabs
-        defaultTab="pnl"
-        tabs={[
-          { key: 'pnl', label: 'بيان الربح والخسارة', content: <ProfitAndLossTab /> },
-          { key: 'revenue', label: 'الإيرادات', content: <RevenueTab /> },
-          { key: 'money-flow', label: 'الداخل والخارج', content: <MoneyFlowReport /> },
-          { key: 'doctors', label: 'إنتاجية الأطباء', content: <DoctorProductivityTab /> },
-          { key: 'cash-expenses', label: 'الصندوق والمصاريف', content: <CashAndExpensesTab /> },
-          { key: 'suppliers-checks', label: 'الموردين والشيكات', content: <SuppliersAndChecksTab /> },
-          { key: 'patients', label: 'مرضى جدد/عائدين', content: <PatientsTab /> },
-          { key: 'no-show', label: 'نسبة الغياب', content: <NoShowTab /> },
-          { key: 'debts', label: 'أعمار الديون', content: <DebtsAgingTab /> },
-          { key: 'collections', label: 'طرق التحصيل', content: <CollectionsTab /> },
-          { key: 'pending-treatments', label: 'علاجات غير منجزة', content: <PendingTreatmentsTab /> },
-        ]}
-      />
+      <ReportGroupTabs />
     </div>
   )
 }
