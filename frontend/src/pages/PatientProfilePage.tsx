@@ -301,7 +301,12 @@ export default function PatientProfilePage() {
   if (!profile) return <p className="text-sm text-muted">جارِ التحميل...</p>
 
   const { patient, tooth_states, tooth_findings, appointments, notes, attachments } = profile
-  const generalNotes = notes.filter((n) => n.tooth_number === null)
+  // "الملاحظات" used to only show notes with no tooth attached — a note
+  // written from inside a tooth's own detail panel just vanished from this
+  // list entirely, which read as "did that even save?". Every note belongs
+  // here now; a tooth-tagged one just carries a small "سن ٪" badge so it's
+  // still clear where it came from.
+  const allNotes = notes
   const toothNotesByTooth = new Map<number, typeof notes>()
   for (const n of notes) {
     if (n.tooth_number === null) continue
@@ -656,11 +661,11 @@ export default function PatientProfilePage() {
               إضافة
             </Button>
           </div>
-          {generalNotes.length === 0 ? (
-            <p className="text-sm text-muted">لا توجد ملاحظات عامة.</p>
+          {allNotes.length === 0 ? (
+            <p className="text-sm text-muted">لا توجد ملاحظات.</p>
           ) : (
             <ul className="space-y-2">
-              {generalNotes.map((n) => (
+              {allNotes.map((n) => (
                 <li key={n.id} className="border-b border-border/70 pb-2 text-sm last:border-0">
                   {editingNoteId === n.id ? (
                     <div className="flex gap-2">
@@ -675,7 +680,15 @@ export default function PatientProfilePage() {
                   ) : (
                     <>
                       <div className="flex items-start justify-between gap-2">
-                        <p className="text-ink">{n.body}</p>
+                        <div>
+                          {n.tooth_number !== null && (
+                            <span className="ml-1.5 inline-block rounded-md bg-accent-soft px-1.5 py-0.5 text-[11px] font-medium text-accent">
+                              سن {n.tooth_number}
+                              {n.session_label ? ` — ${n.session_label}` : ''}
+                            </span>
+                          )}
+                          <p className="text-ink">{n.body}</p>
+                        </div>
                         <div className="flex shrink-0 gap-2">
                           <button onClick={() => { setEditingNoteId(n.id); setEditingNoteBody(n.body) }} className="text-muted hover:text-accent">
                             <FontAwesomeIcon icon={faPen} />
