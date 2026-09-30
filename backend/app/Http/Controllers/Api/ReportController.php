@@ -270,6 +270,61 @@ class ReportController extends Controller
         return ['services' => collect($totals)->map(fn ($total, $name) => ['service_name' => $name, 'total_ils' => $total])->values()];
     }
 
+    /**
+     * The click-through behind revenueByService(): every actual session that
+     * makes up one service's total — who, which tooth, which doctor, when,
+     * for how much — so "لماذا" a service's number is what it is has an
+     * answer one click away instead of being a dead-end bar on a chart.
+     */
+    public function revenueByServiceDetail(Request $request)
+    {
+        $this->authorizeView($request);
+
+        $data = $request->validate([
+            'service' => ['required', 'string'],
+            'from' => ['nullable', 'date'],
+            'to' => ['nullable', 'date'],
+        ]);
+
+        [$from, $to] = $this->localDateBounds($data['from'] ?? null, $data['to'] ?? null);
+
+        $lines = InvoiceLine::with([
+            'workItemToothStep.workItem.service',
+            'workItemToothStep.workItem.doctor',
+            'invoice.patient',
+            'invoice.lines',
+        ])
+            ->when($from, fn ($q, $v) => $q->where('invoice_lines.created_at', '>=', $v))
+            ->when($to, fn ($q, $v) => $q->where('invoice_lines.created_at', '<=', $v))
+            ->get()
+            ->filter(fn (InvoiceLine $l) => ($l->workItemToothStep?->workItem?->service?->name ?? 'أخرى') === $data['service']);
+
+        $net = $this->netLineAmounts($lines);
+        $labels = SessionLabel::forInvoices($lines->pluck('invoice')->filter()->unique('id'));
+
+        $rows = $lines->sortByDesc('created_at')->values()->map(function (InvoiceLine $line) use ($net, $labels) {
+            $invoice = $line->invoice;
+            $workItem = $line->workItemToothStep?->workItem;
+
+            return [
+                'invoice_id' => $invoice?->id,
+                'patient_id' => $invoice?->patient_id,
+                'patient_name' => $invoice?->patient?->full_name,
+                'session_label' => $invoice ? ($labels[$invoice->id] ?? 'جلسة') : 'جلسة',
+                'doctor_name' => $workItem?->doctor?->full_name,
+                'tooth_number' => $line->workItemToothStep?->tooth_number,
+                'amount_ils' => $net[$line->id] ?? (float) $line->amount_ils,
+                'occurred_at' => display_datetime($line->created_at),
+            ];
+        })->values();
+
+        return [
+            'service' => $data['service'],
+            'total_ils' => round((float) $rows->sum('amount_ils'), 2),
+            'rows' => $rows,
+        ];
+    }
+
     /** Per-doctor production: revenue attributed to their treatment plans + commission paid, within range. */
     public function doctorProductivity(Request $request)
     {

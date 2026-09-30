@@ -75,6 +75,26 @@ class ReportAccuracyTest extends TestCase
     }
 
     /**
+     * The whole point of a report tab isn't the total, it's answering "why"
+     * — clicking a service's bar has to actually show the real sessions
+     * behind it, discounted the same way the total itself is.
+     */
+    public function test_revenue_by_service_detail_lists_the_real_sessions_behind_the_total(): void
+    {
+        [$patient, $invoice] = $this->billWork(1000);
+        app(PaymentService::class)->adjustTotal($invoice, 700);
+
+        $detail = $this->getJson('/api/reports/revenue-by-service/detail?service=حشوة')->assertOk()->json();
+
+        $this->assertEquals(700.0, $detail['total_ils']);
+        $this->assertCount(1, $detail['rows']);
+        $this->assertEquals($patient->id, $detail['rows'][0]['patient_id']);
+        $this->assertEquals($patient->full_name, $detail['rows'][0]['patient_name']);
+        $this->assertEquals(11, $detail['rows'][0]['tooth_number']);
+        $this->assertEquals(700.0, $detail['rows'][0]['amount_ils']);
+    }
+
+    /**
      * Patient checks never touch the payments table, so a report reading only
      * payments silently lost every shekel collected by check.
      */

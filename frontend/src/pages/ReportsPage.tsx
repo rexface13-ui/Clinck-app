@@ -153,6 +153,58 @@ function BarChart({
   )
 }
 
+interface ServiceDetailRow {
+  invoice_id: number | null
+  patient_id: number | null
+  patient_name: string | null
+  session_label: string
+  doctor_name: string | null
+  tooth_number: number | null
+  amount_ils: number
+  occurred_at: string
+}
+
+/**
+ * The click-through behind any "حسب الخدمة" bar or row — every real session
+ * that makes up the number, each one a link straight to that patient. A
+ * total on its own answers "how much"; this is what answers "why".
+ */
+function ServiceDetailPanel({ service, from, to }: { service: string; from?: string; to?: string }) {
+  const [rows, setRows] = useState<ServiceDetailRow[] | null>(null)
+
+  useEffect(() => {
+    setRows(null)
+    api.get('/reports/revenue-by-service/detail', { params: { service, from, to } }).then((res) => setRows(res.data.rows))
+  }, [service, from, to])
+
+  return (
+    <div className="mt-2 rounded-xl bg-background p-4">
+      <h4 className="mb-3 text-xs font-semibold text-ink/70">كل جلسات "{service}"</h4>
+      {!rows ? (
+        <p className="text-xs text-muted">جارِ التحميل...</p>
+      ) : rows.length === 0 ? (
+        <p className="text-xs text-muted">لا توجد جلسات لهالخدمة بهالفترة.</p>
+      ) : (
+        <div className="space-y-1.5">
+          {rows.map((r, i) => (
+            <Link
+              key={i}
+              to={r.patient_id ? `/patients/${r.patient_id}` : '#'}
+              className="flex items-center justify-between rounded-lg bg-surface px-2.5 py-1.5 text-xs hover:bg-accent-soft"
+            >
+              <span className="text-ink/80">
+                {r.patient_name ?? '—'} — {r.session_label}
+                <span className="text-muted"> — {r.doctor_name ?? 'طبيب عام'} — {r.occurred_at}</span>
+              </span>
+              <span className="font-medium text-ink">{money(r.amount_ils)} ₪</span>
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 interface RevenuePeriod {
   key: string
   label: string
@@ -166,11 +218,15 @@ function RevenueDrilldown({ period, granularity }: { period: RevenuePeriod; gran
   const [dayDetail, setDayDetail] = useState<DayDetail | null>(null)
   const [weekDays, setWeekDays] = useState<{ date: string; label: string; revenue_ils: number; expenses_ils: number; net_ils: number }[] | null>(null)
   const [services, setServices] = useState<{ service_name: string; total_ils: number }[] | null>(null)
+  const [openDay, setOpenDay] = useState<string | null>(null)
+  const [openService, setOpenService] = useState<string | null>(null)
 
   useEffect(() => {
     setDayDetail(null)
     setWeekDays(null)
     setServices(null)
+    setOpenDay(null)
+    setOpenService(null)
     if (granularity === 'daily') {
       api.get('/reports/daily-detail', { params: { date: period.key } }).then((res) => setDayDetail(res.data))
     } else if (granularity === 'weekly') {
@@ -187,7 +243,7 @@ function RevenueDrilldown({ period, granularity }: { period: RevenuePeriod; gran
   if (granularity === 'weekly') {
     return (
       <div className="mt-4 rounded-xl bg-background p-4">
-        <h4 className="mb-3 text-xs font-semibold text-ink/70">تفاصيل أسبوع {period.label} يوم بيوم</h4>
+        <h4 className="mb-3 text-xs font-semibold text-ink/70">تفاصيل أسبوع {period.label} يوم بيوم — اضغط أي يوم لتفاصيله</h4>
         {!weekDays ? (
           <p className="text-xs text-muted">جارِ التحميل...</p>
         ) : (
@@ -202,7 +258,11 @@ function RevenueDrilldown({ period, granularity }: { period: RevenuePeriod; gran
             </thead>
             <tbody>
               {weekDays.map((d) => (
-                <tr key={d.date} className="border-b border-border/40 last:border-0">
+                <tr
+                  key={d.date}
+                  onClick={() => setOpenDay(openDay === d.date ? null : d.date)}
+                  className={`cursor-pointer border-b border-border/40 last:border-0 hover:bg-surface ${openDay === d.date ? 'bg-surface' : ''}`}
+                >
                   <td className="p-1.5 text-ink">{d.label}</td>
                   <td className="p-1.5 text-ink">{money(d.revenue_ils)} ₪</td>
                   <td className="p-1.5 text-danger">{money(d.expenses_ils)} ₪</td>
@@ -212,13 +272,14 @@ function RevenueDrilldown({ period, granularity }: { period: RevenuePeriod; gran
             </tbody>
           </table>
         )}
+        {openDay && <DayDrilldown date={openDay} />}
       </div>
     )
   }
 
   return (
     <div className="mt-4 rounded-xl bg-background p-4">
-      <h4 className="mb-3 text-xs font-semibold text-ink/70">تفاصيل إيرادات {period.label} حسب الخدمة</h4>
+      <h4 className="mb-3 text-xs font-semibold text-ink/70">تفاصيل إيرادات {period.label} حسب الخدمة — اضغط خدمة لتفاصيلها</h4>
       {!services ? (
         <p className="text-xs text-muted">جارِ التحميل...</p>
       ) : services.length === 0 ? (
@@ -226,15 +287,34 @@ function RevenueDrilldown({ period, granularity }: { period: RevenuePeriod; gran
       ) : (
         <div className="space-y-2">
           {services.map((s) => (
-            <div key={s.service_name} className="flex items-center justify-between text-xs">
-              <span className="text-ink/80">{s.service_name}</span>
-              <span className="font-medium text-ink">{money(s.total_ils)} ₪</span>
+            <div key={s.service_name}>
+              <button
+                type="button"
+                onClick={() => setOpenService(openService === s.service_name ? null : s.service_name)}
+                className="flex w-full items-center justify-between text-xs hover:text-accent"
+              >
+                <span className={openService === s.service_name ? 'font-semibold text-accent' : 'text-ink/80'}>{s.service_name}</span>
+                <span className="font-medium text-ink">{money(s.total_ils)} ₪</span>
+              </button>
+              {openService === s.service_name && <ServiceDetailPanel service={s.service_name} from={period.from} to={period.to} />}
             </div>
           ))}
         </div>
       )}
     </div>
   )
+}
+
+/** One day's full drill-down (same card the daily-granularity chart uses), reused here so a week's per-day row also goes all the way down to actual sessions. */
+function DayDrilldown({ date }: { date: string }) {
+  const [detail, setDetail] = useState<DayDetail | null>(null)
+
+  useEffect(() => {
+    setDetail(null)
+    api.get('/reports/daily-detail', { params: { date } }).then((res) => setDetail(res.data))
+  }, [date])
+
+  return <div className="mt-3">{detail ? <DayDetailCard detail={detail} /> : <p className="text-xs text-muted">جارِ التحميل...</p>}</div>
 }
 
 function RevenueTab() {
@@ -248,6 +328,7 @@ function RevenueTab() {
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [services, setServices] = useState<{ service_name: string; total_ils: number }[]>([])
+  const [openService, setOpenService] = useState<string | null>(null)
 
   useEffect(() => {
     if (mode !== 'period') return
@@ -261,6 +342,7 @@ function RevenueTab() {
 
   useEffect(() => {
     if (mode !== 'service') return
+    setOpenService(null)
     api.get('/reports/revenue-by-service', { params: { from: from || undefined, to: to || undefined } }).then((res) => setServices(res.data.services))
   }, [from, to, mode])
 
@@ -321,13 +403,18 @@ function RevenueTab() {
             <div className="space-y-3">
               {services.map((s) => (
                 <div key={s.service_name}>
-                  <div className="mb-1 flex justify-between text-sm">
-                    <span className="text-ink/80">{s.service_name}</span>
+                  <button
+                    type="button"
+                    onClick={() => setOpenService(openService === s.service_name ? null : s.service_name)}
+                    className="mb-1 flex w-full justify-between text-sm hover:text-accent"
+                  >
+                    <span className={openService === s.service_name ? 'font-semibold text-accent' : 'text-ink/80'}>{s.service_name}</span>
                     <span className="text-muted">{money(s.total_ils)} ₪ ({servicesTotal > 0 ? Math.round((s.total_ils / servicesTotal) * 100) : 0}%)</span>
-                  </div>
+                  </button>
                   <div className="h-2 w-full rounded-full bg-background">
                     <div className="h-2 rounded-full bg-accent" style={{ width: `${servicesTotal > 0 ? (s.total_ils / servicesTotal) * 100 : 0}%` }} />
                   </div>
+                  {openService === s.service_name && <ServiceDetailPanel service={s.service_name} from={from || undefined} to={to || undefined} />}
                 </div>
               ))}
             </div>
@@ -705,6 +792,7 @@ function ProfitAndLossTab() {
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [pl, setPl] = useState<ProfitAndLoss | null>(null)
+  const [openService, setOpenService] = useState<string | null>(null)
 
   useEffect(() => {
     api.get('/reports/profit-and-loss', { params: { from: from || undefined, to: to || undefined } }).then((res) => setPl(res.data))
@@ -736,15 +824,20 @@ function ProfitAndLossTab() {
               <div className="space-y-3">
                 {pl.income.by_service.map((s) => (
                   <div key={s.name}>
-                    <div className="mb-1 flex justify-between text-sm">
-                      <span className="text-ink/80">{s.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => setOpenService(openService === s.name ? null : s.name)}
+                      className="mb-1 flex w-full justify-between text-sm hover:text-accent"
+                    >
+                      <span className={openService === s.name ? 'font-semibold text-accent' : 'text-ink/80'}>{s.name}</span>
                       <span className="text-muted">
                         {money(s.total_ils)} ₪ ({pl.income.revenue_ils > 0 ? Math.round((s.total_ils / pl.income.revenue_ils) * 100) : 0}%)
                       </span>
-                    </div>
+                    </button>
                     <div className="h-2 w-full rounded-full bg-background">
                       <div className="h-2 rounded-full bg-success" style={{ width: `${pl.income.revenue_ils > 0 ? (s.total_ils / pl.income.revenue_ils) * 100 : 0}%` }} />
                     </div>
+                    {openService === s.name && <ServiceDetailPanel service={s.name} from={from || undefined} to={to || undefined} />}
                   </div>
                 ))}
               </div>
