@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faSackDollar, faHandHoldingDollar, faReceipt, faScaleBalanced, faTriangleExclamation } from '@fortawesome/free-solid-svg-icons'
+import { faSackDollar, faHandHoldingDollar, faReceipt, faScaleBalanced, faTriangleExclamation, faCircleCheck } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
 import DatePicker from '../components/DatePicker'
 import MoneyFlowReport from '../components/MoneyFlowReport'
@@ -984,11 +984,48 @@ function SummaryStrip() {
   )
 }
 
+/**
+ * Two independent code paths compute "revenue" — the patient ledger, and the
+ * invoice lines themselves — and nothing used to confirm they actually
+ * agree. This is that confirmation, front and center on the reports page:
+ * a quiet green line when everything reconciles, and a loud one naming the
+ * exact gap the moment it doesn't, so a data bug shows up here instead of
+ * being discovered by hand-auditing the database months later.
+ */
+function ReconciliationBadge() {
+  const [check, setCheck] = useState<{ ledger_ils: number; invoices_ils: number; difference_ils: number; ok: boolean } | null>(null)
+
+  useEffect(() => {
+    const from = new Date()
+    from.setDate(1)
+    api.get('/reports/reconciliation', { params: { from: from.toISOString().slice(0, 10) } }).then((res) => setCheck(res.data.revenue_check))
+  }, [])
+
+  if (!check) return null
+
+  if (check.ok) {
+    return (
+      <p className="mb-4 flex items-center gap-2 text-xs text-success">
+        <FontAwesomeIcon icon={faCircleCheck} />
+        فحص الدقة: إيراد سجل الحساب مطابق لإيراد الفواتير هالشهر — الأرقام كلها متوافقة.
+      </p>
+    )
+  }
+
+  return (
+    <div className="mb-4 flex items-center gap-2 rounded-lg bg-danger-soft px-3 py-2 text-xs text-danger">
+      <FontAwesomeIcon icon={faTriangleExclamation} />
+      فحص الدقة: في فرق {money(Math.abs(check.difference_ils))} ₪ بين سجل الحساب ({money(check.ledger_ils)} ₪) والفواتير ({money(check.invoices_ils)} ₪) هالشهر — في حركة يدوية ما انعكست صح، لازم تتفحص.
+    </div>
+  )
+}
+
 export default function ReportsPage() {
   return (
     <div>
       <PageHeader title="التقارير" subtitle="نظرة شاملة على أداء العيادة المالي والسريري" />
       <SummaryStrip />
+      <ReconciliationBadge />
       <Tabs
         defaultTab="revenue"
         tabs={[

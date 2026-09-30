@@ -154,6 +154,76 @@ class ReportAccuracyTest extends TestCase
     }
 
     /**
+     * The trust check itself: the ledger's own revenue figure and the
+     * invoice lines' own revenue figure are two independent code paths, so a
+     * normal billed-and-discounted session has to make both agree.
+     */
+    public function test_reconciliation_confirms_ledger_and_invoice_revenue_agree(): void
+    {
+        [, $invoice] = $this->billWork(1000);
+        app(PaymentService::class)->adjustTotal($invoice, 700);
+
+        $check = $this->getJson('/api/reports/reconciliation')->assertOk()->json('revenue_check');
+
+        $this->assertEquals(700.0, $check['ledger_ils']);
+        $this->assertEquals(700.0, $check['invoices_ils']);
+        $this->assertEquals(0.0, $check['difference_ils']);
+        $this->assertTrue($check['ok']);
+    }
+
+    /**
+     * If a ledger adjustment is ever posted without a matching invoice
+     * change (a data bug, not a normal flow), the reconciliation has to
+     * actually notice — otherwise this check is decorative.
+     */
+    public function test_reconciliation_flags_a_real_mismatch(): void
+    {
+        [$patient, ] = $this->billWork(1000);
+
+        // A ledger-only adjustment with nothing behind it on any invoice —
+        // exactly the kind of drift the reconciliation exists to catch.
+        \App\Models\PatientTransaction::create([
+            'patient_id' => $patient->id,
+            'type' => 'adjustment',
+            'reference_type' => 'patient_discount',
+            'amount' => -50,
+            'currency' => 'ILS',
+            'exchange_rate' => 1,
+            'amount_ils' => -50,
+            'occurred_at' => now(),
+        ]);
+
+        $check = $this->getJson('/api/reports/reconciliation')->assertOk()->json('revenue_check');
+
+        $this->assertEquals(950.0, $check['ledger_ils']);
+        $this->assertEquals(1000.0, $check['invoices_ils']);
+        $this->assertEquals(-50.0, $check['difference_ils']);
+        $this->assertFalse($check['ok']);
+    }
+
+    /**
+     * The collected-money side of the same check: cash/card/transfer and
+     * checks both have to show up, and separately from each other so a
+     * "how much actually came in" read never hides one behind the other.
+     */
+    public function test_reconciliation_totals_cash_and_checks_collected(): void
+    {
+        [$patient, $invoice] = $this->billWork(1000);
+        app(PaymentService::class)->collect(patient: $patient, invoice: $invoice, cashbox: $this->cashbox, amount: 400, currency: 'ILS', exchangeRate: 1, method: 'cash');
+
+        app(CheckService::class)->receive(
+            direction: 'incoming', partyType: 'patient', partyId: $patient->id, checkNumber: '777', bankName: 'بنك',
+            amount: 600, currency: 'ILS', dueDate: now()->addMonth()->toDateString(), invoiceId: $invoice->id,
+        );
+
+        $collected = $this->getJson('/api/reports/reconciliation')->assertOk()->json('collected_ils');
+
+        $this->assertEquals(400.0, $collected['cash_card_transfer']);
+        $this->assertEquals(600.0, $collected['checks']);
+        $this->assertEquals(1000.0, $collected['total']);
+    }
+
+    /**
      * This endpoint crashed in production with "column reference created_at is
      * ambiguous" — a Postgres-only error, which is exactly why the suite runs
      * on Postgres rather than sqlite.
@@ -170,7 +240,7 @@ class ReportAccuracyTest extends TestCase
         foreach ([
             'summary', 'revenue-by-service', 'doctor-productivity', 'patients',
             'no-show', 'debts-aging', 'collections', 'pending-treatments',
-            'cashbox-flow', 'suppliers-checks',
+            'cashbox-flow', 'suppliers-checks', 'reconciliation',
         ] as $endpoint) {
             $this->getJson("/api/reports/{$endpoint}")->assertOk();
         }

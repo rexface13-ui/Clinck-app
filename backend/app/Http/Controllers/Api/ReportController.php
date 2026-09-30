@@ -220,6 +220,26 @@ class ReportController extends Controller
         return $net;
     }
 
+    /**
+     * Converts a plain "من/إلى" date pair (as the clinic's own local day,
+     * e.g. "2026-09-29") into UTC instants for filtering timestamp columns.
+     * Several reports used to compare a local calendar date directly against
+     * UTC-stored timestamps — fine at noon, but a charge or payment recorded
+     * late at night could land on the wrong side of midnight once converted
+     * to the clinic's real timezone, making two reports over "the same" date
+     * range disagree by a transaction or two. Every date-ranged report should
+     * go through this instead of comparing raw strings.
+     */
+    private function localDateBounds(?string $from, ?string $to): array
+    {
+        $timezone = config('dentaflow.display_timezone');
+
+        return [
+            $from ? Carbon::parse($from, $timezone)->startOfDay()->timezone('UTC') : null,
+            $to ? Carbon::parse($to, $timezone)->endOfDay()->timezone('UTC') : null,
+        ];
+    }
+
     /** Revenue by service (from invoice lines) within a date range. */
     public function revenueByService(Request $request)
     {
@@ -230,9 +250,11 @@ class ReportController extends Controller
             'to' => ['nullable', 'date'],
         ]);
 
+        [$from, $to] = $this->localDateBounds($data['from'] ?? null, $data['to'] ?? null);
+
         $lines = InvoiceLine::with(['workItemToothStep.workItem.service', 'invoice.lines'])
-            ->when($data['from'] ?? null, fn ($q, $from) => $q->where('invoice_lines.created_at', '>=', $from))
-            ->when($data['to'] ?? null, fn ($q, $to) => $q->where('invoice_lines.created_at', '<=', $to.' 23:59:59'))
+            ->when($from, fn ($q, $v) => $q->where('invoice_lines.created_at', '>=', $v))
+            ->when($to, fn ($q, $v) => $q->where('invoice_lines.created_at', '<=', $v))
             ->get();
 
         $net = $this->netLineAmounts($lines);
@@ -258,16 +280,18 @@ class ReportController extends Controller
             'to' => ['nullable', 'date'],
         ]);
 
+        [$from, $to] = $this->localDateBounds($data['from'] ?? null, $data['to'] ?? null);
+
         $doctors = Doctor::where('is_active', true)->get();
 
-        $result = $doctors->map(function (Doctor $doctor) use ($data) {
+        $result = $doctors->map(function (Doctor $doctor) use ($from, $to) {
             // Net of invoice discounts, same as revenueByService — summing the
             // raw line prices credited a doctor with money never collected
             // and made the doctors' revenue disagree with every other report.
             $doctorLines = InvoiceLine::with('invoice.lines')
                 ->whereHas('workItemToothStep.workItem', fn ($q) => $q->where('doctor_id', $doctor->id))
-                ->when($data['from'] ?? null, fn ($q, $from) => $q->where('created_at', '>=', $from))
-                ->when($data['to'] ?? null, fn ($q, $to) => $q->where('created_at', '<=', $to.' 23:59:59'))
+                ->when($from, fn ($q, $v) => $q->where('created_at', '>=', $v))
+                ->when($to, fn ($q, $v) => $q->where('created_at', '<=', $v))
                 ->get();
             $net = $this->netLineAmounts($doctorLines);
             $revenue = round($doctorLines->sum(fn ($l) => $net[$l->id]), 2);
@@ -277,16 +301,16 @@ class ReportController extends Controller
             // lines — count distinct work items, not invoice lines, so a
             // single multi-tooth visit isn't counted as several sessions.
             $sessionsCount = InvoiceLine::whereHas('workItemToothStep.workItem', fn ($q) => $q->where('doctor_id', $doctor->id))
-                ->when($data['from'] ?? null, fn ($q, $from) => $q->where('created_at', '>=', $from))
-                ->when($data['to'] ?? null, fn ($q, $to) => $q->where('created_at', '<=', $to.' 23:59:59'))
+                ->when($from, fn ($q, $v) => $q->where('created_at', '>=', $v))
+                ->when($to, fn ($q, $v) => $q->where('created_at', '<=', $v))
                 ->join('work_item_tooth_steps', 'invoice_lines.work_item_tooth_step_id', '=', 'work_item_tooth_steps.id')
                 ->distinct('work_item_tooth_steps.work_item_id')
                 ->count('work_item_tooth_steps.work_item_id');
 
             $commission = DoctorTransaction::where('doctor_id', $doctor->id)
                 ->where('type', 'commission')
-                ->when($data['from'] ?? null, fn ($q, $from) => $q->where('created_at', '>=', $from))
-                ->when($data['to'] ?? null, fn ($q, $to) => $q->where('created_at', '<=', $to.' 23:59:59'))
+                ->when($from, fn ($q, $v) => $q->where('created_at', '>=', $v))
+                ->when($to, fn ($q, $v) => $q->where('created_at', '<=', $v))
                 ->sum('amount_ils');
 
             // "Paid" is filtered by settled_at (when the payout actually
@@ -294,8 +318,8 @@ class ReportController extends Controller
             // any time after the commission itself was earned.
             $commissionPaid = DoctorTransaction::where('doctor_id', $doctor->id)
                 ->where('type', 'settlement')
-                ->when($data['from'] ?? null, fn ($q, $from) => $q->where('settled_at', '>=', $from))
-                ->when($data['to'] ?? null, fn ($q, $to) => $q->where('settled_at', '<=', $to.' 23:59:59'))
+                ->when($from, fn ($q, $v) => $q->where('settled_at', '>=', $v))
+                ->when($to, fn ($q, $v) => $q->where('settled_at', '<=', $v))
                 ->sum('amount_ils');
 
             return [
@@ -365,9 +389,11 @@ class ReportController extends Controller
             'to' => ['nullable', 'date'],
         ]);
 
+        [$from, $to] = $this->localDateBounds($data['from'] ?? null, $data['to'] ?? null);
+
         $query = Appointment::whereIn('status', ['done', 'no_show'])
-            ->when($data['from'] ?? null, fn ($q, $from) => $q->where('starts_at', '>=', $from))
-            ->when($data['to'] ?? null, fn ($q, $to) => $q->where('starts_at', '<=', $to.' 23:59:59'));
+            ->when($from, fn ($q, $v) => $q->where('starts_at', '>=', $v))
+            ->when($to, fn ($q, $v) => $q->where('starts_at', '<=', $v));
 
         $rows = $query->get(['status', 'doctor_id']);
 
@@ -460,8 +486,10 @@ class ReportController extends Controller
             'to' => ['nullable', 'date'],
         ]);
 
-        $rows = Payment::when($data['from'] ?? null, fn ($q, $from) => $q->where('paid_at', '>=', $from))
-            ->when($data['to'] ?? null, fn ($q, $to) => $q->where('paid_at', '<=', $to.' 23:59:59'))
+        [$from, $to] = $this->localDateBounds($data['from'] ?? null, $data['to'] ?? null);
+
+        $rows = Payment::when($from, fn ($q, $v) => $q->where('paid_at', '>=', $v))
+            ->when($to, fn ($q, $v) => $q->where('paid_at', '<=', $v))
             ->get(['method', 'amount_ils']);
 
         $labels = ['cash' => 'نقدي', 'card' => 'بطاقة', 'transfer' => 'تحويل', 'check' => 'شيك'];
@@ -477,8 +505,8 @@ class ReportController extends Controller
         $checksTotal = (float) CheckModel::where('direction', 'incoming')
             ->where('party_type', 'patient')
             ->where('status', '!=', 'bounced')
-            ->when($data['from'] ?? null, fn ($q, $from) => $q->where('received_at', '>=', $from))
-            ->when($data['to'] ?? null, fn ($q, $to) => $q->where('received_at', '<=', $to.' 23:59:59'))
+            ->when($from, fn ($q, $v) => $q->where('received_at', '>=', $v))
+            ->when($to, fn ($q, $v) => $q->where('received_at', '<=', $v))
             ->sum('amount');
 
         if ($checksTotal > 0) {
@@ -553,11 +581,13 @@ class ReportController extends Controller
             'to' => ['nullable', 'date'],
         ]);
 
+        [$from, $to] = $this->localDateBounds($data['from'] ?? null, $data['to'] ?? null);
+
         $cashboxes = Cashbox::orderBy('name')->get();
 
         $flows = CashboxTransaction::whereIn('cashbox_id', $cashboxes->pluck('id'))
-            ->when($data['from'] ?? null, fn ($q, $from) => $q->where('occurred_at', '>=', $from))
-            ->when($data['to'] ?? null, fn ($q, $to) => $q->where('occurred_at', '<=', $to.' 23:59:59'))
+            ->when($from, fn ($q, $v) => $q->where('occurred_at', '>=', $v))
+            ->when($to, fn ($q, $v) => $q->where('occurred_at', '<=', $v))
             ->get(['cashbox_id', 'amount']);
 
         $cashboxesOut = $cashboxes->map(function (Cashbox $c) use ($flows) {
@@ -574,8 +604,8 @@ class ReportController extends Controller
         })->values();
 
         $expenseRows = Expense::with('category')
-            ->when($data['from'] ?? null, fn ($q, $from) => $q->where('spent_at', '>=', $from))
-            ->when($data['to'] ?? null, fn ($q, $to) => $q->where('spent_at', '<=', $to.' 23:59:59'))
+            ->when($from, fn ($q, $v) => $q->where('spent_at', '>=', $v))
+            ->when($to, fn ($q, $v) => $q->where('spent_at', '<=', $v))
             ->get();
 
         $byCategory = [];
@@ -678,19 +708,21 @@ class ReportController extends Controller
             'to' => ['nullable', 'date'],
         ]);
 
+        [$from, $to] = $this->localDateBounds($data['from'] ?? null, $data['to'] ?? null);
+
         // Net of discounts — see revenue() for why adjustments belong here.
         $revenue = PatientTransaction::revenue()
-            ->when($data['from'] ?? null, fn ($q, $from) => $q->where('occurred_at', '>=', $from))
-            ->when($data['to'] ?? null, fn ($q, $to) => $q->where('occurred_at', '<=', $to.' 23:59:59'))
+            ->when($from, fn ($q, $v) => $q->where('occurred_at', '>=', $v))
+            ->when($to, fn ($q, $v) => $q->where('occurred_at', '<=', $v))
             ->sum('amount_ils');
 
         $commissions = DoctorTransaction::where('type', 'commission')
-            ->when($data['from'] ?? null, fn ($q, $from) => $q->where('created_at', '>=', $from))
-            ->when($data['to'] ?? null, fn ($q, $to) => $q->where('created_at', '<=', $to.' 23:59:59'))
+            ->when($from, fn ($q, $v) => $q->where('created_at', '>=', $v))
+            ->when($to, fn ($q, $v) => $q->where('created_at', '<=', $v))
             ->sum('amount_ils');
 
-        $expenses = Expense::when($data['from'] ?? null, fn ($q, $from) => $q->where('spent_at', '>=', $from))
-            ->when($data['to'] ?? null, fn ($q, $to) => $q->where('spent_at', '<=', $to.' 23:59:59'))
+        $expenses = Expense::when($from, fn ($q, $v) => $q->where('spent_at', '>=', $v))
+            ->when($to, fn ($q, $v) => $q->where('spent_at', '<=', $v))
             ->sum('amount_ils');
 
         return [
@@ -698,6 +730,80 @@ class ReportController extends Controller
             'commissions_ils' => round((float) $commissions, 2),
             'expenses_ils' => round((float) $expenses, 2),
             'net_profit_ils' => round((float) $revenue - (float) $commissions - (float) $expenses, 2),
+        ];
+    }
+
+    /**
+     * The trust check behind every other report: two independent code paths
+     * compute "revenue" from two different tables (the patient ledger, and
+     * the invoice lines themselves) and nothing used to confirm they agree.
+     * If a manual ledger adjustment is ever posted without its matching
+     * invoice change (or vice versa), the Revenue tab and the Doctor
+     * Productivity / Revenue-by-Service tabs would silently disagree with no
+     * way to notice short of hand-auditing the database. This recomputes
+     * both paths for the same range and flags any gap beyond rounding, plus
+     * a same-range total of everything actually collected (cash, card,
+     * transfer, checks) for a quick "does this look right" sanity read.
+     */
+    public function reconciliation(Request $request)
+    {
+        $this->authorizeView($request);
+
+        $data = $request->validate([
+            'from' => ['nullable', 'date'],
+            'to' => ['nullable', 'date'],
+        ]);
+
+        [$from, $to] = $this->localDateBounds($data['from'] ?? null, $data['to'] ?? null);
+
+        // Path A: the patient ledger's own view (charges + adjustments —
+        // discounts, reversals, price corrections all included).
+        $ledgerRevenue = round((float) PatientTransaction::revenue()
+            ->when($from, fn ($q, $v) => $q->where('occurred_at', '>=', $v))
+            ->when($to, fn ($q, $v) => $q->where('occurred_at', '<=', $v))
+            ->sum('amount_ils'), 2);
+
+        // Path B: the invoice lines' own view, net of each invoice's discount
+        // ratio — same math revenueByService()/doctorProductivity() use, but
+        // for every line in range (no doctor/service filter), so it's a true
+        // whole-clinic figure to check path A against.
+        $lines = InvoiceLine::with('invoice.lines')
+            ->when($from, fn ($q, $v) => $q->where('invoice_lines.created_at', '>=', $v))
+            ->when($to, fn ($q, $v) => $q->where('invoice_lines.created_at', '<=', $v))
+            ->get();
+        $net = $this->netLineAmounts($lines);
+        $invoiceRevenue = round((float) $lines->sum(fn ($l) => $net[$l->id]), 2);
+
+        $revenueDiff = round($ledgerRevenue - $invoiceRevenue, 2);
+
+        // Everything actually collected in range, cash/card/transfer plus
+        // patient checks (which never touch the payments table — see
+        // collections()) — a side figure, not compared for equality against
+        // revenue, since collection timing can lag or lead billing.
+        $collectedCashCardTransfer = round((float) Payment::when($from, fn ($q, $v) => $q->where('paid_at', '>=', $v))
+            ->when($to, fn ($q, $v) => $q->where('paid_at', '<=', $v))
+            ->sum('amount_ils'), 2);
+
+        $collectedChecks = round((float) CheckModel::where('direction', 'incoming')
+            ->where('party_type', 'patient')
+            ->where('status', '!=', 'bounced')
+            ->when($from, fn ($q, $v) => $q->where('received_at', '>=', $v))
+            ->when($to, fn ($q, $v) => $q->where('received_at', '<=', $v))
+            ->sum('amount'), 2);
+
+        return [
+            'range' => ['from' => $data['from'] ?? null, 'to' => $data['to'] ?? null],
+            'revenue_check' => [
+                'ledger_ils' => $ledgerRevenue,
+                'invoices_ils' => $invoiceRevenue,
+                'difference_ils' => $revenueDiff,
+                'ok' => abs($revenueDiff) < 0.5,
+            ],
+            'collected_ils' => [
+                'cash_card_transfer' => $collectedCashCardTransfer,
+                'checks' => $collectedChecks,
+                'total' => round($collectedCashCardTransfer + $collectedChecks, 2),
+            ],
         ];
     }
 
