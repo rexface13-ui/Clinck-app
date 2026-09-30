@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { MouseEvent as ReactMouseEvent } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faPen, faTrash, faNoteSticky, faPlay, faFileInvoice } from '@fortawesome/free-solid-svg-icons'
 import { Odontogram } from 'react-odontogram'
@@ -599,7 +598,9 @@ export default function ToothChart({
           </p>
         )}
 
-        {isChild && !pickMode && <PermanentToothPicker onAdd={(n) => setSelection((prev) => (prev.includes(n) ? prev : [...prev, n]))} />}
+        {isChild && !pickMode && (
+          <PermanentToothPicker onAdd={(n) => setSelection(selectedTeeth.includes(n) ? selectedTeeth : [...selectedTeeth, n])} />
+        )}
 
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <button type="button" onClick={selectAll} className="rounded-lg border border-ink/10 px-2.5 py-1 text-xs text-ink/70 hover:border-accent hover:text-accent">
