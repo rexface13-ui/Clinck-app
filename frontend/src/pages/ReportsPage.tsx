@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faSackDollar, faHandHoldingDollar, faReceipt, faScaleBalanced, faTriangleExclamation, faCircleCheck } from '@fortawesome/free-solid-svg-icons'
 import { api } from '../lib/api'
@@ -1334,8 +1334,25 @@ const REPORT_GROUPS = [
 
 /** Ten flat tabs used to sit in one row, several off-screen on a normal window — split into "مالي" (the money side) and "مرضى وعيادة" (the clinical side) so each group's own tab bar stays short and scannable. */
 function ReportGroupTabs() {
-  const [group, setGroup] = useState<(typeof REPORT_GROUPS)[number]['key']>('financial')
-  const active = REPORT_GROUPS.find((g) => g.key === group) ?? REPORT_GROUPS[0]
+  // Which group/tab is open lives in the URL, not just component state —
+  // otherwise clicking a patient from a drill-down (a real page navigation)
+  // and then hitting the browser's Back button always landed back on the
+  // default "مالي" group and its first tab, no matter what was open before.
+  // Updates use replace so flipping through tabs doesn't pile up separate
+  // Back-stops of its own; only the URL's current snapshot matters.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const groupKey = (searchParams.get('group') as (typeof REPORT_GROUPS)[number]['key'] | null) ?? 'financial'
+  const active = REPORT_GROUPS.find((g) => g.key === groupKey) ?? REPORT_GROUPS[0]
+  const tabKey = searchParams.get('tab') ?? active.tabs[0].key
+
+  function setGroup(key: string) {
+    const next = REPORT_GROUPS.find((g) => g.key === key) ?? REPORT_GROUPS[0]
+    setSearchParams({ group: key, tab: next.tabs[0].key }, { replace: true })
+  }
+
+  function setTab(key: string) {
+    setSearchParams({ group: groupKey, tab: key }, { replace: true })
+  }
 
   return (
     <div>
@@ -1345,14 +1362,19 @@ function ReportGroupTabs() {
             key={g.key}
             onClick={() => setGroup(g.key)}
             className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${
-              group === g.key ? 'bg-ink text-white' : 'bg-background text-ink/60 hover:bg-border/60'
+              groupKey === g.key ? 'bg-ink text-white' : 'bg-background text-ink/60 hover:bg-border/60'
             }`}
           >
             {g.label}
           </button>
         ))}
       </div>
-      <Tabs key={active.key} tabs={active.tabs as unknown as { key: string; label: string; content: ReactNode }[]} />
+      <Tabs
+        key={active.key}
+        tabs={active.tabs as unknown as { key: string; label: string; content: ReactNode }[]}
+        active={tabKey}
+        onActiveChange={setTab}
+      />
     </div>
   )
 }
