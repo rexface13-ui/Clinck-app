@@ -136,6 +136,29 @@ class TelegramService
         }
     }
 
+    /** Same as sendPhoto(), for a non-image attachment (a PDF report, a scan saved as .docx...) Telegram can't render inline as a photo. */
+    public function sendDocument(int $chatId, string $absoluteFilePath, string $caption = ''): bool
+    {
+        if (! $this->enabled() || ! is_file($absoluteFilePath)) {
+            return false;
+        }
+
+        try {
+            $response = Http::timeout(20)
+                ->attach('document', file_get_contents($absoluteFilePath), basename($absoluteFilePath))
+                ->post("https://api.telegram.org/bot{$this->token()}/sendDocument", [
+                    'chat_id' => $chatId,
+                    'caption' => $caption,
+                ]);
+
+            return $response->successful();
+        } catch (\Throwable $e) {
+            Log::warning('Telegram sendDocument failed', ['error' => $e->getMessage()]);
+
+            return false;
+        }
+    }
+
     /**
      * Resolves a Telegram file_id (from an incoming photo message) to its
      * raw binary content — used to save a check photo a staff member sends

@@ -190,4 +190,55 @@ class CheckImageNotificationTest extends TestCase
         $this->assertNotEmpty($sent);
         $this->assertStringContainsString('sendPhoto', $sent[0]);
     }
+
+    /**
+     * The owner asked for this specifically: picking a doctor when adding a
+     * check's photo should reach that doctor's own Telegram too, even if
+     * they hold no owner/accountant role — the broadcast list is role-based
+     * and would otherwise leave them out entirely.
+     */
+    public function test_the_chosen_doctor_also_receives_the_check_photo(): void
+    {
+        Storage::fake('local');
+        config(['telegram.bot_token' => 'test-token']);
+
+        $doctor = $this->makeDoctor();
+        TelegramLink::create(['doctor_id' => $doctor->id, 'telegram_chat_id' => 777888999, 'linked_at' => now()]);
+
+        $patient = $this->makePatient();
+        $check = app(CheckService::class)->receive(
+            direction: 'incoming', partyType: 'patient', partyId: $patient->id,
+            checkNumber: '3001', bankName: null, amount: 300, currency: 'ILS', dueDate: now()->addMonth()->toDateString(),
+        );
+        $imagePath = UploadedFile::fake()->image('check.jpg')->store('checks', 'local');
+
+        $bodies = [];
+        Http::fake(function ($request) use (&$bodies) {
+            $bodies[] = $request->body();
+
+            return Http::response(['ok' => true], 200);
+        });
+
+        Artisan::call(TelegramNotifyCheckImage::class, ['checkId' => $check->id, 'imagePath' => $imagePath, 'doctorId' => $doctor->id]);
+
+        $this->assertTrue(
+            collect($bodies)->contains(fn ($body) => str_contains($body, '777888999')),
+            'The chosen doctor\'s chat id must appear in one of the sendPhoto calls.',
+        );
+    }
+
+    /** Passing no doctorId at all must keep behaving exactly like before — the parameter is additive, never required. */
+    public function test_the_process_still_passes_no_doctor_id_when_none_was_chosen(): void
+    {
+        Process::fake();
+        $patient = $this->makePatient();
+
+        app(CheckService::class)->receive(
+            direction: 'incoming', partyType: 'patient', partyId: $patient->id,
+            checkNumber: '3002', bankName: null, amount: 100, currency: 'ILS', dueDate: now()->addMonth()->toDateString(),
+            image: $this->image(),
+        );
+
+        Process::assertRan(fn ($process) => in_array('telegram:notify-check-image', $process->command, true) && count($process->command) === 5);
+    }
 }

@@ -49,6 +49,7 @@ class CheckController extends Controller
             'image' => ['nullable', 'image', 'max:5120'],
             'image2' => ['nullable', 'image', 'max:5120'],
             'invoice_id' => ['nullable', Rule::exists('invoices', 'id')],
+            'notify_doctor_id' => ['nullable', Rule::exists('doctors', 'id')],
         ]);
 
         return $checkService->receive(
@@ -63,6 +64,7 @@ class CheckController extends Controller
             image: $request->file('image'),
             image2: $request->file('image2'),
             invoiceId: isset($data['invoice_id']) ? (int) $data['invoice_id'] : null,
+            notifyDoctorId: isset($data['notify_doctor_id']) ? (int) $data['notify_doctor_id'] : null,
         );
     }
 
@@ -106,9 +108,15 @@ class CheckController extends Controller
         $data = $request->validate([
             'image' => ['required', 'image', 'max:5120'],
             'slot' => ['nullable', 'integer', Rule::in([1, 2])],
+            'notify_doctor_id' => ['nullable', 'integer', 'exists:doctors,id'],
         ]);
 
-        return $checkService->attachImage($check, $request->file('image'), (int) ($data['slot'] ?? 1));
+        return $checkService->attachImage(
+            $check,
+            $request->file('image'),
+            (int) ($data['slot'] ?? 1),
+            isset($data['notify_doctor_id']) ? (int) $data['notify_doctor_id'] : null,
+        );
     }
 
     /**

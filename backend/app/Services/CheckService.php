@@ -35,6 +35,7 @@ class CheckService
         ?UploadedFile $image = null,
         ?UploadedFile $image2 = null,
         ?int $invoiceId = null,
+        ?int $notifyDoctorId = null,
     ): CheckModel {
         // Applying a check to an invoice is what lets that invoice ever read
         // as settled; only meaningful for a patient's incoming check, and only
@@ -100,10 +101,10 @@ class CheckService
         });
 
         if ($check->image_path) {
-            $this->queueImageNotification($check, $check->image_path);
+            $this->queueImageNotification($check, $check->image_path, $notifyDoctorId);
         }
         if ($check->image_path_2) {
-            $this->queueImageNotification($check, $check->image_path_2);
+            $this->queueImageNotification($check, $check->image_path_2, $notifyDoctorId);
         }
 
         return $check;
@@ -125,10 +126,14 @@ class CheckService
      * instant either way, and the notification is fire-and-forget: it either
      * gets there or it doesn't, nobody's waiting on it.
      */
-    private function queueImageNotification(CheckModel $check, string $imagePath): void
+    private function queueImageNotification(CheckModel $check, string $imagePath, ?int $notifyDoctorId = null): void
     {
         try {
-            Process::path(base_path())->start([PHP_BINARY, 'artisan', 'telegram:notify-check-image', (string) $check->id, $imagePath]);
+            $args = [PHP_BINARY, 'artisan', 'telegram:notify-check-image', (string) $check->id, $imagePath];
+            if ($notifyDoctorId) {
+                $args[] = (string) $notifyDoctorId;
+            }
+            Process::path(base_path())->start($args);
         } catch (\Throwable $e) {
             // Never let a failure to even launch the notifier block or fail
             // the check itself — same fire-and-forget spirit as the process it starts.
@@ -137,11 +142,14 @@ class CheckService
 
     /**
      * Notifies every owner/accountant with a linked Telegram chat as soon as
-     * a check's photo is on file, so they can verify it without opening the app.
-     * Called from the detached `telegram:notify-check-image` command, never
-     * directly from a request — see queueImageNotification() above.
+     * a check's photo is on file, so they can verify it without opening the
+     * app — plus, if the person adding the check picked a specific doctor
+     * (e.g. it's their patient's check), that doctor too, even if they're
+     * neither an owner nor an accountant. Called from the detached
+     * `telegram:notify-check-image` command, never directly from a request —
+     * see queueImageNotification() above.
      */
-    public function notifyImageReceived(CheckModel $check, string $imagePath): void
+    public function notifyImageReceived(CheckModel $check, string $imagePath, ?int $notifyDoctorId = null): void
     {
         $absolutePath = Storage::disk('local')->path($imagePath);
         $caption = sprintf(
@@ -152,10 +160,18 @@ class CheckService
             $check->due_date->format('Y-m-d'),
         );
 
-        TelegramLink::whereNotNull('linked_at')
+        $recipients = TelegramLink::whereNotNull('linked_at')
             ->get()
-            ->filter(fn (TelegramLink $link) => $link->user?->hasAnyRole(['owner', 'accountant']))
-            ->each(fn (TelegramLink $link) => $this->telegram->sendPhoto($link->telegram_chat_id, $absolutePath, $caption));
+            ->filter(fn (TelegramLink $link) => $link->user?->hasAnyRole(['owner', 'accountant']));
+
+        if ($notifyDoctorId) {
+            $doctorLink = TelegramLink::activeForDoctor(\App\Models\Doctor::find($notifyDoctorId));
+            if ($doctorLink && ! $recipients->contains('id', $doctorLink->id)) {
+                $recipients->push($doctorLink);
+            }
+        }
+
+        $recipients->each(fn (TelegramLink $link) => $this->telegram->sendPhoto($link->telegram_chat_id, $absolutePath, $caption));
     }
 
     /**
@@ -164,7 +180,7 @@ class CheckService
      * front, but a second side (or a photo that only becomes available
      * later) can be added afterward. `$slot` is 1 or 2.
      */
-    public function attachImage(CheckModel $check, UploadedFile $image, int $slot = 1): CheckModel
+    public function attachImage(CheckModel $check, UploadedFile $image, int $slot = 1, ?int $notifyDoctorId = null): CheckModel
     {
         $column = $slot === 2 ? 'image_path_2' : 'image_path';
 
@@ -175,7 +191,7 @@ class CheckService
         $newPath = $image->store('checks', 'local');
         $check->update([$column => $newPath]);
 
-        $this->queueImageNotification($check, $newPath);
+        $this->queueImageNotification($check, $newPath, $notifyDoctorId);
 
         return $check->fresh();
     }

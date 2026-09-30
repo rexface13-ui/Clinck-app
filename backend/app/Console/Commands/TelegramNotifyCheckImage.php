@@ -9,7 +9,7 @@ use Illuminate\Console\Command;
 
 class TelegramNotifyCheckImage extends Command
 {
-    protected $signature = 'telegram:notify-check-image {checkId} {imagePath}';
+    protected $signature = 'telegram:notify-check-image {checkId} {imagePath} {doctorId?}';
 
     protected $description = 'Sends a just-added check image to every linked owner/accountant. Launched as a detached process by CheckService so a slow/unreachable Telegram never blocks the request that saved the check.';
 
@@ -22,7 +22,8 @@ class TelegramNotifyCheckImage extends Command
             return self::SUCCESS;
         }
 
-        $service->notifyImageReceived($check, (string) $this->argument('imagePath'));
+        $doctorId = $this->argument('doctorId');
+        $service->notifyImageReceived($check, (string) $this->argument('imagePath'), $doctorId ? (int) $doctorId : null);
 
         return self::SUCCESS;
     }

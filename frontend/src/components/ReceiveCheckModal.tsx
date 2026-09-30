@@ -43,10 +43,13 @@ export default function ReceiveCheckModal({ partyType, partyId, direction = 'inc
   const [staff, setStaff] = useState<{ id: number; name: string }[]>([])
   const [requestingPhoto, setRequestingPhoto] = useState(false)
   const [requestUserId, setRequestUserId] = useState('')
+  const [doctors, setDoctors] = useState<{ id: number; full_name: string }[]>([])
+  const [notifyDoctorId, setNotifyDoctorId] = useState('')
 
   useEffect(() => {
     if (createdCheck) {
       api.get('/users').then((res) => setStaff(res.data.data.map((u: { id: number; name: string }) => ({ id: u.id, name: u.name }))))
+      api.get('/doctors').then((res) => setDoctors(res.data.data))
     }
   }, [createdCheck])
 
@@ -84,6 +87,7 @@ export default function ReceiveCheckModal({ partyType, partyId, direction = 'inc
     try {
       const data = new FormData()
       data.append('image', file)
+      if (notifyDoctorId) data.append('notify_doctor_id', notifyDoctorId)
       await api.post(`/checks/${createdCheck.id}/image`, data, { headers: { 'Content-Type': 'multipart/form-data' } })
       setImageAttached(true)
     } finally {
@@ -114,6 +118,15 @@ export default function ReceiveCheckModal({ partyType, partyId, direction = 'inc
           {!imageAttached && !requestingPhoto && (
             <div className="space-y-2 rounded-lg bg-background p-3">
               <p className="text-xs text-muted">صورة الشيك (اختياري) — بطريقتين:</p>
+              <div>
+                <label className="mb-1 block text-xs text-muted">ابعت الصورة لطبيب معيّن عبر تيليغرام؟ (اختياري)</label>
+                <SearchableSelect
+                  options={doctors.map((d) => ({ value: String(d.id), label: d.full_name }))}
+                  value={notifyDoctorId}
+                  onChange={setNotifyDoctorId}
+                  placeholder="بدون إشعار طبيب"
+                />
+              </div>
               <input
                 ref={imageInputRef}
                 type="file"

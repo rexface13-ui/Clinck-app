@@ -12,6 +12,7 @@ use App\Services\TelegramService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Storage;
 
 class PatientAttachmentController extends Controller
@@ -42,7 +43,24 @@ class PatientAttachmentController extends Controller
             ]);
         }));
 
+        $notifyDoctorId = $request->input('notify_doctor_id');
+        if ($notifyDoctorId) {
+            foreach ($attachments as $attachment) {
+                $this->queueTelegramNotification($attachment, (int) $notifyDoctorId);
+            }
+        }
+
         return AttachmentResource::collection($attachments)->response()->setStatusCode(201);
+    }
+
+    /** Detached process, same fire-and-forget spirit as CheckService's own check-image notification — an unreachable Telegram must never slow down or fail the upload itself. */
+    private function queueTelegramNotification(Attachment $attachment, int $doctorId): void
+    {
+        try {
+            Process::path(base_path())->start([PHP_BINARY, 'artisan', 'telegram:notify-attachment', (string) $attachment->id, (string) $doctorId]);
+        } catch (\Throwable $e) {
+            // Ignored — see above.
+        }
     }
 
     private function titleAt(mixed $titles, int $index): ?string

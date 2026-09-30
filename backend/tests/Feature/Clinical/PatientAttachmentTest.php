@@ -2,8 +2,13 @@
 
 namespace Tests\Feature\Clinical;
 
+use App\Console\Commands\TelegramNotifyAttachment;
 use App\Models\Attachment;
+use App\Models\TelegramLink;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
@@ -18,6 +23,10 @@ class PatientAttachmentTest extends TestCase
     {
         parent::setUp();
         Storage::fake('local');
+        // The detached notifier command pins tenancy to local_clinic_id (it
+        // runs outside a request) — point it at the clinic this test actually
+        // seeded, same fix as CheckImageNotificationTest.
+        config(['dentaflow.local_clinic_id' => \App\Support\Tenancy\CurrentClinic::id()]);
     }
 
     public function test_several_files_upload_in_one_go(): void
@@ -163,5 +172,105 @@ class PatientAttachmentTest extends TestCase
                 ->assertStatus(422)
                 ->assertJsonValidationErrors('count');
         }
+    }
+
+    /**
+     * Picking a doctor while uploading has to actually launch the push
+     * notifier — same detached-process contract as a check's own photo, so
+     * an unreachable Telegram can never slow down the upload response.
+     */
+    public function test_uploading_with_a_chosen_doctor_launches_the_notifier(): void
+    {
+        Process::fake();
+        $patient = $this->makePatient();
+        $doctor = $this->makeDoctor();
+
+        $this->actingAs($this->owner)->postJson("/api/patients/{$patient->id}/attachments", [
+            'file' => UploadedFile::fake()->image('xray.jpg'),
+            'notify_doctor_id' => $doctor->id,
+        ])->assertCreated();
+
+        Process::assertRan(fn ($process) => in_array('telegram:notify-attachment', $process->command, true));
+    }
+
+    /** Uploading without picking anyone must not launch it at all — the push is opt-in per upload. */
+    public function test_uploading_without_a_doctor_launches_nothing(): void
+    {
+        Process::fake();
+        $patient = $this->makePatient();
+
+        $this->actingAs($this->owner)->postJson("/api/patients/{$patient->id}/attachments", [
+            'file' => UploadedFile::fake()->image('xray.jpg'),
+        ])->assertCreated();
+
+        Process::assertDidntRun(fn ($process) => in_array('telegram:notify-attachment', $process->command, true));
+    }
+
+    /** The detached command is what actually reaches Telegram — an image attachment goes through as a photo. */
+    public function test_the_detached_command_sends_an_image_attachment_as_a_photo_to_the_chosen_doctor(): void
+    {
+        config(['telegram.bot_token' => 'test-token']);
+        $patient = $this->makePatient();
+        $doctor = $this->makeDoctor();
+        TelegramLink::create(['doctor_id' => $doctor->id, 'telegram_chat_id' => 123123123, 'linked_at' => now()]);
+
+        $id = $this->actingAs($this->owner)->postJson("/api/patients/{$patient->id}/attachments", [
+            'file' => UploadedFile::fake()->image('xray.jpg'),
+        ])->assertCreated()->json('data.0.id');
+
+        $sent = [];
+        Http::fake(function ($request) use (&$sent) {
+            $sent[] = $request->url();
+
+            return Http::response(['ok' => true], 200);
+        });
+
+        Artisan::call(TelegramNotifyAttachment::class, ['attachmentId' => $id, 'doctorId' => $doctor->id]);
+
+        $this->assertNotEmpty($sent);
+        $this->assertStringContainsString('sendPhoto', $sent[0]);
+    }
+
+    /** A non-image attachment (a PDF report, say) can't render as a photo — it goes through as a document instead. */
+    public function test_the_detached_command_sends_a_non_image_attachment_as_a_document(): void
+    {
+        config(['telegram.bot_token' => 'test-token']);
+        $patient = $this->makePatient();
+        $doctor = $this->makeDoctor();
+        TelegramLink::create(['doctor_id' => $doctor->id, 'telegram_chat_id' => 123123124, 'linked_at' => now()]);
+
+        $id = $this->actingAs($this->owner)->postJson("/api/patients/{$patient->id}/attachments", [
+            'file' => UploadedFile::fake()->create('report.pdf', 10, 'application/pdf'),
+        ])->assertCreated()->json('data.0.id');
+
+        $sent = [];
+        Http::fake(function ($request) use (&$sent) {
+            $sent[] = $request->url();
+
+            return Http::response(['ok' => true], 200);
+        });
+
+        Artisan::call(TelegramNotifyAttachment::class, ['attachmentId' => $id, 'doctorId' => $doctor->id]);
+
+        $this->assertNotEmpty($sent);
+        $this->assertStringContainsString('sendDocument', $sent[0]);
+    }
+
+    /** No linked chat for that doctor — the command must just do nothing, not error out. */
+    public function test_the_detached_command_is_a_no_op_when_the_doctor_has_no_linked_telegram(): void
+    {
+        config(['telegram.bot_token' => 'test-token']);
+        $patient = $this->makePatient();
+        $doctor = $this->makeDoctor();
+
+        $id = $this->actingAs($this->owner)->postJson("/api/patients/{$patient->id}/attachments", [
+            'file' => UploadedFile::fake()->image('xray.jpg'),
+        ])->assertCreated()->json('data.0.id');
+
+        Http::fake();
+
+        Artisan::call(TelegramNotifyAttachment::class, ['attachmentId' => $id, 'doctorId' => $doctor->id]);
+
+        Http::assertNothingSent();
     }
 }

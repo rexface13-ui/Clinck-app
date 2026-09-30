@@ -25,7 +25,7 @@ import DatePicker from '../components/DatePicker'
 import AppointmentDetailModal from '../components/AppointmentDetailModal'
 import MedicalHistoryField from '../components/MedicalHistoryField'
 import ArchivePatientModal from '../components/ArchivePatientModal'
-import { Card, Badge, Button, Tabs, Modal, Input } from '../components/ui'
+import { Card, Badge, Button, Tabs, Modal, Input, SearchableSelect } from '../components/ui'
 import { useAuth } from '../contexts/AuthContext'
 import type { PatientProfile, Service, Ledger, Doctor, WorkItem, Attachment } from '../types'
 
@@ -57,6 +57,7 @@ export default function PatientProfilePage() {
   const [editingNoteBody, setEditingNoteBody] = useState('')
   const [uploadingAttachment, setUploadingAttachment] = useState(false)
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
+  const [attachmentNotifyDoctorId, setAttachmentNotifyDoctorId] = useState('')
   const [telegramRequest, setTelegramRequest] = useState<string | null>(null)
   const attachmentInputRef = useRef<HTMLInputElement>(null)
   const [activeTab, setActiveTab] = useState(searchParams.get('tab') === 'work' ? 'work' : 'overview')
@@ -234,6 +235,7 @@ export default function PatientProfilePage() {
       // A whole set — an x-ray series, before/after photos — goes up in one
       // request, so a half-uploaded batch can't be left behind.
       files.forEach((file) => formData.append('files[]', file))
+      if (attachmentNotifyDoctorId) formData.append('notify_doctor_id', attachmentNotifyDoctorId)
       await api.post(`/patients/${id}/attachments`, formData)
       load()
     } catch {
@@ -710,12 +712,20 @@ export default function PatientProfilePage() {
         </Card>
 
         <Card className="p-6">
-          <div className="mb-3 flex items-center justify-between">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-sm font-medium text-ink/70">
               <FontAwesomeIcon icon={faPaperclip} className="ml-2 text-muted" />
               المرفقات
             </h2>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="w-40">
+                <SearchableSelect
+                  options={doctors.map((d) => ({ value: String(d.id), label: d.full_name }))}
+                  value={attachmentNotifyDoctorId}
+                  onChange={setAttachmentNotifyDoctorId}
+                  placeholder="بدون إشعار طبيب"
+                />
+              </div>
               <Button
                 onClick={() => attachmentInputRef.current?.click()}
                 loading={uploadingAttachment}

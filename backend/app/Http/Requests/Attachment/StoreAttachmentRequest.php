@@ -23,6 +23,10 @@ class StoreAttachmentRequest extends FormRequest
             'title' => ['nullable', 'string', 'max:255'],
             'titles' => ['nullable', 'array'],
             'titles.*' => ['nullable', 'string', 'max:255'],
+            // Optional: push the image ones straight to this doctor's Telegram
+            // once saved — same "don't make them dig through the app" idea as
+            // a check's own photo notification.
+            'notify_doctor_id' => ['nullable', 'integer', 'exists:doctors,id'],
         ];
     }
 
