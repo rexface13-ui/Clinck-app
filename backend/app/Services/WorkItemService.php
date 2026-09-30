@@ -137,18 +137,18 @@ class WorkItemService
      * already enforces that — so removing a tooth with billed flat-fee work
      * on it fails with a clear message instead of silently losing the charge.
      */
-    public function removeTooth(WorkItem $workItem, int $toothNumber): void
+    public function removeTooth(WorkItem $workItem, int $toothNumber, bool $force = false): void
     {
         $workItem->loadMissing('teeth', 'toothSteps');
 
         $isLastTooth = $workItem->teeth->count() <= 1;
 
-        DB::transaction(function () use ($workItem, $toothNumber, $isLastTooth) {
+        DB::transaction(function () use ($workItem, $toothNumber, $isLastTooth, $force) {
             $toothSteps = $workItem->toothSteps->where('tooth_number', $toothNumber);
 
             foreach ($toothSteps as $toothStep) {
                 if ($toothStep->invoice_line_id) {
-                    $this->reverseBilledToothStep($toothStep);
+                    $this->reverseBilledToothStep($toothStep, $force);
                 }
             }
 
@@ -382,7 +382,7 @@ class WorkItemService
     }
 
     /** Toggles one tooth's progress on one step, and/or saves its field values. Nothing is billed here — billing happens at checkout(). */
-    public function updateToothStep(WorkItemToothStep $toothStep, ?bool $completed, ?array $fieldValues): WorkItemToothStep
+    public function updateToothStep(WorkItemToothStep $toothStep, ?bool $completed, ?array $fieldValues, bool $force = false): WorkItemToothStep
     {
         if ($fieldValues !== null) {
             $toothStep->update(['field_values' => $fieldValues]);
@@ -396,7 +396,7 @@ class WorkItemService
                 // free no-op, it has to give the money back too, otherwise
                 // the tooth reads as "not done" while the patient was still
                 // charged for it.
-                $this->reverseBilledToothStep($toothStep);
+                $this->reverseBilledToothStep($toothStep, $force);
             } else {
                 $toothStep->update(['completed_at' => null]);
             }
@@ -438,17 +438,29 @@ class WorkItemService
      * a flat-fee step's single invoice line is shared across every tooth
      * that had it, so there's no single tooth's worth of price to hand back.
      */
-    protected function reverseBilledToothStep(WorkItemToothStep $toothStep): void
+    protected function reverseBilledToothStep(WorkItemToothStep $toothStep, bool $force = false): void
     {
         $toothStep->loadMissing('workItem');
         abort_unless($toothStep->workItem->price_per_tooth, 422, 'ما فيك تلغي سن واحد من خطوة سعرها إجمالي وليس فردي — لازم تلغي كل الخطوة.');
 
-        DB::transaction(function () use ($toothStep) {
+        DB::transaction(function () use ($toothStep, $force) {
             $line = InvoiceLine::find($toothStep->invoice_line_id);
 
             if ($line) {
                 $invoice = $line->invoice;
                 $price = (float) $line->amount_ils;
+
+                // The patient may have already actually paid toward this
+                // invoice — reversing the charge without flagging that just
+                // quietly leaves them "له عندك" (in credit) with no one
+                // having decided that's fine. Same spirit as archiving: ask
+                // first, unless the caller already confirmed (force).
+                $paid = (float) $invoice->settled_amount_ils;
+                $remainingAfter = max(0, (float) $invoice->total_amount_ils - min($price, (float) $invoice->total_amount_ils));
+                if (! $force && $paid > $remainingAfter + 0.01) {
+                    abort(422, "هاي الجلسة متسددة فعلاً بمبلغ {$paid} ₪ — لو ألغيت هالشغل، صار للمريض رصيد له عندك بدل ما يكون خصم بسيط. أكّد إذا بدك تكمل.");
+                }
+
                 $line->delete();
 
                 // total_amount_ils isn't always the sum of invoice lines — a
@@ -855,11 +867,36 @@ class WorkItemService
      * had it), so this works regardless of billing status instead of
      * refusing outright.
      */
-    public function cancel(WorkItem $workItem): void
+    public function cancel(WorkItem $workItem, bool $force = false): void
     {
-        DB::transaction(function () use ($workItem) {
+        DB::transaction(function () use ($workItem, $force) {
             $toothSteps = $workItem->toothSteps()->whereNotNull('invoice_line_id')->get();
             $lineIds = $toothSteps->pluck('invoice_line_id')->unique();
+
+            // Same "already paid?" check reverseBilledToothStep() does —
+            // checked up front, across every invoice this cancellation would
+            // touch, so the confirm can name the real total before anything
+            // is actually deleted.
+            if (! $force) {
+                $paidTotal = 0.0;
+                foreach ($lineIds as $lineId) {
+                    $line = InvoiceLine::find($lineId);
+                    if (! $line) {
+                        continue;
+                    }
+                    $invoice = $line->invoice;
+                    $price = (float) $line->amount_ils;
+                    $remainingAfter = max(0, (float) $invoice->total_amount_ils - min($price, (float) $invoice->total_amount_ils));
+                    $overPaid = (float) $invoice->settled_amount_ils - $remainingAfter;
+                    if ($overPaid > 0.01) {
+                        $paidTotal += $overPaid;
+                    }
+                }
+                if ($paidTotal > 0.01) {
+                    $paidTotal = round($paidTotal, 2);
+                    abort(422, "هاي الجلسة متسددة فعلاً بمبلغ {$paidTotal} ₪ — لو حذفتها، صار للمريض رصيد له عندك بدل ما يكون خصم بسيط. أكّد إذا بدك تكمل.");
+                }
+            }
 
             foreach ($lineIds as $lineId) {
                 $line = InvoiceLine::find($lineId);

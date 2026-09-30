@@ -15,18 +15,22 @@ import {
 } from '@fortawesome/free-solid-svg-icons'
 import { Odontogram } from 'react-odontogram'
 import 'react-odontogram/style.css'
-import { api } from '../lib/api'
+import { api, withPaidConfirm } from '../lib/api'
+import { useAuth } from '../contexts/AuthContext'
 import DatePicker from './DatePicker'
+import PermanentToothPicker from './PermanentToothPicker'
 import ToothNotesModal from './ToothNotesModal'
 import ReceiveCheckModal from './ReceiveCheckModal'
 import { Card, Button, Select, SearchableSelect, Badge } from './ui'
 import type { BadgeVariant } from './ui'
 import Modal from './ui/Modal'
 import {
+  CALLOUT_SIDE_PAD,
   OdontogramBridgeOverlay,
   OdontogramClickOverlay,
   OdontogramNumberOverlay,
   OdontogramSelectionOverlay,
+  ToothCalloutOverlay,
   useOdontogramGeometry,
 } from './OdontogramNumbers'
 import {
@@ -118,9 +122,39 @@ export default function WorkPlanningPanel({
   focusWorkItemId?: number | null
   onFocusConsumed?: () => void
 }) {
+  const { data: authData } = useAuth()
   const containerRef = useRef<HTMLDivElement>(null)
   const toothNumbers = isChild ? [...UPPER_PRIMARY, ...LOWER_PRIMARY] : [...UPPER_PERMANENT, ...LOWER_PERMANENT]
   const toLibraryId = isChild ? toLibraryToothId : (n: number) => `teeth-${n}`
+  // Same callout side-margin measurement ToothChart.tsx uses, kept in sync
+  // so the leader lines/arrows line up with the real teeth at any width.
+  const [containerWidthPx, setContainerWidthPx] = useState(460)
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width
+      if (width) setContainerWidthPx(width)
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+  // Reuses the same shared callout layout the overview tab's "رتّب أماكن
+  // الليبلات" saves — one template for every chart, not a second one to
+  // arrange here from scratch.
+  const [offsetOverrides, setOffsetOverrides] = useState<Map<number, { dx: number; dy: number }>>(new Map())
+  useEffect(() => {
+    const raw = authData?.settings?.tooth_callout_offsets
+    if (typeof raw !== 'string') return
+    try {
+      const parsed = JSON.parse(raw) as Record<string, [number, number]>
+      const map = new Map<number, { dx: number; dy: number }>()
+      for (const [tooth, [dx, dy]] of Object.entries(parsed)) map.set(Number(tooth), { dx, dy })
+      setOffsetOverrides(map)
+    } catch {
+      // ignore malformed stored layout
+    }
+  }, [authData?.settings?.tooth_callout_offsets])
   // Odontogram manages its own selection internally after mount — the only
   // way to push OUR selection changes back into it is to force a remount
   // with a fresh `defaultSelected` (see ToothChart.tsx for the same pattern).
@@ -448,7 +482,7 @@ export default function WorkPlanningPanel({
         await api.post(`/work-items/${w.id}/teeth`, { tooth_numbers: addedTeeth })
       }
       for (const tooth of removedTeeth) {
-        await api.delete(`/work-items/${w.id}/teeth/${tooth}`)
+        await withPaidConfirm((force) => api.delete(`/work-items/${w.id}/teeth/${tooth}`, { data: { force } }))
       }
       for (const step of w.steps) {
         const edited = editedPrices[step.id]
@@ -484,11 +518,11 @@ export default function WorkPlanningPanel({
       }
     }
     try {
-      await api.patch(`/work-items/${workItem.id}/tooth-steps/${toothStepId}`, { completed })
+      await withPaidConfirm((force) => api.patch(`/work-items/${workItem.id}/tooth-steps/${toothStepId}`, { completed, force }))
       loadWorkItems(workItem.id)
     } catch (err) {
       const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
-      window.alert(message ?? 'صار خطأ أثناء الإلغاء.')
+      if (message) window.alert(message)
     }
   }
 
@@ -617,7 +651,7 @@ export default function WorkPlanningPanel({
   async function cancelWorkItem(workItem: WorkItem) {
     if (!window.confirm('حذف هالشغل بالكامل؟ لو كان انحسب منه شي، الحساب رح يترجع متل قبل.')) return
     try {
-      await api.delete(`/work-items/${workItem.id}`)
+      await withPaidConfirm((force) => api.delete(`/work-items/${workItem.id}`, { data: { force } }))
       loadWorkItems()
       onChanged?.()
       if (activeWorkItemId === workItem.id) setActiveWorkItemId(null)
@@ -877,6 +911,61 @@ export default function WorkPlanningPanel({
 
   const geometry = useOdontogramGeometry(containerRef, toothNumbers, toLibraryId, [chartKey, isChild])
 
+  const notesCountByTooth = useMemo(() => {
+    const map = new Map<number, number>()
+    notes.forEach((n) => {
+      if (n.tooth_number === null) return
+      map.set(n.tooth_number, (map.get(n.tooth_number) ?? 0) + 1)
+    })
+    return map
+  }, [notes])
+
+  /**
+   * Same "what was done, right on the chart" callout the overview tab
+   * shows — a short label + leader line next to every tooth with an active
+   * finding, so this tab doesn't need a click just to see what a worked
+   * tooth already has. Teeth done together under the same work item
+   * (plan_id) collapse into one label, same grouping as the overview.
+   */
+  const calloutTeeth = useMemo(() => {
+    if (!geometry) return []
+    const [, , w] = geometry.viewBox.split(' ').map(Number)
+    const groups = new Map<string, { teeth: number[]; done: boolean; serviceLabel: string }>()
+    for (const n of toothNumbers) {
+      const finding = activeFindingByTooth.get(n)
+      if (!finding) continue
+      const serviceLabel = (finding.service_name ?? finding.finding_type ?? '').slice(0, 16)
+      if (!serviceLabel) continue
+      const key = finding.plan_id != null ? `plan-${finding.plan_id}` : `single-${finding.id}`
+      const g = groups.get(key)
+      if (g) {
+        g.teeth.push(n)
+        g.done = g.done && finding.status === 'done'
+      } else {
+        groups.set(key, { teeth: [n], done: finding.status === 'done', serviceLabel })
+      }
+    }
+    return Array.from(groups.values())
+      .map((g) => {
+        const centers = g.teeth.map((n) => geometry.centers.get(n)).filter((c): c is { x: number; y: number } => !!c)
+        if (centers.length === 0) return null
+        const cx = centers.reduce((s, c) => s + c.x, 0) / centers.length
+        const cy = centers.reduce((s, c) => s + c.y, 0) / centers.length
+        const sorted = [...g.teeth].sort((a, b) => a - b)
+        const range = sorted.length > 1 ? `${sorted[0]}-${sorted[sorted.length - 1]}` : String(sorted[0])
+        const label = sorted.length > 1 ? `${range}: ${g.serviceLabel}` : g.serviceLabel
+        return {
+          number: Math.min(...g.teeth),
+          teeth: g.teeth,
+          center: { x: cx, y: cy },
+          label,
+          done: g.done,
+          side: cx < w / 2 ? 'left' : 'right',
+        } as const
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null)
+  }, [geometry, toothNumbers, activeFindingByTooth])
+
   const serviceOptions = services.map((s) => ({ value: String(s.id), label: s.name }))
   const doctorOptions = doctors.map((d) => ({ value: String(d.id), label: d.full_name }))
   const editingItem = workItems.find((wi) => wi.id === editingWorkItemId) ?? null
@@ -1053,6 +1142,12 @@ export default function WorkPlanningPanel({
           </div>
         </div>
 
+        {isChild && !editingWorkItemId && (
+          <PermanentToothPicker
+            onAdd={(n) => setSelection((prev) => (prev.includes(n) ? prev : [...prev, n]))}
+          />
+        )}
+
         {editingWorkItemId && editingItem && (
           <div className="mb-4 border-b border-ink/10 pb-4">
             <div className="mb-2 flex items-center justify-between">
@@ -1070,7 +1165,8 @@ export default function WorkPlanningPanel({
             container's real available width made both compress it. Full
             size beats clever positioning, so: stacked, chart at its natural
             size, fields in a card right below it. */}
-        <div ref={containerRef} className="relative mx-auto" style={{ maxWidth: 500 }}>
+        <div className="relative mx-auto" style={{ maxWidth: 500 + CALLOUT_SIDE_PAD * 2 }}>
+          <div ref={containerRef} className="relative mx-auto" style={{ maxWidth: 500 }}>
           <Odontogram
             key={chartKey}
             layout="circle"
@@ -1091,6 +1187,17 @@ export default function WorkPlanningPanel({
           {geometry && <OdontogramSelectionOverlay geometry={geometry} selected={selectedTeeth} />}
           {geometry && <OdontogramNumberOverlay geometry={geometry} toothNumbers={toothNumbers} />}
           {geometry && <OdontogramClickOverlay geometry={geometry} toothNumbers={toothNumbers} onSelect={toggleTooth} />}
+          </div>
+          {geometry && calloutTeeth.length > 0 && (
+            <ToothCalloutOverlay
+              geometry={geometry}
+              teeth={calloutTeeth}
+              notesCountByTooth={notesCountByTooth}
+              onSelectTooth={toggleTooth}
+              containerWidthPx={containerWidthPx}
+              offsetOverrides={offsetOverrides}
+            />
+          )}
         </div>
 
         <div className="mx-auto mt-4 grid gap-4 rounded-xl border border-border bg-background p-4 sm:grid-cols-2" style={{ maxWidth: 500 }}>

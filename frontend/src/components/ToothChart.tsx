@@ -4,16 +4,18 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faPen, faTrash, faNoteSticky, faPlay, faFileInvoice } from '@fortawesome/free-solid-svg-icons'
 import { Odontogram } from 'react-odontogram'
 import 'react-odontogram/style.css'
-import { api } from '../lib/api'
+import { api, withPaidConfirm } from '../lib/api'
 import { useAuth } from '../contexts/AuthContext'
 import ToothNotesModal from './ToothNotesModal'
 import InvoiceDetailModal from './InvoiceDetailModal'
+import PermanentToothPicker from './PermanentToothPicker'
 import {
   OdontogramBridgeOverlay,
   OdontogramClickOverlay,
   OdontogramMarkerOverlay,
   OdontogramNumberOverlay,
   OdontogramSelectionOverlay,
+  ToothCalloutOverlay,
   useOdontogramGeometry,
   type ToothMarker,
 } from './OdontogramNumbers'
@@ -187,6 +189,25 @@ export default function ToothChart({
     return map
   }, [toothFindings])
 
+  /** Shared color logic for a single finding — used both for a tooth's normal active finding and (below) for the last real per-tooth work a bridge finding shouldn't be allowed to hide. */
+  function colorForFinding(finding: ToothFinding): string {
+    if (finding.service_color) {
+      const done = finding.status === 'done'
+      return done ? finding.service_color : fadeHex(finding.service_color, 0.55)
+    }
+    if (finding.status === 'planned' || finding.status === 'in_progress') return STATUS_COLOR.planned
+    return STATUS_COLOR.done
+  }
+
+  /** Latest finding per tooth that is real per-tooth work (not a bridge/appliance span) — so drawing a bridge across teeth that already have their own work doesn't erase that work's color, only adds the connecting line on top. */
+  const lastOwnFindingByTooth = useMemo(() => {
+    const map = new Map<number, ToothFinding>()
+    toothFindings.forEach((f) => {
+      if (f.service_id && !f.service_spans_teeth && !map.has(f.tooth_number)) map.set(f.tooth_number, f)
+    })
+    return map
+  }, [toothFindings])
+
   function toothColor(tooth: number): string {
     const finding = activeFindingByTooth.get(tooth)
     // A missing tooth still shows the service's own color when the reason
@@ -196,20 +217,20 @@ export default function ToothChart({
     // plain no-service case falls back to the gray "missing" swatch.
     if (stateByTooth.get(tooth) === 'missing' && !finding?.service_id) return STATUS_COLOR.missing
     if (!finding) return DEFAULT_TOOTH_FILL
-    // A bridge/appliance tooth stays plain — the connecting line (see
-    // OdontogramBridgeOverlay) is what marks it as part of the bridge,
-    // filling every tooth's crown with the service color too was too much.
-    if (finding.service_spans_teeth) return DEFAULT_TOOTH_FILL
+    // A bridge/appliance tooth's own crown stays plain by default — the
+    // connecting line (see OdontogramBridgeOverlay) is what marks it as part
+    // of the bridge. But if that tooth already had real work done on it
+    // before the bridge, keep showing that work's color underneath the
+    // bridge line instead of wiping it back to the default fill.
+    if (finding.service_spans_teeth) {
+      const ownFinding = lastOwnFindingByTooth.get(tooth)
+      return ownFinding ? colorForFinding(ownFinding) : DEFAULT_TOOTH_FILL
+    }
     // A service's own color is the primary signal once one's assigned — it's
     // what lets the same chart tell a filling apart from a cleaning at a
     // glance. Falls back to the old generic planned/done colors for
     // services that never got a color (or free-text findings).
-    if (finding.service_color) {
-      const done = finding.status === 'done'
-      return done ? finding.service_color : fadeHex(finding.service_color, 0.55)
-    }
-    if (finding.status === 'planned' || finding.status === 'in_progress') return STATUS_COLOR.planned
-    return STATUS_COLOR.done
+    return colorForFinding(finding)
   }
 
   /** Teeth worked on by an outside party get a distinct outline color, layered on top of whatever status color already applies (the library has no dashed-ring equivalent). */
@@ -578,6 +599,8 @@ export default function ToothChart({
           </p>
         )}
 
+        {isChild && !pickMode && <PermanentToothPicker onAdd={(n) => setSelection((prev) => (prev.includes(n) ? prev : [...prev, n]))} />}
+
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <button type="button" onClick={selectAll} className="rounded-lg border border-ink/10 px-2.5 py-1 text-xs text-ink/70 hover:border-accent hover:text-accent">
             تحديد الكل
@@ -835,7 +858,7 @@ export default function ToothChart({
                     <button
                       onClick={async () => {
                         if (!window.confirm('حذف هالشغل بالكامل؟ لو كان انحسب منه شي، الحساب رح يترجع متل قبل.')) return
-                        await api.delete(`/work-items/${toothSessions.pending[0].workItemId}`)
+                        await withPaidConfirm((force) => api.delete(`/work-items/${toothSessions.pending[0].workItemId}`, { data: { force } }))
                         onChanged()
                       }}
                       title="حذف الشغل"
@@ -1008,165 +1031,4 @@ const STATUS_LABEL: Record<'planned' | 'in_progress' | 'done', string> = {
   planned: 'مخطط',
   in_progress: 'قيد التنفيذ',
   done: 'منجز',
-}
-
-interface CalloutTooth {
-  /** The representative tooth — lowest number in the group, used as the drag/click/override key. */
-  number: number
-  /** Every tooth this one label covers — more than one for a multi-tooth session (bridge, several teeth done together). */
-  teeth: number[]
-  center: { x: number; y: number }
-  label: string
-  done: boolean
-  side: 'left' | 'right'
-}
-
-/**
- * Side-panel-style callouts (like a radiology/anatomy diagram): a short
- * leader line + arrowhead from every worked tooth out to a label in the
- * chart's side margin, naming what was done — visible at a glance, no
- * click needed. Clicking a label selects that tooth, opening the same
- * detail panel (step progress, session history, notebook) a tooth click
- * would — that's the point of the callout: get the details without having
- * to find and click the tiny tooth shape itself.
- *
- * Shares the same viewBox *units* as the tooth chart's own overlays, just
- * extended with extra room on both sides (SIDE_PAD, converted to viewBox
- * units at the chart's own px-per-unit scale) so a tooth's real measured
- * position and the label position line up correctly across both SVGs.
- */
-function ToothCalloutOverlay({
-  geometry,
-  teeth,
-  notesCountByTooth,
-  onSelectTooth,
-  containerWidthPx,
-  editMode = false,
-  offsetOverrides,
-  onDragOffset,
-}: {
-  geometry: { viewBox: string }
-  teeth: CalloutTooth[]
-  notesCountByTooth: Map<number, number>
-  onSelectTooth: (toothNumber: number) => void
-  /** The chart container's real, currently-rendered pixel width — used (not a hardcoded 460) so the side margin stays correctly proportioned at any screen size, including once the layout shrinks responsively. */
-  containerWidthPx: number
-  /** While on, labels can be dragged instead of opening the tooth on click. */
-  editMode?: boolean
-  /** Manually-placed positions (viewBox units, relative to the tooth's own center) saved as a shared template — takes over from the default radial guess for any tooth that has one. */
-  offsetOverrides?: Map<number, { dx: number; dy: number }>
-  onDragOffset?: (toothNumber: number, dx: number, dy: number) => void
-}) {
-  const svgRef = useRef<SVGSVGElement>(null)
-  const [, , w, h] = geometry.viewBox.split(' ').map(Number)
-  const padUnits = SIDE_PAD * (w / containerWidthPx)
-  const viewBox = `${-padUnits} 0 ${w + padUnits * 2} ${h}`
-
-  // Each label sits a short distance straight out from its own tooth, in the
-  // direction away from the arch's center — "حوالين السن" — instead of the
-  // old design that pushed every label out to a shared side margin far from
-  // the tooth it described. Distance is in real pixels (via containerWidthPx)
-  // so it looks the same short hop at any screen size. A manually-dragged
-  // override (see labelEditMode above) replaces this guess entirely once set.
-  const offsetUnits = 80 * (w / containerWidthPx)
-  const cx = w / 2
-  const cy = h / 2
-  const rows = teeth.map((t) => {
-    const override = offsetOverrides?.get(t.number)
-    let dx: number
-    let dy: number
-    if (override) {
-      dx = override.dx
-      dy = override.dy
-    } else {
-      const rawDx = t.center.x - cx
-      const rawDy = t.center.y - cy
-      const len = Math.hypot(rawDx, rawDy) || 1
-      dx = (rawDx / len) * offsetUnits
-      dy = (rawDy / len) * offsetUnits
-    }
-    const labelX = t.center.x + dx
-    const labelY = t.center.y + dy
-    const anchor: 'start' | 'middle' | 'end' = dx > 8 ? 'start' : dx < -8 ? 'end' : 'middle'
-    return { ...t, labelX, labelY, anchor }
-  })
-
-  /** Converts a mouse event's screen position into this SVG's own viewBox coordinate space — same getScreenCTM technique the rest of the chart's overlays already rely on for pixel-accurate placement. */
-  function toSvgPoint(clientX: number, clientY: number): { x: number; y: number } | null {
-    const svg = svgRef.current
-    if (!svg) return null
-    const ctm = svg.getScreenCTM()
-    if (!ctm) return null
-    const pt = svg.createSVGPoint()
-    pt.x = clientX
-    pt.y = clientY
-    const local = pt.matrixTransform(ctm.inverse())
-    return { x: local.x, y: local.y }
-  }
-
-  function startDrag(toothNumber: number, center: { x: number; y: number }, e: ReactMouseEvent) {
-    if (!editMode || !onDragOffset) return
-    e.preventDefault()
-    e.stopPropagation()
-    function onMove(ev: MouseEvent) {
-      const p = toSvgPoint(ev.clientX, ev.clientY)
-      if (!p) return
-      onDragOffset!(toothNumber, p.x - center.x, p.y - center.y)
-    }
-    function onUp() {
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
-    }
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
-  }
-
-  return (
-    // pointer-events-none on the root is essential — this overlay's pixel
-    // box fully covers the tooth chart underneath (including the real
-    // click-target overlay), so without it every label/line here would
-    // swallow clicks meant for the teeth themselves. Only the label text
-    // opts back in (pointer-events-auto) to stay clickable.
-    <svg ref={svgRef} viewBox={viewBox} className="pointer-events-none absolute inset-0 size-full" style={{ overflow: 'visible' }}>
-      <defs>
-        <marker id="tooth-callout-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-          <path d="M0,0 L8,4 L0,8 z" fill="var(--color-ink)" opacity={0.75} />
-        </marker>
-      </defs>
-      {rows.map((t) => {
-        const noteCount = t.teeth.reduce((sum, n) => sum + (notesCountByTooth.get(n) ?? 0), 0)
-        return (
-          <g key={t.number}>
-            <line
-              x1={t.center.x}
-              y1={t.center.y}
-              x2={t.labelX + (t.anchor === 'end' ? 8 : -8)}
-              y2={t.labelY}
-              stroke="var(--color-ink)"
-              strokeOpacity={0.6}
-              strokeWidth={1.25}
-              markerEnd="url(#tooth-callout-arrow)"
-            />
-            <text
-              x={t.labelX}
-              y={t.labelY}
-              textAnchor={t.anchor}
-              dominantBaseline="middle"
-              fontSize="11"
-              fontWeight={600}
-              fill={t.done ? 'var(--color-ink)' : 'var(--color-tooth-planned)'}
-              className={`pointer-events-auto select-none ${editMode ? 'cursor-move' : 'cursor-pointer hover:underline'}`}
-              onMouseDown={(e) => startDrag(t.number, t.center, e)}
-              onClick={() => {
-                if (!editMode) onSelectTooth(t.number)
-              }}
-            >
-              {t.number}: {t.label}
-              {noteCount > 0 ? ` 📝${noteCount}` : ''}
-            </text>
-          </g>
-        )
-      })}
-    </svg>
-  )
 }

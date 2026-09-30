@@ -74,7 +74,7 @@ class EditingOldWorkTest extends TestCase
         $this->assertSame(40.0, $this->commissionOf($doctor->id), 'Two teeth at 100, 20% each.');
 
         $toothStep = WorkItemToothStep::where('work_item_id', $workItem->id)->where('tooth_number', 11)->firstOrFail();
-        app(WorkItemService::class)->updateToothStep($toothStep, false, null);
+        app(WorkItemService::class)->updateToothStep($toothStep, false, null, force: true);
 
         $invoice = $invoice->fresh();
 
@@ -107,7 +107,7 @@ class EditingOldWorkTest extends TestCase
         [$patient, $doctor, $workItem, $invoice] = $this->oldPaidSession(100);
 
         $toothStep = WorkItemToothStep::where('work_item_id', $workItem->id)->where('tooth_number', 11)->firstOrFail();
-        app(WorkItemService::class)->updateToothStep($toothStep, false, null);
+        app(WorkItemService::class)->updateToothStep($toothStep, false, null, force: true);
         app(WorkItemService::class)->updateToothStep($toothStep->fresh(), true, null);
 
         app(WorkItemService::class)->checkout(
@@ -139,7 +139,7 @@ class EditingOldWorkTest extends TestCase
     {
         [$patient, $doctor, $workItem, $invoice] = $this->oldPaidSession(100);
 
-        app(WorkItemService::class)->removeTooth($workItem, 11);
+        app(WorkItemService::class)->removeTooth($workItem, 11, force: true);
 
         $this->assertEquals(100, $invoice->fresh()->total_amount_ils);
         $this->assertSame(-100.0, $this->balanceOf($patient->id));
@@ -152,7 +152,7 @@ class EditingOldWorkTest extends TestCase
     {
         [$patient, $doctor, $workItem, $invoice] = $this->oldPaidSession(100);
 
-        app(WorkItemService::class)->cancel($workItem);
+        app(WorkItemService::class)->cancel($workItem, force: true);
 
         $this->assertEquals(0, $invoice->fresh()->total_amount_ils);
         $this->assertSame('cancelled', $workItem->fresh()->status);
@@ -166,7 +166,7 @@ class EditingOldWorkTest extends TestCase
         [$patient, , $workItem] = $this->oldPaidSession(100);
 
         $toothStep = WorkItemToothStep::where('work_item_id', $workItem->id)->where('tooth_number', 11)->firstOrFail();
-        app(WorkItemService::class)->updateToothStep($toothStep, false, null);
+        app(WorkItemService::class)->updateToothStep($toothStep, false, null, force: true);
 
         $this->assertSame(-100.0, $this->balanceOf($patient->id));
 
@@ -217,11 +217,34 @@ class EditingOldWorkTest extends TestCase
         $this->assertEquals(300, $invoice->fresh()->total_amount_ils);
 
         $toothStep = WorkItemToothStep::where('work_item_id', $workItem->id)->where('tooth_number', 21)->firstOrFail();
-        app(WorkItemService::class)->updateToothStep($toothStep, false, null);
+        app(WorkItemService::class)->updateToothStep($toothStep, false, null, force: true);
 
         $this->assertEquals(150, $invoice->fresh()->total_amount_ils, 'One tooth left, at the corrected price.');
         $this->assertSame(-50.0, $this->balanceOf($patient->id), '150 owed against 200 paid — a credit of 50.');
         $this->assertSame(20.0, $this->commissionOf($doctor->id));
+    }
+
+    /**
+     * Un-ticking a tooth that was already paid for has to stop and ask first
+     * — otherwise the money just quietly becomes an unnoticed credit. The
+     * same reversal with force=true goes through exactly as before.
+     */
+    public function test_reversing_paid_work_is_refused_without_force_and_names_the_amount(): void
+    {
+        [$patient, , $workItem, $invoice] = $this->oldPaidSession(100);
+
+        $toothStep = WorkItemToothStep::where('work_item_id', $workItem->id)->where('tooth_number', 11)->firstOrFail();
+
+        try {
+            app(WorkItemService::class)->updateToothStep($toothStep, false, null);
+            $this->fail('Reversing an already-paid tooth without force should be refused.');
+        } catch (\Throwable $e) {
+            $this->assertStringContainsString('متسددة فعلاً', $e->getMessage());
+            $this->assertStringContainsString('200', $e->getMessage());
+        }
+
+        $this->assertEquals(200, $invoice->fresh()->total_amount_ils, 'A refused reversal must not move the bill.');
+        $this->assertNotNull($toothStep->fresh()->completed_at, 'A refused reversal must leave the tick as it was.');
     }
 
     /**
@@ -233,7 +256,7 @@ class EditingOldWorkTest extends TestCase
         [$patient, , $workItem] = $this->oldPaidSession(100);
 
         app(WorkItemService::class)->updateStepPrice($workItem->steps()->firstOrFail(), 130);
-        app(WorkItemService::class)->removeTooth($workItem->fresh(), 11);
+        app(WorkItemService::class)->removeTooth($workItem->fresh(), 11, force: true);
 
         app(PaymentService::class)->refreshPatientInvoiceStatuses($patient);
 

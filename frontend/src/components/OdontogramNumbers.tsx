@@ -1,4 +1,4 @@
-import { useLayoutEffect, useState, type DependencyList, type MouseEvent, type RefObject } from 'react'
+import { useLayoutEffect, useRef, useState, type DependencyList, type MouseEvent, type RefObject } from 'react'
 import { fadeHex } from '../lib/dental'
 
 interface Point {
@@ -237,6 +237,170 @@ export function OdontogramBridgeOverlay({ geometry, groups }: { geometry: Geomet
             strokeLinejoin="round"
             opacity={0.85}
           />
+        )
+      })}
+    </svg>
+  )
+}
+
+/** Extra room reserved on each side of the chart for the worked-tooth callout labels — just enough for a short label sitting right next to its tooth, not a distant side panel. Shared by every odontogram that shows callouts (overview, work planning). */
+export const CALLOUT_SIDE_PAD = 135
+
+export interface CalloutTooth {
+  /** The representative tooth — lowest number in the group, used as the drag/click/override key. */
+  number: number
+  /** Every tooth this one label covers — more than one for a multi-tooth session (bridge, several teeth done together). */
+  teeth: number[]
+  center: Point
+  label: string
+  done: boolean
+  side: 'left' | 'right'
+}
+
+/**
+ * Side-panel-style callouts (like a radiology/anatomy diagram): a short
+ * leader line + arrowhead from every worked tooth out to a label in the
+ * chart's side margin, naming what was done — visible at a glance, no
+ * click needed. Clicking a label selects that tooth, opening the same
+ * detail panel a tooth click would.
+ *
+ * Shares the same viewBox *units* as the tooth chart's own overlays, just
+ * extended with extra room on both sides (CALLOUT_SIDE_PAD, converted to
+ * viewBox units at the chart's own px-per-unit scale) so a tooth's real
+ * measured position and the label position line up correctly across both
+ * SVGs. Used by both the overview chart and the work-planning chart so a
+ * worked tooth shows what it's for in either place, the same way.
+ */
+export function ToothCalloutOverlay({
+  geometry,
+  teeth,
+  notesCountByTooth,
+  onSelectTooth,
+  containerWidthPx,
+  editMode = false,
+  offsetOverrides,
+  onDragOffset,
+}: {
+  geometry: { viewBox: string }
+  teeth: CalloutTooth[]
+  notesCountByTooth: Map<number, number>
+  onSelectTooth: (toothNumber: number) => void
+  /** The chart container's real, currently-rendered pixel width — used (not a hardcoded constant) so the side margin stays correctly proportioned at any screen size, including once the layout shrinks responsively. */
+  containerWidthPx: number
+  /** While on, labels can be dragged instead of opening the tooth on click. */
+  editMode?: boolean
+  /** Manually-placed positions (viewBox units, relative to the tooth's own center) saved as a shared template — takes over from the default radial guess for any tooth that has one. */
+  offsetOverrides?: Map<number, { dx: number; dy: number }>
+  onDragOffset?: (toothNumber: number, dx: number, dy: number) => void
+}) {
+  const svgRef = useRef<SVGSVGElement>(null)
+  const [, , w, h] = geometry.viewBox.split(' ').map(Number)
+  const padUnits = CALLOUT_SIDE_PAD * (w / containerWidthPx)
+  const viewBox = `${-padUnits} 0 ${w + padUnits * 2} ${h}`
+
+  // Each label sits a short distance straight out from its own tooth, in the
+  // direction away from the arch's center — "حوالين السن" — instead of the
+  // old design that pushed every label out to a shared side margin far from
+  // the tooth it described. Distance is in real pixels (via containerWidthPx)
+  // so it looks the same short hop at any screen size. A manually-dragged
+  // override (see labelEditMode above) replaces this guess entirely once set.
+  const offsetUnits = 80 * (w / containerWidthPx)
+  const cx = w / 2
+  const cy = h / 2
+  const rows = teeth.map((t) => {
+    const override = offsetOverrides?.get(t.number)
+    let dx: number
+    let dy: number
+    if (override) {
+      dx = override.dx
+      dy = override.dy
+    } else {
+      const rawDx = t.center.x - cx
+      const rawDy = t.center.y - cy
+      const len = Math.hypot(rawDx, rawDy) || 1
+      dx = (rawDx / len) * offsetUnits
+      dy = (rawDy / len) * offsetUnits
+    }
+    const labelX = t.center.x + dx
+    const labelY = t.center.y + dy
+    const anchor: 'start' | 'middle' | 'end' = dx > 8 ? 'start' : dx < -8 ? 'end' : 'middle'
+    return { ...t, labelX, labelY, anchor }
+  })
+
+  /** Converts a mouse event's screen position into this SVG's own viewBox coordinate space — same getScreenCTM technique the rest of the chart's overlays already rely on for pixel-accurate placement. */
+  function toSvgPoint(clientX: number, clientY: number): { x: number; y: number } | null {
+    const svg = svgRef.current
+    if (!svg) return null
+    const ctm = svg.getScreenCTM()
+    if (!ctm) return null
+    const pt = svg.createSVGPoint()
+    pt.x = clientX
+    pt.y = clientY
+    const local = pt.matrixTransform(ctm.inverse())
+    return { x: local.x, y: local.y }
+  }
+
+  function startDrag(toothNumber: number, center: Point, e: MouseEvent) {
+    if (!editMode || !onDragOffset) return
+    e.preventDefault()
+    e.stopPropagation()
+    function onMove(ev: globalThis.MouseEvent) {
+      const p = toSvgPoint(ev.clientX, ev.clientY)
+      if (!p) return
+      onDragOffset!(toothNumber, p.x - center.x, p.y - center.y)
+    }
+    function onUp() {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
+
+  return (
+    // pointer-events-none on the root is essential — this overlay's pixel
+    // box fully covers the tooth chart underneath (including the real
+    // click-target overlay), so without it every label/line here would
+    // swallow clicks meant for the teeth themselves. Only the label text
+    // opts back in (pointer-events-auto) to stay clickable.
+    <svg ref={svgRef} viewBox={viewBox} className="pointer-events-none absolute inset-0 size-full" style={{ overflow: 'visible' }}>
+      <defs>
+        <marker id="tooth-callout-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L8,4 L0,8 z" fill="var(--color-ink)" opacity={0.75} />
+        </marker>
+      </defs>
+      {rows.map((t) => {
+        const noteCount = t.teeth.reduce((sum, n) => sum + (notesCountByTooth.get(n) ?? 0), 0)
+        return (
+          <g key={t.number}>
+            <line
+              x1={t.center.x}
+              y1={t.center.y}
+              x2={t.labelX + (t.anchor === 'end' ? 8 : -8)}
+              y2={t.labelY}
+              stroke="var(--color-ink)"
+              strokeOpacity={0.6}
+              strokeWidth={1.25}
+              markerEnd="url(#tooth-callout-arrow)"
+            />
+            <text
+              x={t.labelX}
+              y={t.labelY}
+              textAnchor={t.anchor}
+              dominantBaseline="middle"
+              fontSize="11"
+              fontWeight={600}
+              fill={t.done ? 'var(--color-ink)' : 'var(--color-tooth-planned)'}
+              className={`pointer-events-auto select-none ${editMode ? 'cursor-move' : 'cursor-pointer hover:underline'}`}
+              onMouseDown={(e) => startDrag(t.number, t.center, e)}
+              onClick={() => {
+                if (!editMode) onSelectTooth(t.number)
+              }}
+            >
+              {t.number}: {t.label}
+              {noteCount > 0 ? ` 📝${noteCount}` : ''}
+            </text>
+          </g>
         )
       })}
     </svg>

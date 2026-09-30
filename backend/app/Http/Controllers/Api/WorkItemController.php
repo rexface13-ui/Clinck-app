@@ -95,9 +95,10 @@ class WorkItemController extends Controller
         $data = $request->validate([
             'completed' => ['sometimes', 'boolean'],
             'field_values' => ['sometimes', 'array'],
+            'force' => ['sometimes', 'boolean'],
         ]);
 
-        $updated = $service->updateToothStep($toothStep, $data['completed'] ?? null, $data['field_values'] ?? null);
+        $updated = $service->updateToothStep($toothStep, $data['completed'] ?? null, $data['field_values'] ?? null, $data['force'] ?? false);
 
         return response()->json(['id' => $updated->id, 'completed' => $updated->completed_at !== null, 'field_values' => $updated->field_values ?? (object) []]);
     }
@@ -123,7 +124,7 @@ class WorkItemController extends Controller
     {
         $this->authorizeManage($request);
 
-        $service->removeTooth($workItem, $toothNumber);
+        $service->removeTooth($workItem, $toothNumber, $request->boolean('force'));
 
         return new WorkItemResource($workItem->fresh(['doctor', 'service', 'teeth', 'steps.toothSteps.invoiceLine', 'steps.serviceStep.fields', 'toothSteps.invoiceLine.invoice.payments', 'toothSteps.invoiceLine.invoice.lines']));
     }
@@ -228,7 +229,7 @@ class WorkItemController extends Controller
     {
         $this->authorizeManage($request);
 
-        $service->cancel($workItem);
+        $service->cancel($workItem, $request->boolean('force'));
 
         return response()->noContent();
     }
