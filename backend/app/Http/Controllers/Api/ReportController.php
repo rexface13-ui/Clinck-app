@@ -763,6 +763,18 @@ class ReportController extends Controller
             ->when($to, fn ($q, $v) => $q->where('occurred_at', '<=', $v))
             ->sum('amount_ils'), 2);
 
+        // A whole-account discount (addDiscount()) is deliberately ledger-only
+        // — it lowers what the patient owes without touching any one
+        // invoice's own total, so it will never show up on the invoice side.
+        // Netting it out here before comparing avoids flagging every such
+        // discount as a false "mismatch"; it's still reported on its own so
+        // it stays visible rather than silently disappearing from the check.
+        $accountDiscounts = round((float) PatientTransaction::revenue()
+            ->where('reference_type', 'patient_discount')
+            ->when($from, fn ($q, $v) => $q->where('occurred_at', '>=', $v))
+            ->when($to, fn ($q, $v) => $q->where('occurred_at', '<=', $v))
+            ->sum('amount_ils'), 2);
+
         // Path B: the invoice lines' own view, net of each invoice's discount
         // ratio — same math revenueByService()/doctorProductivity() use, but
         // for every line in range (no doctor/service filter), so it's a true
@@ -774,7 +786,7 @@ class ReportController extends Controller
         $net = $this->netLineAmounts($lines);
         $invoiceRevenue = round((float) $lines->sum(fn ($l) => $net[$l->id]), 2);
 
-        $revenueDiff = round($ledgerRevenue - $invoiceRevenue, 2);
+        $revenueDiff = round(($ledgerRevenue - $accountDiscounts) - $invoiceRevenue, 2);
 
         // Everything actually collected in range, cash/card/transfer plus
         // patient checks (which never touch the payments table — see
@@ -795,10 +807,110 @@ class ReportController extends Controller
             'range' => ['from' => $data['from'] ?? null, 'to' => $data['to'] ?? null],
             'revenue_check' => [
                 'ledger_ils' => $ledgerRevenue,
+                'account_discounts_ils' => round(abs($accountDiscounts), 2),
                 'invoices_ils' => $invoiceRevenue,
                 'difference_ils' => $revenueDiff,
                 'ok' => abs($revenueDiff) < 0.5,
             ],
+            'collected_ils' => [
+                'cash_card_transfer' => $collectedCashCardTransfer,
+                'checks' => $collectedChecks,
+                'total' => round($collectedCashCardTransfer + $collectedChecks, 2),
+            ],
+        ];
+    }
+
+    /**
+     * A real income statement, not the one-line "صافي الربح التقريبي"
+     * estimate — every figure that feeds the bottom line is broken out on
+     * its own (revenue by service, commissions, every expense category,
+     * supplier payments), so "why did profit drop this month" is answered
+     * on this one page instead of hunting across five tabs. Accrual-based
+     * (revenue = billed net of discount, not just what was collected) —
+     * `collected_ils` alongside it shows the cash-in side for comparison,
+     * the same split reconciliation() reports.
+     */
+    public function profitAndLoss(Request $request)
+    {
+        $this->authorizeView($request);
+
+        $data = $request->validate([
+            'from' => ['nullable', 'date'],
+            'to' => ['nullable', 'date'],
+        ]);
+
+        [$from, $to] = $this->localDateBounds($data['from'] ?? null, $data['to'] ?? null);
+
+        // Revenue, net of discounts, broken down by service — same
+        // netLineAmounts() math every other revenue figure in this
+        // controller uses, so this P&L's own revenue line always agrees
+        // with the Revenue and Revenue-by-Service tabs.
+        $lines = InvoiceLine::with(['workItemToothStep.workItem.service', 'invoice.lines'])
+            ->when($from, fn ($q, $v) => $q->where('invoice_lines.created_at', '>=', $v))
+            ->when($to, fn ($q, $v) => $q->where('invoice_lines.created_at', '<=', $v))
+            ->get();
+        $net = $this->netLineAmounts($lines);
+
+        $byService = [];
+        foreach ($lines as $line) {
+            $name = $line->workItemToothStep?->workItem?->service?->name ?? 'أخرى';
+            $byService[$name] = round(($byService[$name] ?? 0) + $net[$line->id], 2);
+        }
+        arsort($byService);
+        $revenue = round(array_sum($byService), 2);
+
+        $commissions = round((float) DoctorTransaction::where('type', 'commission')
+            ->when($from, fn ($q, $v) => $q->where('created_at', '>=', $v))
+            ->when($to, fn ($q, $v) => $q->where('created_at', '<=', $v))
+            ->sum('amount_ils'), 2);
+
+        $expenseRows = Expense::with('category')
+            ->when($from, fn ($q, $v) => $q->where('spent_at', '>=', $v))
+            ->when($to, fn ($q, $v) => $q->where('spent_at', '<=', $v))
+            ->get();
+        $byExpenseCategory = [];
+        foreach ($expenseRows as $expense) {
+            $name = $expense->category?->name ?? 'أخرى';
+            $byExpenseCategory[$name] = round(($byExpenseCategory[$name] ?? 0) + (float) $expense->amount_ils, 2);
+        }
+        arsort($byExpenseCategory);
+        $operatingExpenses = round(array_sum($byExpenseCategory), 2);
+
+        // Money actually paid to suppliers in range — 'payment' rows are
+        // negative (money out); discounts/credit-notes carry no cash and
+        // don't belong in a cash expense line.
+        $supplierPayments = round(abs((float) SupplierTransaction::where('type', 'payment')
+            ->when($from, fn ($q, $v) => $q->where('occurred_at', '>=', $v))
+            ->when($to, fn ($q, $v) => $q->where('occurred_at', '<=', $v))
+            ->sum('amount_ils')), 2);
+
+        $totalExpenses = round($commissions + $operatingExpenses + $supplierPayments, 2);
+
+        $collectedCashCardTransfer = round((float) Payment::when($from, fn ($q, $v) => $q->where('paid_at', '>=', $v))
+            ->when($to, fn ($q, $v) => $q->where('paid_at', '<=', $v))
+            ->sum('amount_ils'), 2);
+
+        $collectedChecks = round((float) CheckModel::where('direction', 'incoming')
+            ->where('party_type', 'patient')
+            ->where('status', '!=', 'bounced')
+            ->when($from, fn ($q, $v) => $q->where('received_at', '>=', $v))
+            ->when($to, fn ($q, $v) => $q->where('received_at', '<=', $v))
+            ->sum('amount'), 2);
+
+        return [
+            'range' => ['from' => $data['from'] ?? null, 'to' => $data['to'] ?? null],
+            'income' => [
+                'revenue_ils' => $revenue,
+                'by_service' => collect($byService)->map(fn ($total, $name) => ['name' => $name, 'total_ils' => $total])->values(),
+            ],
+            'expenses' => [
+                'commissions_ils' => $commissions,
+                'operating_ils' => $operatingExpenses,
+                'operating_by_category' => collect($byExpenseCategory)->map(fn ($total, $name) => ['name' => $name, 'total_ils' => $total])->values(),
+                'supplier_payments_ils' => $supplierPayments,
+                'total_ils' => $totalExpenses,
+            ],
+            'net_profit_ils' => round($revenue - $totalExpenses, 2),
             'collected_ils' => [
                 'cash_card_transfer' => $collectedCashCardTransfer,
                 'checks' => $collectedChecks,

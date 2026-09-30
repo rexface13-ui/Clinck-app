@@ -683,6 +683,126 @@ interface CashboxFlowRow {
   total_out: number
 }
 
+interface ProfitAndLoss {
+  income: { revenue_ils: number; by_service: { name: string; total_ils: number }[] }
+  expenses: {
+    commissions_ils: number
+    operating_ils: number
+    operating_by_category: { name: string; total_ils: number }[]
+    supplier_payments_ils: number
+    total_ils: number
+  }
+  net_profit_ils: number
+  collected_ils: { cash_card_transfer: number; checks: number; total: number }
+}
+
+/**
+ * The real income statement — every figure the "صافي الربح التقريبي" strip
+ * folds into one number, broken back out here so "why did profit move" has
+ * an answer on this page instead of a hunt across five other tabs.
+ */
+function ProfitAndLossTab() {
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
+  const [pl, setPl] = useState<ProfitAndLoss | null>(null)
+
+  useEffect(() => {
+    api.get('/reports/profit-and-loss', { params: { from: from || undefined, to: to || undefined } }).then((res) => setPl(res.data))
+  }, [from, to])
+
+  return (
+    <div className="space-y-4">
+      <Card className="p-6">
+        <DateRangeFilter from={from} to={to} onFrom={setFrom} onTo={setTo} />
+      </Card>
+
+      {pl && (
+        <>
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <StatCard icon={faSackDollar} label="الإيراد (صافي بعد الخصم)" value={`${money(pl.income.revenue_ils)} ₪`} />
+            <StatCard icon={faHandHoldingDollar} label="عمولات الأطباء" value={`${money(pl.expenses.commissions_ils)} ₪`} />
+            <StatCard icon={faReceipt} label="إجمالي المصاريف" value={`${money(pl.expenses.total_ils)} ₪`} />
+            <StatCard icon={faScaleBalanced} label="صافي الربح" value={`${money(pl.net_profit_ils)} ₪`} tone={pl.net_profit_ils < 0 ? 'danger' : 'accent'} />
+          </div>
+
+          <Card className="p-6">
+            <div className="mb-4 flex items-baseline justify-between">
+              <h3 className="text-sm font-semibold text-ink/80">الإيراد حسب الخدمة</h3>
+              <span className="text-sm font-medium text-success">{money(pl.income.revenue_ils)} ₪</span>
+            </div>
+            {pl.income.by_service.length === 0 ? (
+              <p className="text-sm text-muted">ما في إيراد مسجّل بهالفترة.</p>
+            ) : (
+              <div className="space-y-3">
+                {pl.income.by_service.map((s) => (
+                  <div key={s.name}>
+                    <div className="mb-1 flex justify-between text-sm">
+                      <span className="text-ink/80">{s.name}</span>
+                      <span className="text-muted">
+                        {money(s.total_ils)} ₪ ({pl.income.revenue_ils > 0 ? Math.round((s.total_ils / pl.income.revenue_ils) * 100) : 0}%)
+                      </span>
+                    </div>
+                    <div className="h-2 w-full rounded-full bg-background">
+                      <div className="h-2 rounded-full bg-success" style={{ width: `${pl.income.revenue_ils > 0 ? (s.total_ils / pl.income.revenue_ils) * 100 : 0}%` }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+
+          <Card className="p-6">
+            <h3 className="mb-4 text-sm font-semibold text-ink/80">تفصيل المصاريف</h3>
+            <Table>
+              <tbody>
+                <Tr>
+                  <Td>عمولات الأطباء</Td>
+                  <Td className="text-left font-medium text-danger">{money(pl.expenses.commissions_ils)} ₪</Td>
+                </Tr>
+                {pl.expenses.operating_by_category.map((e) => (
+                  <Tr key={e.name}>
+                    <Td className="text-muted">مصاريف تشغيل — {e.name}</Td>
+                    <Td className="text-left font-medium text-danger">{money(e.total_ils)} ₪</Td>
+                  </Tr>
+                ))}
+                <Tr>
+                  <Td>دفعات للموردين</Td>
+                  <Td className="text-left font-medium text-danger">{money(pl.expenses.supplier_payments_ils)} ₪</Td>
+                </Tr>
+                <Tr className="border-t-2 border-border font-semibold">
+                  <Td>الإجمالي</Td>
+                  <Td className="text-left text-danger">{money(pl.expenses.total_ils)} ₪</Td>
+                </Tr>
+              </tbody>
+            </Table>
+          </Card>
+
+          <Card className="p-6">
+            <h3 className="mb-1 text-sm font-semibold text-ink/80">المُحصَّل فعلياً بنفس الفترة</h3>
+            <p className="mb-4 text-xs text-muted">
+              هاد المبلغ يلي دخل فعلياً كاش/بطاقة/تحويل/شيك — ممكن يختلف عن الإيراد فوق لأن جلسة تنحسب اليوم وتنسدد بعدين، أو العكس.
+            </p>
+            <div className="grid grid-cols-3 gap-4 text-center">
+              <div>
+                <p className="text-xs text-muted">كاش/بطاقة/تحويل</p>
+                <p className="text-lg font-semibold text-ink">{money(pl.collected_ils.cash_card_transfer)} ₪</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted">شيكات</p>
+                <p className="text-lg font-semibold text-ink">{money(pl.collected_ils.checks)} ₪</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted">الإجمالي</p>
+                <p className="text-lg font-semibold text-accent">{money(pl.collected_ils.total)} ₪</p>
+              </div>
+            </div>
+          </Card>
+        </>
+      )}
+    </div>
+  )
+}
+
 function CashAndExpensesTab() {
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
@@ -1027,8 +1147,9 @@ export default function ReportsPage() {
       <SummaryStrip />
       <ReconciliationBadge />
       <Tabs
-        defaultTab="revenue"
+        defaultTab="pnl"
         tabs={[
+          { key: 'pnl', label: 'بيان الربح والخسارة', content: <ProfitAndLossTab /> },
           { key: 'revenue', label: 'الإيرادات', content: <RevenueTab /> },
           { key: 'money-flow', label: 'الداخل والخارج', content: <MoneyFlowReport /> },
           { key: 'doctors', label: 'إنتاجية الأطباء', content: <DoctorProductivityTab /> },

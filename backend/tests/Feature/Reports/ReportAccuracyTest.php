@@ -2,9 +2,14 @@
 
 namespace Tests\Feature\Reports;
 
+use App\Models\Expense;
+use App\Models\ExpenseCategory;
 use App\Models\Invoice;
+use App\Models\Supplier;
+use App\Services\CashboxService;
 use App\Services\CheckService;
 use App\Services\PaymentService;
+use App\Services\SupplierService;
 use App\Services\WorkItemService;
 use Tests\TestCase;
 
@@ -172,20 +177,51 @@ class ReportAccuracyTest extends TestCase
     }
 
     /**
+     * A whole-account discount (addDiscount()) is deliberately ledger-only —
+     * it must NOT be flagged as a mismatch, just netted out and reported on
+     * its own line so it stays visible.
+     */
+    public function test_reconciliation_does_not_flag_a_deliberate_account_discount(): void
+    {
+        [$patient, ] = $this->billWork(1000);
+
+        \App\Models\PatientTransaction::create([
+            'patient_id' => $patient->id,
+            'type' => 'adjustment',
+            'reference_type' => 'patient_discount',
+            'amount' => -50,
+            'currency' => 'ILS',
+            'exchange_rate' => 1,
+            'amount_ils' => -50,
+            'occurred_at' => now(),
+        ]);
+
+        $check = $this->getJson('/api/reports/reconciliation')->assertOk()->json('revenue_check');
+
+        $this->assertEquals(950.0, $check['ledger_ils']);
+        $this->assertEquals(50.0, $check['account_discounts_ils']);
+        $this->assertEquals(1000.0, $check['invoices_ils']);
+        $this->assertEquals(0.0, $check['difference_ils']);
+        $this->assertTrue($check['ok']);
+    }
+
+    /**
      * If a ledger adjustment is ever posted without a matching invoice
-     * change (a data bug, not a normal flow), the reconciliation has to
-     * actually notice — otherwise this check is decorative.
+     * change AND it isn't a known ledger-only case like a whole-account
+     * discount (a genuine data bug), the reconciliation has to actually
+     * notice — otherwise this check is decorative.
      */
     public function test_reconciliation_flags_a_real_mismatch(): void
     {
         [$patient, ] = $this->billWork(1000);
 
-        // A ledger-only adjustment with nothing behind it on any invoice —
-        // exactly the kind of drift the reconciliation exists to catch.
+        // An adjustment with no known ledger-only explanation and nothing
+        // behind it on any invoice — exactly the kind of drift the
+        // reconciliation exists to catch.
         \App\Models\PatientTransaction::create([
             'patient_id' => $patient->id,
             'type' => 'adjustment',
-            'reference_type' => 'patient_discount',
+            'reference_type' => 'unexplained_adjustment',
             'amount' => -50,
             'currency' => 'ILS',
             'exchange_rate' => 1,
@@ -224,6 +260,42 @@ class ReportAccuracyTest extends TestCase
     }
 
     /**
+     * The P&L's whole point: every figure that feeds the bottom line is its
+     * own line item, and they actually add up to the net profit shown.
+     */
+    public function test_profit_and_loss_itemizes_every_component_and_adds_up(): void
+    {
+        $this->billWork(1000); // commission at the default 20% = 200.
+
+        $category = ExpenseCategory::firstOrFail();
+        Expense::create(['expense_category_id' => $category->id, 'cashbox_id' => $this->cashbox->id, 'amount' => 150, 'currency' => 'ILS', 'amount_ils' => 150, 'spent_at' => now()]);
+
+        $supplier = Supplier::create(['name' => 'مورد الاختبار', 'is_active' => true]);
+        app(SupplierService::class)->pay($supplier, $this->cashbox, 80, 'ILS', 1.0, app(CashboxService::class));
+
+        $pl = $this->getJson('/api/reports/profit-and-loss')->assertOk()->json();
+
+        $this->assertEquals(1000.0, $pl['income']['revenue_ils']);
+        $this->assertEquals(200.0, $pl['expenses']['commissions_ils']);
+        $this->assertEquals(150.0, $pl['expenses']['operating_ils']);
+        $this->assertEquals(80.0, $pl['expenses']['supplier_payments_ils']);
+        $this->assertEquals(430.0, $pl['expenses']['total_ils'], 'Commissions + operating + supplier payments.');
+        $this->assertEquals(570.0, $pl['net_profit_ils'], 'Revenue minus every expense line.');
+    }
+
+    /** The by-service breakdown inside the P&L has to add back up to the same revenue figure reported at the top. */
+    public function test_profit_and_loss_service_breakdown_matches_its_own_total(): void
+    {
+        [, $invoice] = $this->billWork(1000);
+        app(PaymentService::class)->adjustTotal($invoice, 700);
+
+        $pl = $this->getJson('/api/reports/profit-and-loss')->assertOk()->json();
+
+        $this->assertEquals(700.0, $pl['income']['revenue_ils']);
+        $this->assertEquals(700.0, round(array_sum(array_column($pl['income']['by_service'], 'total_ils')), 2));
+    }
+
+    /**
      * This endpoint crashed in production with "column reference created_at is
      * ambiguous" — a Postgres-only error, which is exactly why the suite runs
      * on Postgres rather than sqlite.
@@ -240,7 +312,7 @@ class ReportAccuracyTest extends TestCase
         foreach ([
             'summary', 'revenue-by-service', 'doctor-productivity', 'patients',
             'no-show', 'debts-aging', 'collections', 'pending-treatments',
-            'cashbox-flow', 'suppliers-checks', 'reconciliation',
+            'cashbox-flow', 'suppliers-checks', 'reconciliation', 'profit-and-loss',
         ] as $endpoint) {
             $this->getJson("/api/reports/{$endpoint}")->assertOk();
         }
