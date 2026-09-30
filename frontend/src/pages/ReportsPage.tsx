@@ -617,7 +617,7 @@ function DebtsAgingTab() {
   return (
     <Card className="p-6">
       <h3 className="mb-1 text-sm font-semibold text-ink/80">أعمار الديون — كل يوم من متى الدين مستحق</h3>
-      <p className="mb-4 text-xs text-muted">اضغط أي فئة لتشوف تفاصيل المرضى.</p>
+      <p className="mb-4 text-xs text-muted">اضغط أي فئة لتشوف تفاصيل المرضى. الأرقام تقريبية (مش موزّعة دفعة-دفعة على كل فاتورة بالتحديد) — كافية لمعرفة مين أطول مدة مديون.</p>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {buckets.map((b) => (
           <button
