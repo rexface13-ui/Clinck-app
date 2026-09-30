@@ -123,16 +123,32 @@ class ResetDemoData extends Command
         $paymentMethods = ['cash', 'cash', 'cash', 'card', 'transfer'];
         $teethPool = [11, 12, 21, 22, 26, 36, 46, 14, 24];
 
-        // Roughly 3 months of activity, oldest first, backdated via setTestNow
-        // so created_at/occurred_at timestamps land where they should instead
-        // of everything clustering "now".
-        $start = Carbon::now()->subMonths(3)->startOfMonth();
-        $sessionCount = 70;
+        // Explicit months (July, August, September of the current year), each
+        // guaranteed its own real activity — a random spread across "the last
+        // 90 days" could (and did) leave the most recent, partially-elapsed
+        // month looking empty by chance. Picking the months directly and
+        // seeding each on its own means every one of the three always has
+        // sessions, whatever day it is when this runs.
+        $year = (int) Carbon::now()->format('Y');
+        $today = Carbon::now();
+        $months = [7, 8, 9];
+        $sessionsPerMonth = 25;
+        $sessionSchedule = [];
+        foreach ($months as $month) {
+            $monthStart = Carbon::create($year, $month, 1);
+            // Don't schedule a session in the future — cap the current month
+            // at today instead of running past it.
+            $lastDay = $monthStart->isSameMonth($today) ? $today->day : $monthStart->daysInMonth;
+            for ($i = 0; $i < $sessionsPerMonth; $i++) {
+                $sessionSchedule[] = Carbon::create($year, $month, random_int(1, max(1, $lastDay)), random_int(9, 17), [0, 15, 30, 45][random_int(0, 3)]);
+            }
+        }
+        sort($sessionSchedule);
+        $sessionCount = count($sessionSchedule);
         /** @var \Illuminate\Support\Collection<int, Patient> $existingPatients */
         $existingPatients = collect();
 
-        for ($i = 0; $i < $sessionCount; $i++) {
-            $when = $start->clone()->addDays(random_int(0, 89))->setTime(random_int(9, 17), [0, 15, 30, 45][random_int(0, 3)]);
+        foreach ($sessionSchedule as $when) {
             Carbon::setTestNow($when);
 
             // A returning patient roughly a third of the time (once there are
@@ -215,12 +231,14 @@ class ResetDemoData extends Command
 
         Carbon::setTestNow();
 
-        // Expenses across every category, spread over the 3 months, posted
+        // Expenses across every category, one per month per category, posted
         // exactly the way the real "مصاريف" screen posts them (through the
         // cashbox, not a bare Expense row).
         foreach ($categories as $category) {
-            for ($m = 0; $m < 3; $m++) {
-                $when = $start->clone()->addMonths($m)->addDays(random_int(1, 27));
+            foreach ($months as $month) {
+                $monthStart = Carbon::create($year, $month, 1);
+                $lastDay = $monthStart->isSameMonth($today) ? max(1, $today->day - 1) : $monthStart->daysInMonth;
+                $when = Carbon::create($year, $month, random_int(1, max(1, $lastDay)));
                 Carbon::setTestNow($when);
                 $expense = \App\Models\Expense::create([
                     'expense_category_id' => $category->id,
@@ -236,9 +254,12 @@ class ResetDemoData extends Command
         }
         Carbon::setTestNow();
 
-        // A couple of supplier payments.
-        foreach ($suppliers as $supplier) {
-            Carbon::setTestNow($start->clone()->addDays(random_int(5, 85)));
+        // A couple of supplier payments, one per month.
+        foreach ($suppliers as $i => $supplier) {
+            $month = $months[$i % count($months)];
+            $monthStart = Carbon::create($year, $month, 1);
+            $lastDay = $monthStart->isSameMonth($today) ? max(1, $today->day - 1) : $monthStart->daysInMonth;
+            Carbon::setTestNow(Carbon::create($year, $month, random_int(1, max(1, $lastDay))));
             $supplierService->pay($supplier, $cashbox, random_int(200, 900), 'ILS', 1.0, $cashboxService);
         }
         Carbon::setTestNow();
