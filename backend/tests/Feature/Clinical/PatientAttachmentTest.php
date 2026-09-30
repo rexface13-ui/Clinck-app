@@ -162,6 +162,39 @@ class PatientAttachmentTest extends TestCase
             ->assertStatus(422);
     }
 
+    /** Picking a doctor targets that doctor's own linked chat, not the person making the request. */
+    public function test_requesting_photos_from_a_chosen_doctor_pings_that_doctors_own_chat(): void
+    {
+        config(['telegram.bot_token' => 'test-token']);
+        $patient = $this->makePatient();
+        $doctor = $this->makeDoctor();
+        $link = TelegramLink::create(['doctor_id' => $doctor->id, 'telegram_chat_id' => 555000111, 'linked_at' => now()]);
+
+        Http::fake(fn () => Http::response(['ok' => true], 200));
+
+        $this->actingAs($this->owner)
+            ->postJson("/api/patients/{$patient->id}/attachments/request-telegram", [
+                'count' => 4, 'title' => 'أشعة بانوراما', 'doctor_id' => $doctor->id,
+            ])
+            ->assertOk();
+
+        $link->refresh();
+        $this->assertSame($patient->id, $link->pending_patient_id);
+        $this->assertSame(4, $link->pending_patient_count);
+        $this->assertSame('أشعة بانوراما', $link->pending_patient_title);
+    }
+
+    /** A doctor with no linked Telegram chat has to say so clearly, naming the doctor rather than a generic failure. */
+    public function test_requesting_photos_from_a_doctor_with_no_linked_telegram_is_refused(): void
+    {
+        $patient = $this->makePatient();
+        $doctor = $this->makeDoctor();
+
+        $this->actingAs($this->owner)
+            ->postJson("/api/patients/{$patient->id}/attachments/request-telegram", ['count' => 2, 'doctor_id' => $doctor->id])
+            ->assertStatus(422);
+    }
+
     public function test_the_number_of_photos_requested_is_bounded(): void
     {
         $patient = $this->makePatient();

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Attachment\StoreAttachmentRequest;
 use App\Http\Resources\AttachmentResource;
 use App\Models\Attachment;
+use App\Models\Doctor;
 use App\Models\Patient;
 use App\Models\TelegramLink;
 use App\Services\TelegramService;
@@ -102,9 +103,12 @@ class PatientAttachmentController extends Controller
     }
 
     /**
-     * Asks a linked staff member to send the next few photos straight from
-     * Telegram — the same flow as a check photo, so an x-ray snapped on a phone
-     * lands in the right file without anyone emailing it to themselves first.
+     * Asks a linked person to send the next few photos straight from
+     * Telegram — the same flow as a check photo, so an x-ray snapped on a
+     * phone lands in the right file without anyone emailing it to themselves
+     * first. Targets a chosen doctor's own linked chat when one is picked
+     * (the normal case — a doctor is usually the one holding the phone with
+     * the photo), falling back to the requester's own linked chat otherwise.
      */
     public function requestViaTelegram(Request $request, Patient $patient, TelegramService $telegram)
     {
@@ -113,13 +117,16 @@ class PatientAttachmentController extends Controller
         $data = $request->validate([
             'count' => ['required', 'integer', 'min:1', 'max:10'],
             'title' => ['nullable', 'string', 'max:255'],
+            'doctor_id' => ['nullable', 'integer', 'exists:doctors,id'],
         ]);
 
         // A link is "live" once linked_at is set — the same test the check
         // photo request uses; there is no status column.
-        $link = TelegramLink::where('user_id', $request->user()->id)->whereNotNull('linked_at')->first();
+        $link = isset($data['doctor_id'])
+            ? TelegramLink::activeForDoctor(Doctor::find($data['doctor_id']))
+            : TelegramLink::where('user_id', $request->user()->id)->whereNotNull('linked_at')->first();
 
-        abort_unless($link, 422, 'حسابك مش مربوط بتيليغرام. اربطه أول من الإعدادات.');
+        abort_unless($link, 422, isset($data['doctor_id']) ? 'هالطبيب مش مربوط بتيليغرام.' : 'حسابك مش مربوط بتيليغرام. اربطه أول من الإعدادات.');
 
         $link->update([
             'pending_patient_id' => $patient->id,

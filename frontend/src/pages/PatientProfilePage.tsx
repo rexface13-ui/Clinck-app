@@ -58,6 +58,7 @@ export default function PatientProfilePage() {
   const [uploadingAttachment, setUploadingAttachment] = useState(false)
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
   const [attachmentNotifyDoctorId, setAttachmentNotifyDoctorId] = useState('')
+  const [showRequestPhotoModal, setShowRequestPhotoModal] = useState(false)
   const [telegramRequest, setTelegramRequest] = useState<string | null>(null)
   const attachmentInputRef = useRef<HTMLInputElement>(null)
   const [activeTab, setActiveTab] = useState(searchParams.get('tab') === 'work' ? 'work' : 'overview')
@@ -257,28 +258,9 @@ export default function PatientProfilePage() {
     load()
   }
 
-  async function requestAttachmentsViaTelegram() {
-    const answer = window.prompt('كم صورة بدك تبعت من تيليغرام؟', '1')
-    if (answer === null) return
-
-    const count = Number(answer)
-    if (!Number.isInteger(count) || count < 1 || count > 10) {
-      setAttachmentError('اكتب رقم بين 1 و 10.')
-      return
-    }
-
-    const title = window.prompt('اسم للصور (اختياري):', '') ?? ''
-
-    setAttachmentError(null)
-    try {
-      await api.post(`/patients/${id}/attachments/request-telegram`, { count, title })
-      setTelegramRequest(`بعتنالك طلب ${count} صورة على تيليغرام — ابعتهم من هناك وبتوصل هون.`)
-    } catch (error) {
-      setAttachmentError(
-        (error as { response?: { data?: { message?: string } } })?.response?.data?.message ??
-          'تعذّر إرسال الطلب على تيليغرام.',
-      )
-    }
+  async function submitPhotoRequest(count: number, title: string, doctorId: number) {
+    await api.post(`/patients/${id}/attachments/request-telegram`, { count, title: title || undefined, doctor_id: doctorId })
+    setTelegramRequest(`بعتنا طلب ${count} صورة للدكتور على تيليغرام — أول ما يبعتهم بتوصل هون.`)
   }
 
   async function viewAttachment(downloadUrl: string) {
@@ -734,7 +716,7 @@ export default function PatientProfilePage() {
                 <FontAwesomeIcon icon={faUpload} />
                 رفع من الكمبيوتر
               </Button>
-              <Button variant="secondary" onClick={requestAttachmentsViaTelegram} className="px-3 py-1.5">
+              <Button variant="secondary" onClick={() => setShowRequestPhotoModal(true)} className="px-3 py-1.5">
                 <FontAwesomeIcon icon={faPaperclip} />
                 طلب صور عبر تيليغرام
               </Button>
@@ -883,6 +865,107 @@ export default function PatientProfilePage() {
           onArchived={() => navigate('/patients')}
         />
       )}
+      {showRequestPhotoModal && (
+        <RequestAttachmentPhotosModal
+          patientName={patient.full_name}
+          doctors={doctors}
+          onClose={() => setShowRequestPhotoModal(false)}
+          onSubmit={submitPhotoRequest}
+        />
+      )}
     </div>
+  )
+}
+
+/**
+ * Replaces the old two-prompt() flow (a plain browser dialog, no styling, no
+ * validation feedback) with a real themed form: how many photos, an optional
+ * label, and — the actual point of it — which doctor's own Telegram gets
+ * pinged to send them. A doctor is nearly always who's actually holding the
+ * phone with the photo, so this targets them directly instead of asking
+ * whoever happens to be logged into the app right now.
+ */
+function RequestAttachmentPhotosModal({
+  patientName,
+  doctors,
+  onClose,
+  onSubmit,
+}: {
+  patientName: string
+  doctors: Doctor[]
+  onClose: () => void
+  onSubmit: (count: number, title: string, doctorId: number) => Promise<void>
+}) {
+  const [count, setCount] = useState('1')
+  const [title, setTitle] = useState('')
+  const [doctorId, setDoctorId] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function submit() {
+    const n = Number(count)
+    if (!Number.isInteger(n) || n < 1 || n > 10) {
+      setError('اكتب رقم صور بين 1 و10.')
+      return
+    }
+    if (!doctorId) {
+      setError('اختر الطبيب يلي رح يبعت الصور.')
+      return
+    }
+    setBusy(true)
+    setError(null)
+    try {
+      await onSubmit(n, title.trim(), Number(doctorId))
+      onClose()
+    } catch (err) {
+      setError((err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'تعذّر إرسال الطلب على تيليغرام.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal title={`طلب صور لملف ${patientName} عبر تيليغرام`} onClose={onClose} width="w-[420px]">
+      <div className="space-y-4">
+        <div>
+          <label className="mb-1 block text-sm font-medium text-ink/80">عدد الصور</label>
+          <input
+            type="number"
+            min={1}
+            max={10}
+            value={count}
+            onChange={(e) => setCount(e.target.value)}
+            className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none"
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-sm font-medium text-ink/80">اسم للصور (اختياري)</label>
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="مثلاً: أشعة بانوراما"
+            className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none"
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-sm font-medium text-ink/80">الطبيب يلي رح يبعت الصور</label>
+          <SearchableSelect
+            options={doctors.map((d) => ({ value: String(d.id), label: d.full_name }))}
+            value={doctorId}
+            onChange={setDoctorId}
+            placeholder="اختر طبيب..."
+          />
+        </div>
+        {error && <p className="text-sm text-danger">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="ghost" onClick={onClose}>
+            إلغاء
+          </Button>
+          <Button onClick={submit} loading={busy}>
+            إرسال الطلب
+          </Button>
+        </div>
+      </div>
+    </Modal>
   )
 }
