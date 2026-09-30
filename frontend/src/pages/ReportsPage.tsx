@@ -607,17 +607,30 @@ interface DebtBucket {
 
 function DebtsAgingTab() {
   const [buckets, setBuckets] = useState<DebtBucket[]>([])
+  const [totalOwed, setTotalOwed] = useState(0)
+  const [totalPatients, setTotalPatients] = useState(0)
   const [openBucket, setOpenBucket] = useState<DebtBucket | null>(null)
   const bucketLabels: Record<string, string> = { '0-30': '0-30 يوم', '31-60': '31-60 يوم', '61-90': '61-90 يوم', '90+': 'أكتر من 90 يوم' }
 
   useEffect(() => {
-    api.get('/reports/debts-aging').then((res) => setBuckets(res.data.buckets))
+    api.get('/reports/debts-aging').then((res) => {
+      setBuckets(res.data.buckets)
+      setTotalOwed(res.data.total_owed_ils)
+      setTotalPatients(res.data.total_patients_owing)
+    })
   }, [])
 
   return (
     <Card className="p-6">
       <h3 className="mb-1 text-sm font-semibold text-ink/80">أعمار الديون — كل يوم من متى الدين مستحق</h3>
       <p className="mb-4 text-xs text-muted">اضغط أي فئة لتشوف تفاصيل المرضى. الأرقام تقريبية (مش موزّعة دفعة-دفعة على كل فاتورة بالتحديد) — كافية لمعرفة مين أطول مدة مديون.</p>
+
+      <div className="mb-4 rounded-xl bg-accent-soft p-4 text-center">
+        <p className="text-xs text-ink/60">إجمالي المطلوب من كل المرضى هلأ</p>
+        <p className="mt-1 text-2xl font-bold text-accent">{money(totalOwed)} ₪</p>
+        <p className="text-xs text-ink/50">من {totalPatients} مريض</p>
+      </div>
+
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {buckets.map((b) => (
           <button

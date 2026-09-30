@@ -521,13 +521,20 @@ class ReportController extends Controller
             ];
         }
 
+        $bucketsOut = collect($buckets)->map(fn ($patients, $key) => [
+            'bucket' => $key,
+            'patients_count' => count($patients),
+            'total_ils' => round(collect($patients)->sum('balance_ils'), 2),
+            'patients' => collect($patients)->sortByDesc('balance_ils')->values(),
+        ])->values();
+
         return [
-            'buckets' => collect($buckets)->map(fn ($patients, $key) => [
-                'bucket' => $key,
-                'patients_count' => count($patients),
-                'total_ils' => round(collect($patients)->sum('balance_ils'), 2),
-                'patients' => collect($patients)->sortByDesc('balance_ils')->values(),
-            ])->values(),
+            // "اديش بدي مصاري من الناس" — the one headline number this whole
+            // report exists to answer, front and center instead of only
+            // implied by adding up the four bucket cards yourself.
+            'total_owed_ils' => round((float) $bucketsOut->sum('total_ils'), 2),
+            'total_patients_owing' => (int) $bucketsOut->sum('patients_count'),
+            'buckets' => $bucketsOut,
         ];
     }
 
