@@ -7,6 +7,12 @@ import { Card, PageHeader, Button, Badge, Modal, Input, SearchableSelect, Table,
 import type { BadgeVariant } from '../components/ui'
 import type { LabCase, Doctor, Supplier, Patient } from '../types'
 
+/** Local calendar date, not UTC — `toISOString()` rolls back to yesterday for the first few hours of every day in a timezone ahead of UTC (the clinic's own). */
+function todayIso(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 const STATUS_LABELS: Record<LabCase['status'], string> = { sent: 'مُرسلة', ready: 'جاهزة', received: 'مُستلمة' }
 const STATUS_VARIANTS: Record<LabCase['status'], BadgeVariant> = { sent: 'info', ready: 'warning', received: 'success' }
 
@@ -80,7 +86,7 @@ export default function LabCasesPage() {
     doctor_id: '',
     supplier_id: '',
     description: '',
-    sent_at: new Date().toISOString().slice(0, 10),
+    sent_at: todayIso(),
     expected_return_date: '',
     notes: '',
   })
@@ -114,7 +120,7 @@ export default function LabCasesPage() {
       })
       setShowForm(false)
       setPatient(null)
-      setForm({ doctor_id: '', supplier_id: '', description: '', sent_at: new Date().toISOString().slice(0, 10), expected_return_date: '', notes: '' })
+      setForm({ doctor_id: '', supplier_id: '', description: '', sent_at: todayIso(), expected_return_date: '', notes: '' })
       load()
     } finally {
       setBusy(false)

@@ -34,6 +34,60 @@ function DateRangeFilter({ from, to, onFrom, onTo }: { from: string; to: string;
   )
 }
 
+/**
+ * A "YYYY-MM-DD" string for the browser's own local calendar date —
+ * `toISOString()` first converts to UTC, which silently rolls the date back
+ * a day for anyone in a timezone ahead of UTC (exactly the clinic's own
+ * timezone): local midnight Sept 1 becomes UTC Aug 31 21:00, so a "this
+ * month" filter built that way actually started on Aug 31. Building the
+ * string directly from the local Y/M/D fields never leaves local time at all.
+ */
+function isoDate(d: Date) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+/** Saturday-start week, matching the clinic's own work week used elsewhere (periodRanges() on the backend). */
+function startOfWeek(d: Date) {
+  const s = new Date(d)
+  const diff = (s.getDay() - 6 + 7) % 7
+  s.setDate(s.getDate() - diff)
+  return s
+}
+
+type QuickRangePreset = 'all' | 'day' | 'week' | 'month'
+
+/** One-click "كل الفترة / يومي / أسبوعي / شهري" presets for a from/to range filter — sits next to (and fills) the same DateRangeFilter, for reports where picking exact dates by hand every time is more friction than the report needs. */
+function QuickRangeFilter({ onPick }: { onPick: (from: string, to: string) => void }) {
+  const today = new Date()
+  const presets: { key: QuickRangePreset; label: string; range: () => [string, string] }[] = [
+    { key: 'all', label: 'كل الفترة', range: () => ['', ''] },
+    { key: 'day', label: 'اليوم', range: () => [isoDate(today), isoDate(today)] },
+    { key: 'week', label: 'هالأسبوع', range: () => [isoDate(startOfWeek(today)), isoDate(today)] },
+    { key: 'month', label: 'هالشهر', range: () => [isoDate(new Date(today.getFullYear(), today.getMonth(), 1)), isoDate(today)] },
+  ]
+
+  return (
+    <div className="mb-3 flex flex-wrap gap-2">
+      {presets.map((p) => (
+        <button
+          key={p.key}
+          type="button"
+          onClick={() => {
+            const [from, to] = p.range()
+            onPick(from, to)
+          }}
+          className="rounded-lg border border-border px-3 py-1.5 text-xs text-ink/70 hover:border-accent hover:text-accent"
+        >
+          {p.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 const MONTHS_OPTIONS = [3, 6, 12]
 
 function MonthsFilter({ months, onChange }: { months: number; onChange: (n: number) => void }) {
@@ -395,6 +449,7 @@ function RevenueTab() {
         </>
       ) : (
         <>
+          <QuickRangeFilter onPick={(f, t) => { setFrom(f); setTo(t) }} />
           <DateRangeFilter from={from} to={to} onFrom={setFrom} onTo={setTo} />
           <h3 className="mb-4 text-sm font-semibold text-ink/80">الإيرادات حسب الخدمة {from || to ? '' : '(كل الوقت)'}</h3>
           {services.length === 0 ? (
@@ -482,6 +537,7 @@ function DoctorProductivityTab() {
         activeIndex={activePeriodKey ? periods.findIndex((p) => p.key === activePeriodKey) : null}
       />
       <p className="mb-1 mt-6 text-xs text-muted">اضغط عمود بالرسمة فوق لتفلتر الجدول تحت لنفس الفترة، أو حدد فترة يدوياً.</p>
+      <QuickRangeFilter onPick={(f, t) => { setFrom(f); setTo(t) }} />
       <DateRangeFilter from={from} to={to} onFrom={setFrom} onTo={setTo} />
       <h3 className="mb-1 text-sm font-semibold text-ink/80">إنتاجية الأطباء {from || to ? '' : '(كل الوقت)'}</h3>
       <p className="mb-4 text-xs text-muted">اضغط طبيب لتشوف كشف حسابه بالتفصيل.</p>
@@ -558,6 +614,7 @@ function NoShowTab() {
 
   return (
     <Card className="p-6">
+      <QuickRangeFilter onPick={(f, t) => { setFrom(f); setTo(t) }} />
       <DateRangeFilter from={from} to={to} onFrom={setFrom} onTo={setTo} />
       {!data ? (
         <p className="text-sm text-muted">جارِ التحميل...</p>
@@ -689,6 +746,7 @@ function CollectionsTab() {
 
   return (
     <Card className="p-6">
+      <QuickRangeFilter onPick={(f, t) => { setFrom(f); setTo(t) }} />
       <DateRangeFilter from={from} to={to} onFrom={setFrom} onTo={setTo} />
       <h3 className="mb-4 text-sm font-semibold text-ink/80">طرق التحصيل {from || to ? '' : '(كل الوقت)'}</h3>
       {methods.length === 0 ? (
@@ -814,6 +872,7 @@ function ProfitAndLossTab() {
   return (
     <div className="space-y-4">
       <Card className="p-6">
+        <QuickRangeFilter onPick={(f, t) => { setFrom(f); setTo(t) }} />
         <DateRangeFilter from={from} to={to} onFrom={setFrom} onTo={setTo} />
       </Card>
 
@@ -928,6 +987,7 @@ function CashAndExpensesTab() {
   return (
     <div className="space-y-4">
       <Card className="p-6">
+        <QuickRangeFilter onPick={(f, t) => { setFrom(f); setTo(t) }} />
         <DateRangeFilter from={from} to={to} onFrom={setFrom} onTo={setTo} />
         <h3 className="mb-1 text-sm font-semibold text-ink/80">الصناديق</h3>
         <p className="mb-4 text-xs text-muted">الرصيد الحالي دايماً "الآن"، أما الوارد والصادر فحسب الفترة المحددة فوق.</p>
@@ -1190,7 +1250,7 @@ function SummaryStrip() {
   useEffect(() => {
     const from = new Date()
     from.setDate(1)
-    api.get('/reports/summary', { params: { from: from.toISOString().slice(0, 10) } }).then((res) => setSummary(res.data))
+    api.get('/reports/summary', { params: { from: isoDate(from) } }).then((res) => setSummary(res.data))
   }, [])
 
   if (!summary) return null
@@ -1224,7 +1284,7 @@ function ReconciliationBadge() {
   useEffect(() => {
     const from = new Date()
     from.setDate(1)
-    api.get('/reports/reconciliation', { params: { from: from.toISOString().slice(0, 10) } }).then((res) => setCheck(res.data.revenue_check))
+    api.get('/reports/reconciliation', { params: { from: isoDate(from) } }).then((res) => setCheck(res.data.revenue_check))
   }, [])
 
   if (!check) return null

@@ -18,8 +18,10 @@ const TYPE_LABELS: Record<SupplierLedgerRow['type'], string> = {
   adjustment: 'تسوية',
 }
 
+/** Local calendar date, not UTC — `toISOString()` rolls back to yesterday for the first few hours of every day in a timezone ahead of UTC (the clinic's own). */
 function todayIso(): string {
-  return new Date().toISOString().slice(0, 10)
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 export default function SuppliersPage() {
