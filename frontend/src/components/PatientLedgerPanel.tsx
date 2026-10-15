@@ -90,6 +90,8 @@ export default function PatientLedgerPanel({
   const [editAdjustmentAmount, setEditAdjustmentAmount] = useState('')
   const [editingInvoiceId, setEditingInvoiceId] = useState<number | null>(null)
   const [editInvoiceTotal, setEditInvoiceTotal] = useState('')
+  const [editInvoiceTotalOriginal, setEditInvoiceTotalOriginal] = useState('')
+  const [editInvoiceDate, setEditInvoiceDate] = useState('')
   const [editingPaymentId, setEditingPaymentId] = useState<number | null>(null)
   const [editAmount, setEditAmount] = useState('')
   const [editCashboxId, setEditCashboxId] = useState('')
@@ -284,7 +286,15 @@ export default function PatientLedgerPanel({
     setBusy(true)
     setError(null)
     try {
-      await api.patch(`/invoices/${invoiceId}`, { total_amount_ils: Number(editInvoiceTotal) })
+      // Only what was actually changed is sent: re-sending the untouched
+      // amount would overwrite a discount already applied to this session,
+      // and the date has its own endpoint that moves the whole session.
+      if (editInvoiceTotal !== editInvoiceTotalOriginal) {
+        await api.patch(`/invoices/${invoiceId}`, { total_amount_ils: Number(editInvoiceTotal) })
+      }
+      if (editInvoiceDate) {
+        await api.patch(`/invoices/${invoiceId}/date`, { issued_on: editInvoiceDate })
+      }
       setEditingInvoiceId(null)
       load()
       onChanged?.()
@@ -808,8 +818,10 @@ export default function PatientLedgerPanel({
                         onClick={() => {
                           setEditingInvoiceId(t.reference_id)
                           setEditInvoiceTotal(String(Math.abs(Number(t.amount_ils))))
+                          setEditInvoiceTotalOriginal(String(Math.abs(Number(t.amount_ils))))
+                          setEditInvoiceDate(t.occurred_on ?? '')
                         }}
-                        title="تعديل مبلغ الجلسة"
+                        title="تعديل الجلسة (المبلغ / التاريخ)"
                         className="text-ink/30 hover:text-accent"
                       >
                         <FontAwesomeIcon icon={faPen} />
@@ -859,6 +871,10 @@ export default function PatientLedgerPanel({
                         className="w-28 rounded-lg border border-ink/10 px-2 py-1.5 text-sm"
                       />
                       <span className="text-xs text-muted">₪</span>
+                      <span className="text-xs text-ink/60">تاريخ الجلسة:</span>
+                      <div className="w-44">
+                        <DatePicker value={editInvoiceDate} onChange={setEditInvoiceDate} placeholder="تاريخ الجلسة" />
+                      </div>
                       <button
                         onClick={() => saveEditInvoice(t.reference_id!)}
                         disabled={busy || !editInvoiceTotal}
