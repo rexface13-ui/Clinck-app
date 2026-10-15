@@ -327,6 +327,36 @@ class BackdatedPaymentAndSessionTest extends TestCase
         $this->assertEquals(400, (float) $this->cashbox->fresh()->balance);
     }
 
+    /**
+     * The visit history prefers the appointment's own date over the billing
+     * date. A session that was deliberately moved has to show the day it was
+     * moved to there too, not keep reading the appointment's day while the
+     * account and every report say another.
+     */
+    public function test_the_visit_history_shows_the_moved_date_not_the_appointment_date(): void
+    {
+        $this->travelTo(Carbon::create(2026, 10, 15, 14, 0, 0, $this->tz()));
+        [$patient, $doctor, $invoice] = $this->billedSession(1000);
+
+        $appointmentId = $this->postJson('/api/appointments', [
+            'branch_id' => $this->branch->id,
+            'patient_id' => $patient->id,
+            'doctor_id' => $doctor->id,
+            'starts_at' => '2026-10-15 10:00:00',
+            'ends_at' => '2026-10-15 10:30:00',
+        ])->assertCreated()->json('data.id');
+        \App\Models\WorkItem::where('patient_id', $patient->id)->update(['appointment_id' => $appointmentId]);
+
+        $before = collect($this->getJson("/api/patients/{$patient->id}/visits")->assertOk()->json());
+        $this->assertNotNull($before->first()['appointment_date'], 'Unmoved: the appointment date is what shows.');
+
+        $this->patchJson("/api/invoices/{$invoice->id}/date", ['issued_on' => '2026-10-09'])->assertOk();
+
+        $after = collect($this->getJson("/api/patients/{$patient->id}/visits")->assertOk()->json());
+        $this->assertNull($after->first()['appointment_date'], 'Moved: the appointment date must stop overriding the chosen day.');
+        $this->assertStringStartsWith('09/10/2026', $after->first()['date']);
+    }
+
     public function test_a_session_date_cannot_be_moved_into_the_future(): void
     {
         [, , $invoice] = $this->billedSession(1000);

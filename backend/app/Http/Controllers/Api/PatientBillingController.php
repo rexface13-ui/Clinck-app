@@ -120,6 +120,16 @@ class PatientBillingController extends Controller
         ]);
     }
 
+    /** True when an invoice's date no longer matches the day it was really created — i.e. someone moved the session. */
+    private function sessionDateWasMoved(?Invoice $invoice): bool
+    {
+        if (! $invoice || ! $invoice->issued_at || ! $invoice->created_at) {
+            return false;
+        }
+
+        return RecordDate::localIso($invoice->issued_at) !== RecordDate::localIso($invoice->created_at);
+    }
+
     public function adjustInvoice(Request $request, Invoice $invoice, PaymentService $paymentService)
     {
         abort_unless($request->user()->can('billing.manage'), 403);
@@ -358,7 +368,15 @@ class PatientBillingController extends Controller
                 // appointment at all (legacy data, or a work item that was
                 // since rescheduled to a follow-up and lost this link).
                 'appointment_id' => $appointment?->id,
-                'appointment_date' => $appointment ? display_datetime($appointment->starts_at) : null,
+                // The history shows the appointment's date in preference to
+                // the billing date — but once someone has deliberately moved
+                // the session to another day (issued_at no longer falls on
+                // the day the invoice was actually created), that chosen day
+                // has to win, or this screen would keep saying one date while
+                // the statement and every report say another.
+                'appointment_date' => $appointment && ! $this->sessionDateWasMoved($line->invoice)
+                    ? display_datetime($appointment->starts_at)
+                    : null,
                 'created_at' => $line->created_at,
                 'date' => display_datetime($line->created_at),
                 'service_name' => $workItem?->service?->name,
