@@ -25,6 +25,9 @@ class StorePaymentRequest extends FormRequest
             // POST /checks (CheckService::receive) instead, which only credits
             // the cashbox on clear().
             'method' => ['required', Rule::in(['cash', 'card', 'transfer'])],
+            // The day the money really changed hands, when it's being entered
+            // late. Blank means now. A future day is refused by the service.
+            'paid_on' => ['nullable', 'date_format:Y-m-d'],
         ];
     }
 }

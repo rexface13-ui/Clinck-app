@@ -5,11 +5,15 @@ namespace App\Services;
 use App\Models\Cashbox;
 use App\Models\CashboxTransaction;
 use App\Models\CheckModel;
+use App\Models\DoctorTransaction;
 use App\Models\Invoice;
+use App\Models\InvoiceLine;
+use App\Models\ToothFinding;
 use App\Models\Patient;
 use App\Models\PatientTransaction;
 use App\Models\Payment;
 use App\Models\WorkItemToothStep;
+use App\Support\RecordDate;
 use Illuminate\Support\Facades\DB;
 
 class PaymentService
@@ -27,11 +31,19 @@ class PaymentService
         float $exchangeRate,
         string $method,
         ?Invoice $invoice = null,
+        ?string $paidOn = null,
     ): Payment {
         abort_if($cashbox->currency !== $currency, 422, 'عملة الدفعة لازم تطابق عملة الصندوق.');
         abort_if($invoice && $invoice->patient_id !== $patient->id, 422, 'الفاتورة لا تخص هذا المريض.');
 
-        return DB::transaction(function () use ($patient, $cashbox, $amount, $currency, $exchangeRate, $method, $invoice) {
+        // A payment forgotten on the day can be entered later with the day it
+        // really happened: the one instant is stamped on the payment, its
+        // cashbox movement and its ledger line together, so every report
+        // (collections, cash flow, the patient's statement) files it on that
+        // same day instead of disagreeing about when the money arrived.
+        $when = RecordDate::resolve($paidOn);
+
+        return DB::transaction(function () use ($patient, $cashbox, $amount, $currency, $exchangeRate, $method, $invoice, $when) {
             $amountIls = round($amount * $exchangeRate, 2);
 
             $payment = Payment::create([
@@ -44,7 +56,7 @@ class PaymentService
                 'exchange_rate' => $exchangeRate,
                 'amount_ils' => $amountIls,
                 'method' => $method,
-                'paid_at' => now(),
+                'paid_at' => $when,
             ]);
 
             $newBalance = $cashbox->balance + $amount;
@@ -56,7 +68,7 @@ class PaymentService
                 'reference_id' => $payment->id,
                 'amount' => $amount,
                 'balance_after' => $newBalance,
-                'occurred_at' => now(),
+                'occurred_at' => $when,
             ]);
             $cashbox->update(['balance' => $newBalance]);
 
@@ -70,7 +82,7 @@ class PaymentService
                 'currency' => $currency,
                 'exchange_rate' => $exchangeRate,
                 'amount_ils' => $amountIls,
-                'occurred_at' => now(),
+                'occurred_at' => $when,
             ]);
 
             // Always, even with no invoice named — money taken "بدون ربط
@@ -102,8 +114,11 @@ class PaymentService
         string $currency,
         float $exchangeRate,
         string $method,
+        ?string $paidOn = null,
     ): array {
         abort_if($cashbox->currency !== $currency, 422, 'عملة الدفعة لازم تطابق عملة الصندوق.');
+        // Validated once up front so a bad date fails before any patient is touched.
+        RecordDate::resolve($paidOn);
 
         $groupIds = $patient->relativeGroupIds();
         // The current patient pays off their own debt first — the person
@@ -113,7 +128,7 @@ class PaymentService
             return $p->id === $patient->id ? -PHP_FLOAT_MAX : -$this->outstandingIls($p->id);
         })->values();
 
-        return DB::transaction(function () use ($patients, $cashbox, $amount, $currency, $exchangeRate, $method) {
+        return DB::transaction(function () use ($patients, $cashbox, $amount, $currency, $exchangeRate, $method, $paidOn) {
             $remaining = $amount;
             $payments = [];
 
@@ -134,7 +149,7 @@ class PaymentService
                     continue;
                 }
 
-                $payments[] = $this->collect($p, $cashbox, $take, $currency, $exchangeRate, $method);
+                $payments[] = $this->collect($p, $cashbox, $take, $currency, $exchangeRate, $method, paidOn: $paidOn);
                 $remaining = round($remaining - $take, 2);
             }
 
@@ -274,7 +289,7 @@ class PaymentService
      * same Payment row (not delete+recreate) so it stays the same audit
      * trail entry, just corrected.
      */
-    public function updatePayment(Payment $payment, Cashbox $cashbox, float $amount, float $exchangeRate, string $method): Payment
+    public function updatePayment(Payment $payment, Cashbox $cashbox, float $amount, float $exchangeRate, string $method, ?string $paidOn = null): Payment
     {
         abort_if($cashbox->currency !== $payment->currency, 422, 'عملة الدفعة لازم تطابق عملة الصندوق.');
         abort_if($amount <= 0, 422, 'المبلغ لازم يكون أكبر من صفر.');
@@ -283,36 +298,63 @@ class PaymentService
         $signedAmount = $sign * $amount;
         $signedAmountIls = round($signedAmount * $exchangeRate, 2);
 
-        return DB::transaction(function () use ($payment, $cashbox, $signedAmount, $exchangeRate, $signedAmountIls, $method) {
-            $oldCashbox = $payment->cashbox;
-            if ($oldCashbox) {
-                $revertedBalance = $oldCashbox->balance - $payment->amount;
+        // The payment's date. Left blank (or unchanged), the payment keeps the
+        // exact instant it already had — editing an amount must never drag an
+        // old payment onto today's date in the patient's statement.
+        $when = RecordDate::resolve($paidOn, $payment->paid_at);
+        $dateChanged = ! $when->equalTo($payment->paid_at);
+
+        // Nothing moved in the cashbox unless the amount or the cashbox itself
+        // changed. Editing only the method, rate or date used to still post a
+        // "-old" and a "+new" pair that netted to zero but showed up as money
+        // going out AND coming in on the cash-flow report.
+        $cashMoved = $cashbox->id !== $payment->cashbox_id || abs($signedAmount - (float) $payment->amount) > 0.0001;
+
+        return DB::transaction(function () use ($payment, $cashbox, $signedAmount, $exchangeRate, $signedAmountIls, $method, $when, $dateChanged, $cashMoved) {
+            if ($cashMoved) {
+                // A date change files the whole story on the new day; a plain
+                // amount correction is booked when the correction happened.
+                $correctionAt = $dateChanged ? $when : now();
+
+                $oldCashbox = $payment->cashbox;
+                if ($oldCashbox) {
+                    $revertedBalance = $oldCashbox->balance - $payment->amount;
+                    CashboxTransaction::create([
+                        'clinic_id' => $payment->clinic_id,
+                        'cashbox_id' => $oldCashbox->id,
+                        'type' => 'adjustment',
+                        'reference_type' => 'payment_edited',
+                        'reference_id' => $payment->id,
+                        'amount' => -$payment->amount,
+                        'balance_after' => $revertedBalance,
+                        'occurred_at' => $correctionAt,
+                    ]);
+                    $oldCashbox->update(['balance' => $revertedBalance]);
+                }
+
+                $cashbox->refresh();
+                $newBalance = $cashbox->balance + $signedAmount;
                 CashboxTransaction::create([
                     'clinic_id' => $payment->clinic_id,
-                    'cashbox_id' => $oldCashbox->id,
+                    'cashbox_id' => $cashbox->id,
                     'type' => 'adjustment',
                     'reference_type' => 'payment_edited',
                     'reference_id' => $payment->id,
-                    'amount' => -$payment->amount,
-                    'balance_after' => $revertedBalance,
-                    'occurred_at' => now(),
+                    'amount' => $signedAmount,
+                    'balance_after' => $newBalance,
+                    'occurred_at' => $correctionAt,
                 ]);
-                $oldCashbox->update(['balance' => $revertedBalance]);
+                $cashbox->update(['balance' => $newBalance]);
             }
 
-            $cashbox->refresh();
-            $newBalance = $cashbox->balance + $signedAmount;
-            CashboxTransaction::create([
-                'clinic_id' => $payment->clinic_id,
-                'cashbox_id' => $cashbox->id,
-                'type' => 'adjustment',
-                'reference_type' => 'payment_edited',
-                'reference_id' => $payment->id,
-                'amount' => $signedAmount,
-                'balance_after' => $newBalance,
-                'occurred_at' => now(),
-            ]);
-            $cashbox->update(['balance' => $newBalance]);
+            // Every cashbox movement this payment ever made (the original
+            // entry and any earlier correction) moves to the new day together,
+            // so that day's cash-flow total for it is exactly its current amount.
+            if ($dateChanged) {
+                CashboxTransaction::where('reference_id', $payment->id)
+                    ->whereIn('reference_type', ['payment', 'payment_edited'])
+                    ->update(['occurred_at' => $when]);
+            }
 
             PatientTransaction::where('reference_type', 'payment')->where('reference_id', $payment->id)->delete();
             PatientTransaction::create([
@@ -325,7 +367,7 @@ class PaymentService
                 'currency' => $payment->currency,
                 'exchange_rate' => $exchangeRate,
                 'amount_ils' => $signedAmountIls,
-                'occurred_at' => now(),
+                'occurred_at' => $when,
             ]);
 
             $payment->update([
@@ -334,6 +376,7 @@ class PaymentService
                 'exchange_rate' => $exchangeRate,
                 'amount_ils' => $signedAmountIls,
                 'method' => $method,
+                'paid_at' => $when,
             ]);
 
             if ($payment->invoice_id) {
@@ -341,6 +384,87 @@ class PaymentService
             }
 
             return $payment->fresh(['cashbox', 'invoice']);
+        });
+    }
+
+    /**
+     * Moves a billed session to the day it really happened — e.g. it was
+     * only checked out a few days later.
+     *
+     * A session's date lives in several places and different reports read
+     * different ones: the revenue chart reads the ledger line, revenue-by-
+     * service and doctor production read the invoice lines, the day sheet
+     * reads the invoice itself, and a doctor's statement groups commission
+     * by the finding's month. Moving only the invoice would leave those
+     * disagreeing about which month the work belongs to (the reconciliation
+     * check would rightly flag it), so they all move together or not at all.
+     *
+     * Money isn't touched: no amount, balance, discount or payment changes —
+     * payments keep their own dates. The one thing that can't be moved
+     * silently is commission that has already been paid out for a month:
+     * shifting the work out of (or into) a settled month would quietly
+     * change what that settlement covered, so that case is refused.
+     */
+    public function moveInvoiceDate(Invoice $invoice, string $issuedOn): Invoice
+    {
+        $when = RecordDate::resolve($issuedOn, $invoice->issued_at);
+
+        if ($when->equalTo($invoice->issued_at)) {
+            return $invoice;
+        }
+
+        $newMonth = $when->copy()->setTimezone(config('dentaflow.display_timezone'))->startOfMonth();
+
+        $lineIds = $invoice->lines()->pluck('id');
+        $stepIds = WorkItemToothStep::whereIn('invoice_line_id', $lineIds)->pluck('id');
+        $findingIds = ToothFinding::whereIn('work_item_tooth_step_id', $stepIds)->pluck('id');
+        $commissions = DoctorTransaction::whereIn('tooth_finding_id', $findingIds)->where('type', 'commission')->get();
+
+        foreach ($commissions as $commission) {
+            $oldMonth = $commission->period_month?->copy()->startOfMonth();
+            // Compared as plain calendar months: period_month is a bare date,
+            // so comparing instants would call the same month "different"
+            // whenever the clinic's timezone isn't UTC.
+            if (! $oldMonth || $oldMonth->format('Y-m') === $newMonth->format('Y-m')) {
+                continue;
+            }
+
+            $monthSettled = fn ($month) => DoctorTransaction::where('doctor_id', $commission->doctor_id)
+                ->where('type', 'settlement')
+                ->whereDate('period_month', $month->toDateString())
+                ->exists();
+
+            abort_if(
+                $monthSettled($oldMonth) || $monthSettled($newMonth),
+                422,
+                'عمولة الدكتور لهالشهر انصرفت (أو لشهر التاريخ الجديد) — نقل الجلسة لشهر تاني رح يغيّر شو غطّته التصفية. عدّل التصفية أول أو اختار تاريخ من نفس الشهر.',
+            );
+        }
+
+        return DB::transaction(function () use ($invoice, $when, $newMonth, $lineIds, $stepIds, $findingIds, $commissions) {
+            $invoice->update(['issued_at' => $when]);
+
+            InvoiceLine::where('invoice_id', $invoice->id)->update(['created_at' => $when]);
+
+            // The charge and anything that adjusted this same invoice (its
+            // discount, a repriced or reversed line) are one story — the
+            // revenue chart nets them in one month, like the invoice does.
+            PatientTransaction::where('reference_id', $invoice->id)
+                ->whereIn('reference_type', ['invoice', 'invoice_discount', 'invoice_line_reversal', 'invoice_line_reprice'])
+                ->update(['occurred_at' => $when]);
+
+            WorkItemToothStep::whereIn('id', $stepIds)->whereNotNull('completed_at')->update(['completed_at' => $when]);
+            ToothFinding::whereIn('id', $findingIds)->update(['recorded_at' => $when]);
+
+            foreach ($commissions as $commission) {
+                $commission->forceFill(['created_at' => $when, 'period_month' => $newMonth->toDateString()])->save();
+            }
+
+            // Unallocated money settles invoices oldest-first by date, so
+            // a new date can change which bill a lump sum lands on.
+            $this->refreshPatientInvoiceStatuses($invoice->patient_id);
+
+            return $invoice->fresh(['lines', 'payments']);
         });
     }
 

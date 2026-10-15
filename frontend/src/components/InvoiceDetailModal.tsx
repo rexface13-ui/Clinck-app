@@ -59,6 +59,8 @@ export default function InvoiceDetailModal({
 
   const [showDiscount, setShowDiscount] = useState(false)
   const [discountAmount, setDiscountAmount] = useState('')
+  const [editingDate, setEditingDate] = useState(false)
+  const [newIssuedOn, setNewIssuedOn] = useState('')
 
   const [showCollect, setShowCollect] = useState(false)
   const [collectTab, setCollectTab] = useState<'cash' | 'check'>('cash')
@@ -115,6 +117,23 @@ export default function InvoiceDetailModal({
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [patientId])
+
+  async function saveDate() {
+    if (!invoice || !newIssuedOn) return
+    setSaving(true)
+    setError(null)
+    try {
+      await api.patch(`/invoices/${invoice.id}/date`, { issued_on: newIssuedOn })
+      setEditingDate(false)
+      load()
+      onChanged?.()
+    } catch (err) {
+      const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      setError(message ?? 'تعذّر تعديل تاريخ الجلسة.')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   function startEdit() {
     if (!invoice) return
@@ -239,8 +258,47 @@ export default function InvoiceDetailModal({
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <Badge variant={STATUS_VARIANTS[invoice.status]}>{STATUS_LABELS[invoice.status]}</Badge>
-            <span className="text-xs text-muted">{invoice.issued_at}</span>
+            <span className="flex items-center gap-1.5 text-xs text-muted">
+              {invoice.issued_at}
+              {canManage && invoice.status !== 'void' && (
+                <button
+                  onClick={() => {
+                    setNewIssuedOn(invoice.issued_on ?? '')
+                    setError(null)
+                    setEditingDate(true)
+                  }}
+                  title="تعديل تاريخ الجلسة"
+                  className="text-ink/40 hover:text-accent"
+                >
+                  <FontAwesomeIcon icon={faPen} />
+                </button>
+              )}
+            </span>
           </div>
+
+          {editingDate && (
+            <div className="space-y-2 rounded-lg bg-background p-3">
+              <p className="text-xs text-ink/60">
+                اليوم الفعلي للجلسة. بتتحرك الجلسة كاملة (الإيراد، العمولة، السجل) لليوم الجديد — ما بتتغيّر أي مبالغ، والدفعات بتضل بتواريخها.
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="w-44">
+                  <DatePicker value={newIssuedOn} onChange={setNewIssuedOn} placeholder="تاريخ الجلسة" />
+                </div>
+                <button
+                  onClick={saveDate}
+                  disabled={saving || !newIssuedOn}
+                  className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-60"
+                >
+                  <FontAwesomeIcon icon={faCheck} /> حفظ التاريخ
+                </button>
+                <button onClick={() => setEditingDate(false)} className="rounded-lg border border-ink/10 px-3 py-1.5 text-xs text-ink/60">
+                  إلغاء
+                </button>
+              </div>
+              {error && <p className="text-xs text-danger">{error}</p>}
+            </div>
+          )}
 
           {chartTeeth.length > 0 && (
             <div className="rounded-lg bg-background p-2">

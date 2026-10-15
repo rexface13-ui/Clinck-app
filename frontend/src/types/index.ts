@@ -297,6 +297,8 @@ export interface Invoice {
   total_amount_ils: string
   paid_ils?: number
   issued_at: string
+  /** The same day as "yyyy-mm-dd", for the session-date editor. */
+  issued_on?: string | null
   lines?: InvoiceLine[]
 }
 
@@ -328,6 +330,8 @@ export interface LedgerRow {
   signed_amount_ils: number
   balance_after_ils: number
   occurred_at: string
+  /** The same day as a plain "yyyy-mm-dd" — what a date picker is pre-filled with when a payment's date is edited. */
+  occurred_on?: string | null
   /** Only present in the combined (multi-patient) statement view. */
   patient_id?: number | null
   patient_name?: string | null

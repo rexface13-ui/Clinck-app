@@ -79,7 +79,7 @@ export default function PatientLedgerPanel({
   const [discountAmount, setDiscountAmount] = useState('')
   const [discountNote, setDiscountNote] = useState('')
 
-  const [cashForm, setCashForm] = useState({ invoice_id: '', cashbox_id: '', amount: '', method: 'cash' as 'cash' | 'card' | 'transfer', exchange_rate: '1' })
+  const [cashForm, setCashForm] = useState({ invoice_id: '', cashbox_id: '', amount: '', method: 'cash' as 'cash' | 'card' | 'transfer', exchange_rate: '1', paid_on: '' })
   const [checkForm, setCheckForm] = useState({ check_number: '', bank_name: '', amount: '', currency: 'ILS', due_date: '', invoice_id: '' })
   const [checkImage, setCheckImage] = useState<File | null>(null)
   const checkImageInputRef = useRef<HTMLInputElement>(null)
@@ -95,6 +95,7 @@ export default function PatientLedgerPanel({
   const [editCashboxId, setEditCashboxId] = useState('')
   const [editMethod, setEditMethod] = useState<'cash' | 'card' | 'transfer'>('cash')
   const [editExchangeRate, setEditExchangeRate] = useState(1)
+  const [editPaidOn, setEditPaidOn] = useState('')
   const [checkImageSource, setCheckImageSource] = useState<'device' | 'telegram'>('device')
   const [telegramTarget, setTelegramTarget] = useState('')
   const [telegramSlots, setTelegramSlots] = useState<(1 | 2)[]>([1])
@@ -170,6 +171,7 @@ export default function PatientLedgerPanel({
           currency: selectedCashbox.currency,
           exchange_rate: exchangeRate,
           method: cashForm.method,
+          paid_on: cashForm.paid_on || undefined,
         })
       } else {
         await api.post(`/patients/${patientId}/payments`, {
@@ -179,14 +181,16 @@ export default function PatientLedgerPanel({
           currency: selectedCashbox.currency,
           exchange_rate: exchangeRate,
           method: cashForm.method,
+          paid_on: cashForm.paid_on || undefined,
         })
       }
       setShowForm(false)
-      setCashForm({ invoice_id: '', cashbox_id: '', amount: '', method: 'cash', exchange_rate: '1' })
+      setCashForm({ invoice_id: '', cashbox_id: '', amount: '', method: 'cash', exchange_rate: '1', paid_on: '' })
       load()
       onChanged?.()
-    } catch {
-      setError('تعذّر تسجيل الدفعة.')
+    } catch (err) {
+      const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      setError(message ?? 'تعذّر تسجيل الدفعة.')
     } finally {
       setBusy(false)
     }
@@ -302,12 +306,14 @@ export default function PatientLedgerPanel({
         amount: Number(editAmount),
         exchange_rate: editExchangeRate,
         method: editMethod,
+        paid_on: editPaidOn || undefined,
       })
       setEditingPaymentId(null)
       load()
       onChanged?.()
-    } catch {
-      setError('تعذّر تعديل الدفعة.')
+    } catch (err) {
+      const message = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      setError(message ?? 'تعذّر تعديل الدفعة.')
     } finally {
       setBusy(false)
     }
@@ -526,6 +532,13 @@ export default function PatientLedgerPanel({
                   <option value="card">بطاقة</option>
                   <option value="transfer">تحويل</option>
                 </select>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="shrink-0 text-xs text-ink/60">تاريخ الدفعة</span>
+                <div className="w-44">
+                  <DatePicker value={cashForm.paid_on} onChange={(v) => setCashForm({ ...cashForm, paid_on: v })} placeholder="اليوم" allowClear />
+                </div>
+                <span className="text-[11px] text-ink/40">اتركه فاضي = اليوم. اختار يوم سابق لو نسيت تسجّلها بوقتها.</span>
               </div>
               {selectedCashbox && selectedCashbox.currency !== 'ILS' && (
                 <div className="space-y-1">
@@ -757,6 +770,7 @@ export default function PatientLedgerPanel({
                           setEditAmount(String(Math.abs(Number(t.amount))))
                           setEditCashboxId('')
                           setEditMethod('cash')
+                          setEditPaidOn(t.occurred_on ?? '')
                           setEditExchangeRate(Math.abs(Number(t.amount)) > 0 ? Math.abs(Number(t.amount_ils) / Number(t.amount)) : 1)
                         }}
                         title="تعديل الدفعة"
@@ -884,6 +898,9 @@ export default function PatientLedgerPanel({
                         <option value="card">بطاقة</option>
                         <option value="transfer">تحويل</option>
                       </select>
+                      <div className="w-44" title="تاريخ الدفعة">
+                        <DatePicker value={editPaidOn} onChange={setEditPaidOn} placeholder="تاريخ الدفعة" />
+                      </div>
                       <button
                         onClick={() => saveEditPayment(t.reference_id!)}
                         disabled={busy || !editCashboxId || !editAmount}

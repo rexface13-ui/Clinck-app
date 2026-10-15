@@ -26,6 +26,8 @@ class InvoiceResource extends JsonResource
             // shared check show "paid" and "متبقي 160 ₪" at the same time.
             'paid_ils' => (float) $this->settled_amount_ils,
             'issued_at' => display_date($this->issued_at),
+            // Plain "Y-m-d", for pre-filling the "تعديل تاريخ الجلسة" picker.
+            'issued_on' => \App\Support\RecordDate::localIso($this->issued_at),
             'lines' => $this->whenLoaded('lines', fn () => $this->lines->map(function ($l) {
                 $workItem = $l->workItemToothStep?->workItem;
 

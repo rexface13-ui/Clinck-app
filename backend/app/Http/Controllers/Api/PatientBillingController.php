@@ -16,6 +16,7 @@ use App\Models\PatientTransaction;
 use App\Models\Payment;
 use App\Models\WorkItemToothStep;
 use App\Services\PaymentService;
+use App\Support\RecordDate;
 use App\Support\SessionLabel;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -224,6 +225,9 @@ class PatientBillingController extends Controller
                 'signed_amount_ils' => round($signed, 2),
                 'balance_after_ils' => round($running, 2),
                 'occurred_at' => display_datetime($t->occurred_at),
+                // The same day as a plain "Y-m-d", for pre-filling the date
+                // picker when a payment's date is edited.
+                'occurred_on' => RecordDate::localIso($t->occurred_at),
                 // Only meaningful (and only sent) in the combined view — a
                 // single-patient statement has nothing to disambiguate.
                 'patient_id' => $includeOwner ? $t->patient_id : null,
@@ -372,6 +376,7 @@ class PatientBillingController extends Controller
             exchangeRate: (float) $request->validated('exchange_rate'),
             method: $request->validated('method'),
             invoice: $invoice,
+            paidOn: $request->validated('paid_on'),
         );
 
         return new PaymentResource($payment);
@@ -394,6 +399,7 @@ class PatientBillingController extends Controller
             'currency' => ['required', 'string', 'size:3'],
             'exchange_rate' => ['required', 'numeric', 'min:0.000001'],
             'method' => ['required', Rule::in(['cash', 'card', 'transfer'])],
+            'paid_on' => ['nullable', 'date_format:Y-m-d'],
         ]);
 
         $cashbox = Cashbox::findOrFail($data['cashbox_id']);
@@ -405,6 +411,7 @@ class PatientBillingController extends Controller
             currency: $data['currency'],
             exchangeRate: (float) $data['exchange_rate'],
             method: $data['method'],
+            paidOn: $data['paid_on'] ?? null,
         );
 
         return PaymentResource::collection($payments);
@@ -457,6 +464,7 @@ class PatientBillingController extends Controller
             'amount' => ['required', 'numeric', 'min:0.01'],
             'exchange_rate' => ['required', 'numeric', 'min:0.000001'],
             'method' => ['required', Rule::in(['cash', 'card', 'transfer'])],
+            'paid_on' => ['nullable', 'date_format:Y-m-d'],
         ]);
 
         $cashbox = Cashbox::findOrFail($data['cashbox_id']);
@@ -467,8 +475,26 @@ class PatientBillingController extends Controller
             amount: (float) $data['amount'],
             exchangeRate: (float) $data['exchange_rate'],
             method: $data['method'],
+            paidOn: $data['paid_on'] ?? null,
         );
 
         return new PaymentResource($payment);
+    }
+
+    /**
+     * Moves a billed session to the day it really happened. Everything that
+     * carries that date (the invoice, its ledger lines, the worked teeth and
+     * the doctor's commission month) moves together — see
+     * PaymentService::moveInvoiceDate().
+     */
+    public function moveInvoiceDate(Request $request, Invoice $invoice, PaymentService $paymentService)
+    {
+        abort_unless($request->user()->can('billing.manage'), 403);
+
+        $data = $request->validate([
+            'issued_on' => ['required', 'date_format:Y-m-d'],
+        ]);
+
+        return new InvoiceResource($paymentService->moveInvoiceDate($invoice, $data['issued_on']));
     }
 }
