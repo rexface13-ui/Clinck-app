@@ -218,6 +218,28 @@ class BackdatedPaymentAndSessionTest extends TestCase
         $this->assertEquals(100, (float) $this->cashbox->fresh()->balance);
     }
 
+    /**
+     * The edit form used to open with the cashbox blank and the method reset
+     * to "cash" — so correcting just a date meant re-picking the cashbox, and
+     * saving without noticing turned a card payment into a cash one. The
+     * statement now carries each payment's real cashbox and method.
+     */
+    public function test_the_statement_exposes_each_payments_real_cashbox_and_method(): void
+    {
+        [$patient] = $this->billedSession(1000);
+        $paymentId = $this->postJson("/api/patients/{$patient->id}/payments", [
+            'cashbox_id' => $this->cashbox->id, 'amount' => 200, 'currency' => 'ILS', 'exchange_rate' => 1, 'method' => 'card',
+        ])->assertOk()->json('data.id');
+
+        $rows = $this->getJson("/api/patients/{$patient->id}/ledger")->assertOk()->json('transactions');
+        $row = collect($rows)->first(fn ($r) => $r['reference_type'] === 'payment' && $r['reference_id'] === $paymentId);
+
+        $this->assertNotNull($row);
+        $this->assertSame($this->cashbox->id, $row['payment_cashbox_id']);
+        $this->assertSame('card', $row['payment_method']);
+        $this->assertSame($this->daysAgo(0), $row['occurred_on']);
+    }
+
     public function test_a_payment_date_cannot_be_edited_into_the_future(): void
     {
         [$patient] = $this->billedSession(1000);

@@ -332,6 +332,9 @@ export interface LedgerRow {
   occurred_at: string
   /** The same day as a plain "yyyy-mm-dd" — what a date picker is pre-filled with when a payment's date is edited. */
   occurred_on?: string | null
+  /** For a payment row: the cashbox and method it was actually taken with, used to pre-fill the edit form. */
+  payment_cashbox_id?: number | null
+  payment_method?: 'cash' | 'card' | 'transfer' | null
   /** Only present in the combined (multi-patient) statement view. */
   patient_id?: number | null
   patient_name?: string | null

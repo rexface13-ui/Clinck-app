@@ -180,6 +180,15 @@ class PatientBillingController extends Controller
             $transactions->where('reference_type', 'check')->pluck('reference_id')->filter()->unique()
         )->pluck('check_number', 'id');
 
+        // The cashbox and method each payment actually used, so editing one
+        // opens pre-filled with them — a blank cashbox forced a re-pick on
+        // every edit, and a blank method silently turned a card payment into
+        // cash whenever only its date or amount was being corrected.
+        $payments = Payment::whereIn(
+            'id',
+            $transactions->where('reference_type', 'payment')->pluck('reference_id')->filter()->unique()
+        )->get(['id', 'cashbox_id', 'method'])->keyBy('id');
+
         $descriptionFor = function ($t) use ($sessionLabels, $checkNumbers) {
             $session = $sessionLabels[$t->reference_id] ?? null;
             $checkNumber = $t->reference_type === 'check' ? $checkNumbers->get($t->reference_id) : null;
@@ -203,7 +212,8 @@ class PatientBillingController extends Controller
         };
 
         $running = 0;
-        $rows = $transactions->map(function ($t) use (&$running, $descriptionFor, $ownerNames, $includeOwner) {
+        $rows = $transactions->map(function ($t) use (&$running, $descriptionFor, $ownerNames, $includeOwner, $payments) {
+            $payment = $t->reference_type === 'payment' ? $payments->get($t->reference_id) : null;
             $signed = in_array($t->type, ['charge', 'adjustment'], true) ? $t->amount_ils : -$t->amount_ils;
             $running += $signed;
 
@@ -228,6 +238,8 @@ class PatientBillingController extends Controller
                 // The same day as a plain "Y-m-d", for pre-filling the date
                 // picker when a payment's date is edited.
                 'occurred_on' => RecordDate::localIso($t->occurred_at),
+                'payment_cashbox_id' => $payment?->cashbox_id,
+                'payment_method' => $payment?->method,
                 // Only meaningful (and only sent) in the combined view — a
                 // single-patient statement has nothing to disambiguate.
                 'patient_id' => $includeOwner ? $t->patient_id : null,

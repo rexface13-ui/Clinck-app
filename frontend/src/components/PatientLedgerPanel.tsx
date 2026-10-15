@@ -768,8 +768,8 @@ export default function PatientLedgerPanel({
                         onClick={() => {
                           setEditingPaymentId(t.reference_id)
                           setEditAmount(String(Math.abs(Number(t.amount))))
-                          setEditCashboxId('')
-                          setEditMethod('cash')
+                          setEditCashboxId(t.payment_cashbox_id ? String(t.payment_cashbox_id) : '')
+                          setEditMethod(t.payment_method ?? 'cash')
                           setEditPaidOn(t.occurred_on ?? '')
                           setEditExchangeRate(Math.abs(Number(t.amount)) > 0 ? Math.abs(Number(t.amount_ils) / Number(t.amount)) : 1)
                         }}
